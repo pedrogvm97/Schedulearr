@@ -7,9 +7,6 @@ import {
     Sparkles,
     Tv,
     Radio,
-    Disc,
-    CheckCircle2,
-    AlertTriangle,
     Clock,
     Play,
     Pause,
@@ -27,7 +24,12 @@ import {
     X,
     HardDrive,
     Search,
-    Terminal
+    Terminal,
+    Cpu,
+    Brain,
+    Globe,
+    Gauge,
+    Wand2
 } from 'lucide-react';
 
 export default function TasksPage() {
@@ -89,14 +91,22 @@ export default function TasksPage() {
     const studioStatus = studio?.status || {};
     const totals = studio?.totals || {
         transcriptions: { done: 0, total: 0, pending: 0, failed: 0 },
+        llmScenes: { doneChapters: 0, totalChapters: 0, detectedScenes: 0, pendingChapters: 0 },
         art: { doneChapters: 0, totalChapters: 0, keptScenes: 0, pendingChapters: 0, failedChapters: 0 },
         voices: { done: 0, total: 0, pending: 0, failed: 0 }
+    };
+    const queueBreakdown = studio?.queueBreakdown || {
+        transcriptionQueue: [],
+        llmSceneQueue: [],
+        artQueue: [],
+        voiceQueue: []
     };
     const queuedBooks: any[] = studio?.queuedBooks || [];
     const availableBooks: any[] = studio?.availableBooks || [];
     const arrScheduler = data?.arrScheduler || {};
     const liveStreams: any[] = data?.liveStreams || [];
     const epgSyncs: any[] = data?.epgSyncs || [];
+    const epgSchedules: any[] = data?.epgSchedules || [];
     const dvrActive: any[] = data?.dvr?.active || [];
     const dvrScheduled: any[] = data?.dvr?.scheduled || [];
     const transfersActive: any[] = data?.transfers?.active || [];
@@ -104,18 +114,29 @@ export default function TasksPage() {
 
     const quotaReached = (studioCfg.imagesGeneratedToday ?? 0) >= (studioCfg.dailyImageQuota ?? 20);
     const totalFailedChapters =
-        (totals.transcriptions.failed || 0) +
-        (totals.art.failedChapters || 0) +
-        (totals.voices.failed || 0);
+        (totals.transcriptions?.failed || 0) +
+        (totals.art?.failedChapters || 0) +
+        (totals.voices?.failed || 0);
 
-    const formatNextRun = (ts: number | null) => {
+    const formatNextRun = (ts: number | string | null) => {
         if (!ts) return '—';
-        const diffSec = Math.max(0, Math.floor((ts - nowMs) / 1000));
-        if (diffSec <= 0) return 'Running now';
-        const m = Math.floor(diffSec / 60);
+        const targetMs = typeof ts === 'string' ? new Date(ts).getTime() : ts;
+        if (isNaN(targetMs)) return '—';
+        const diffSec = Math.max(0, Math.floor((targetMs - nowMs) / 1000));
+        if (diffSec <= 0) return 'Due now';
+        const h = Math.floor(diffSec / 3600);
+        const m = Math.floor((diffSec % 3600) / 60);
         const s = diffSec % 60;
+        if (h > 0) return `${h}h ${m}m`;
         return m > 0 ? `${m}m ${s}s` : `${s}s`;
     };
+
+    const activeTaskText = String(studioStatus.activeTask || '').toLowerCase();
+    const isSttRunning = studioStatus.isRunning && activeTaskText.includes('transcrib');
+    const isLlmRunning = studioStatus.isRunning && (activeTaskText.includes('llm') || activeTaskText.includes('scene') && !activeTaskText.includes('paint'));
+    const isArtRunning = studioStatus.isRunning && (activeTaskText.includes('paint') || activeTaskText.includes('illustrat') || activeTaskText.includes('cover'));
+    const isVoiceRunning = studioStatus.isRunning && (activeTaskText.includes('voice') || activeTaskText.includes('audio'));
+    const sttUsesLocalCpu = !studioCfg.sttEngine || studioCfg.sttEngine === 'local_whisper' || (studioCfg.sttEngine === 'auto' && (studioCfg.apiKeysCount ?? 0) === 0);
 
     return (
         <div className="min-h-screen bg-[#07090e] text-white px-4 py-5 md:px-8 max-w-[1750px] mx-auto space-y-6">
@@ -153,16 +174,162 @@ export default function TasksPage() {
                 </div>
             </div>
 
-            {/* 1. AUDIOBOOK STUDIO AI WORKER, QUOTAS, LIMITS & QUEUE */}
+            {/* 0. RESOURCE CATEGORY MATRIX: WHAT'S USING LLMs, CPU, APIs, AND QUOTAS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {/* Category 1: What's Using LLMs */}
+                <div className={`rounded-2xl p-4 border space-y-3 ${isLlmRunning ? 'bg-cyan-500/10 border-cyan-500/40' : 'bg-[#0d111a] border-white/10'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <Brain className="w-6 h-6 text-cyan-400 shrink-0" />
+                            <h2 className="text-lg font-black text-white">Using LLMs</h2>
+                        </div>
+                        <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase border ${
+                            isLlmRunning
+                                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 animate-pulse'
+                                : 'bg-white/5 text-gray-400 border-white/10'
+                        }`}>
+                            {isLlmRunning ? 'Active' : 'Idle'}
+                        </span>
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
+                            <span className="font-bold text-gray-300">Stage 2: Scene Transitions</span>
+                            <span className="font-mono font-black text-cyan-300">
+                                {totals.llmScenes?.doneChapters ?? 0}/{totals.llmScenes?.totalChapters ?? 0} Ch
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
+                            <span className="font-bold text-gray-300">Created Scene Windows</span>
+                            <span className="font-mono font-black text-white">
+                                {totals.llmScenes?.detectedScenes ?? 0} Scenes
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Category 2: What's Using Local CPU */}
+                <div className={`rounded-2xl p-4 border space-y-3 ${(isVoiceRunning || (isSttRunning && sttUsesLocalCpu) || epgSyncs.length > 0 || liveStreams.length > 0 || dvrActive.length > 0) ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-[#0d111a] border-white/10'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <Cpu className="w-6 h-6 text-emerald-400 shrink-0" />
+                            <h2 className="text-lg font-black text-white">Using Local CPU</h2>
+                        </div>
+                        <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase border ${
+                            (isVoiceRunning || (isSttRunning && sttUsesLocalCpu) || epgSyncs.length > 0 || liveStreams.length > 0 || dvrActive.length > 0)
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse'
+                                : 'bg-white/5 text-gray-400 border-white/10'
+                        }`}>
+                            {(isVoiceRunning || (isSttRunning && sttUsesLocalCpu) || epgSyncs.length > 0 || liveStreams.length > 0 || dvrActive.length > 0) ? 'Active' : 'Idle'}
+                        </span>
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
+                            <span className="font-bold text-gray-300">Local Whisper / FFmpeg DSP</span>
+                            <span className="font-mono font-black text-emerald-300">
+                                {totals.voices.done}/{totals.voices.total} Voice
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
+                            <span className="font-bold text-gray-300">Live Streams / DVR / EPG Parse</span>
+                            <span className="font-mono font-black text-white">
+                                {liveStreams.length} TV • {dvrActive.length} DVR • {epgSyncs.length} EPG
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Category 3: What's Using External APIs */}
+                <div className={`rounded-2xl p-4 border space-y-3 ${(isArtRunning || (isSttRunning && !sttUsesLocalCpu)) ? 'bg-purple-500/10 border-purple-500/40' : 'bg-[#0d111a] border-white/10'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <Globe className="w-6 h-6 text-purple-400 shrink-0" />
+                            <h2 className="text-lg font-black text-white">Using External APIs</h2>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-purple-500/15 text-purple-300 border border-purple-500/30 truncate max-w-[150px]">
+                            {studioCfg.detectedProvider || 'Pollinations / Whisper'}
+                        </span>
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
+                            <span className="font-bold text-gray-300">Stage 3: Scene Image API</span>
+                            <span className="font-mono font-black text-purple-300">
+                                {totals.art.keptScenes} Painted ({totals.art.doneChapters}/{totals.art.totalChapters} Ch)
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
+                            <span className="font-bold text-gray-300">Arr Indexer API / Cloud STT</span>
+                            <span className="font-mono font-black text-white">
+                                {arrScheduler.enabled ? `Every ${arrScheduler.interval || 30}m` : 'Arr Paused'} • {studioCfg.apiKeysCount ?? 0} Keys
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Category 4: What's Consuming Quotas */}
+                <div className={`rounded-2xl p-4 border space-y-3 ${quotaReached ? 'bg-rose-500/10 border-rose-500/40' : 'bg-[#0d111a] border-white/10'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <Gauge className="w-6 h-6 text-amber-400 shrink-0" />
+                            <h2 className="text-lg font-black text-white">Consuming Quotas</h2>
+                        </div>
+                        <button
+                            onClick={() => runAction('reset_quota_top', { action: 'update_studio_limits', resetDailyUsage: true })}
+                            title="Reset daily generated image count to 0"
+                            className="text-xs font-black uppercase px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 cursor-pointer"
+                        >
+                            Reset (0)
+                        </button>
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-1.5 border border-white/5 gap-2">
+                            <span className="font-bold text-gray-300">Daily Art Quota</span>
+                            <div className="flex items-center gap-1.5">
+                                <span className={`font-mono font-black ${quotaReached ? 'text-rose-400' : 'text-amber-300'}`}>
+                                    {studioCfg.imagesGeneratedToday ?? 0} /
+                                </span>
+                                <select
+                                    value={studioCfg.dailyImageQuota ?? 20}
+                                    onChange={(e) => runAction('daily_quota', { action: 'update_studio_limits', dailyImageQuota: Number(e.target.value) })}
+                                    className="bg-[#141a29] border border-white/15 rounded-lg px-2 py-1 text-xs font-black text-white cursor-pointer"
+                                >
+                                    {[20, 50, 100, 200, 500, 1000, 5000].map(q => (
+                                        <option key={q} value={q}>{q}/day</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-1.5 border border-white/5 gap-2">
+                            <span className="font-bold text-gray-300">Rate Limit & Hits</span>
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={studioCfg.rateLimitRpm ?? 10}
+                                    onChange={(e) => runAction('rpm_limit', { action: 'update_studio_limits', rateLimitRpm: Number(e.target.value) })}
+                                    className="bg-[#141a29] border border-white/15 rounded-lg px-2 py-1 text-xs font-black text-white cursor-pointer"
+                                >
+                                    {[5, 10, 15, 30, 60, 120].map(rpm => (
+                                        <option key={rpm} value={rpm}>{rpm} RPM</option>
+                                    ))}
+                                </select>
+                                <span className="font-mono text-xs font-black text-emerald-300">{studioCfg.apiMetrics?.totalSuccess ?? 0} OK</span>
+                                <span className={`font-mono text-xs font-black ${(studioCfg.apiMetrics?.totalErrors ?? 0) > 0 ? 'text-rose-400' : 'text-gray-400'}`}>
+                                    {studioCfg.apiMetrics?.totalErrors ?? 0} Err
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 1. AUDIOBOOK SEQUENTIAL PIPELINE WORKER & 4 SEPARATE QUEUES */}
             <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-5">
                 {/* Single-Row Header + Action Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex items-center gap-3 flex-wrap">
                         <Sparkles className="w-6 h-6 text-amber-400 shrink-0" />
-                        <h2 className="text-xl font-black text-white">Audiobook Studio Worker</h2>
+                        <h2 className="text-xl font-black text-white">Audiobook Sequential Pipeline</h2>
                         {studioStatus.isRunning ? (
                             <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
-                                RUNNING
+                                {studioStatus.activeTask || 'RUNNING'}
                             </span>
                         ) : !studioCfg.enabled ? (
                             <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
@@ -181,13 +348,24 @@ export default function TasksPage() {
                                 IDLE
                             </span>
                         )}
+                        <select
+                            value={studioCfg.scheduleMode || 'continuous_low_cpu'}
+                            onChange={(e) => runAction('sched_mode', { action: 'update_studio_limits', scheduleMode: e.target.value })}
+                            title="Worker schedule mode"
+                            className="bg-[#141a29] border border-white/15 rounded-xl px-3 py-2 text-sm font-bold text-white cursor-pointer"
+                        >
+                            <option value="continuous_low_cpu">Continuous (24/7)</option>
+                            <option value="hourly">Hourly Batch</option>
+                            <option value="overnight">Overnight (01:00–07:00)</option>
+                            <option value="manual_only">Manual Only</option>
+                        </select>
                     </div>
 
                     <div className="flex items-center gap-2.5 flex-wrap">
                         <button
                             onClick={() => runAction('run_worker', { action: 'trigger_audiobook_worker' })}
                             disabled={busyKey === 'run_worker'}
-                            title="Run queue immediately (bypasses daily quota and retries failed chapters)"
+                            title="Run pipeline queue immediately (bypasses daily quota and retries failed chapters)"
                             className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-base flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
                         >
                             <Play className="w-5 h-5 fill-current" />
@@ -232,10 +410,10 @@ export default function TasksPage() {
                 }`}>
                     <div className="space-y-1 min-w-[260px] flex-1">
                         <div className="flex items-center gap-2.5 flex-wrap">
-                            <span className="text-sm font-black uppercase tracking-wider text-gray-400">Live Status:</span>
+                            <span className="text-sm font-black uppercase tracking-wider text-gray-400">Active Step:</span>
                             <span className="text-lg font-black text-white">
                                 {studioStatus.isRunning
-                                    ? `${studioStatus.activeBookTitle || 'Book'} — ${studioStatus.activeChapterTitle || studioStatus.activeTask || 'Working'}`
+                                    ? `[${studioStatus.activeTask || 'Working'}] ${studioStatus.activeBookTitle || 'Book'} — ${studioStatus.activeChapterTitle || ''}`
                                     : (studioStatus.idleReason || studioStatus.lastLog || 'Idle')}
                             </span>
                         </div>
@@ -258,175 +436,166 @@ export default function TasksPage() {
                             </div>
                         </div>
                     )}
-
-                    {!studioStatus.isRunning && quotaReached && (
-                        <button
-                            onClick={() => runAction('reset_quota_banner', { action: 'update_studio_limits', resetDailyUsage: true })}
-                            disabled={busyKey === 'reset_quota_banner'}
-                            title="Reset today's generated image counter to 0 and resume queue"
-                            className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
-                        >
-                            <RotateCcw className="w-5 h-5" />
-                            Reset Quota (0)
-                        </button>
-                    )}
                 </div>
 
-                {/* Interactive Schedule, Quotas, Limits & API Pool Strip */}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
-                    {/* Schedule Mode */}
-                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-2">
-                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Schedule Mode</span>
-                        <select
-                            value={studioCfg.scheduleMode || 'continuous_low_cpu'}
-                            onChange={(e) => runAction('sched_mode', { action: 'update_studio_limits', scheduleMode: e.target.value })}
-                            className="w-full bg-[#141a29] border border-white/15 rounded-lg px-3 py-2 text-base font-bold text-white cursor-pointer"
-                        >
-                            <option value="continuous_low_cpu">Continuous (24/7)</option>
-                            <option value="hourly">Hourly Batch</option>
-                            <option value="overnight">Overnight (01:00–07:00)</option>
-                            <option value="manual_only">Manual Only</option>
-                        </select>
-                    </div>
-
-                    {/* Daily Art Quota + Reset */}
-                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-2">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-black uppercase tracking-wider text-gray-400">Daily Art Quota</span>
-                            <button
-                                onClick={() => runAction('reset_quota', { action: 'update_studio_limits', resetDailyUsage: true })}
-                                title="Reset daily generated image count to 0"
-                                className="text-xs font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 cursor-pointer"
-                            >
-                                Reset (0)
-                            </button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className={`text-lg font-black whitespace-nowrap ${quotaReached ? 'text-rose-400' : 'text-white'}`}>
-                                {studioCfg.imagesGeneratedToday ?? 0} /
-                            </span>
-                            <select
-                                value={studioCfg.dailyImageQuota ?? 20}
-                                onChange={(e) => runAction('daily_quota', { action: 'update_studio_limits', dailyImageQuota: Number(e.target.value) })}
-                                className="flex-1 bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-2 text-base font-bold text-white cursor-pointer"
-                            >
-                                {[20, 50, 100, 200, 500, 1000, 5000].map(q => (
-                                    <option key={q} value={q}>{q} / day</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-
-                    {/* Scenes Per Chapter */}
-                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-2">
-                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Images / Chapter</span>
-                        <select
-                            value={studioCfg.imagesPerChapter ?? 3}
-                            onChange={(e) => runAction('img_per_ch', { action: 'update_studio_limits', imagesPerChapter: Number(e.target.value) })}
-                            className="w-full bg-[#141a29] border border-white/15 rounded-lg px-3 py-2 text-base font-bold text-white cursor-pointer"
-                        >
-                            {[1, 2, 3, 4, 6, 8, 10].map(n => (
-                                <option key={n} value={n}>{n} scenes / chapter</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* Rate Limit RPM */}
-                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-2">
-                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">API Rate Limit</span>
-                        <select
-                            value={studioCfg.rateLimitRpm ?? 10}
-                            onChange={(e) => runAction('rpm_limit', { action: 'update_studio_limits', rateLimitRpm: Number(e.target.value) })}
-                            className="w-full bg-[#141a29] border border-white/15 rounded-lg px-3 py-2 text-base font-bold text-white cursor-pointer"
-                        >
-                            {[5, 10, 15, 30, 60, 120].map(rpm => (
-                                <option key={rpm} value={rpm}>{rpm} req / min</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* API Pool & Live Metrics */}
-                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-1.5">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-black uppercase tracking-wider text-gray-400">API Pool & Hits</span>
-                            <span className="text-xs font-bold text-emerald-400">
-                                {studioCfg.detectedProvider || 'Free Pollinations/Whisper'}
-                            </span>
-                        </div>
-                        <div className="flex items-center justify-between text-base font-black">
-                            <span className="text-white">{studioCfg.apiKeysCount ?? 0} Key(s)</span>
-                            <span className="text-emerald-300">
-                                {studioCfg.apiMetrics?.totalSuccess ?? 0} OK
-                            </span>
-                            <span className={(studioCfg.apiMetrics?.totalErrors ?? 0) > 0 ? 'text-rose-400' : 'text-gray-400'}>
-                                {studioCfg.apiMetrics?.totalErrors ?? 0} Err
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* 3 Real Telemetry Counters */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="rounded-xl bg-black/40 border border-white/10 p-4 flex items-center justify-between">
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-2 text-indigo-300 font-black text-base">
-                                <Mic className="w-5 h-5" />
-                                Transcriptions (STT)
+                {/* 4 SEPARATE SEQUENTIAL PIPELINE QUEUES */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                    {/* Queue 1: Stage 1 Transcription (Audio -> Timestamped Text) */}
+                    <div className="rounded-xl bg-black/40 border border-indigo-500/30 p-4 space-y-3 flex flex-col justify-between">
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 text-indigo-300 font-black text-base">
+                                    <Mic className="w-5 h-5 shrink-0" />
+                                    <span>1. Audio → Text</span>
+                                </div>
+                                <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-200 text-xs font-black uppercase">
+                                    {sttUsesLocalCpu ? 'CPU STT' : 'API STT'}
+                                </span>
                             </div>
-                            <div className="text-sm text-gray-400 font-semibold">
-                                {totals.transcriptions.pending} pending
-                                {totals.transcriptions.failed > 0 && (
-                                    <span className="text-rose-400 ml-2">• {totals.transcriptions.failed} failed</span>
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-400 font-bold">
+                                    {totals.transcriptions.pending} queued
+                                    {totals.transcriptions.failed > 0 && <span className="text-rose-400 ml-1">({totals.transcriptions.failed} err)</span>}
+                                </span>
+                                <span className="font-mono font-black text-white text-base">
+                                    {totals.transcriptions.done}/{totals.transcriptions.total} Ch
+                                </span>
+                            </div>
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1 pt-1">
+                                {(queueBreakdown.transcriptionQueue || []).length === 0 ? (
+                                    <div className="text-xs text-gray-500 font-bold py-2">Queue empty — all chapters transcribed</div>
+                                ) : (
+                                    (queueBreakdown.transcriptionQueue || []).slice(0, 6).map((item: any) => (
+                                        <div key={item.chapterKey} className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1.5 text-xs flex items-center justify-between gap-2">
+                                            <span className="font-bold text-white truncate">{item.bookTitle} · Ch {item.chapterIndex}</span>
+                                            <span className={`font-black uppercase shrink-0 ${item.status === 'processing' ? 'text-emerald-300' : item.status === 'failed' ? 'text-rose-400' : 'text-indigo-300'}`}>
+                                                {item.status}
+                                            </span>
+                                        </div>
+                                    ))
                                 )}
                             </div>
                         </div>
-                        <div className="text-2xl font-black text-white">
-                            {totals.transcriptions.done} / {totals.transcriptions.total}
-                        </div>
                     </div>
 
-                    <div className="rounded-xl bg-black/40 border border-white/10 p-4 flex items-center justify-between">
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-2 text-amber-300 font-black text-base">
-                                <ImageIcon className="w-5 h-5" />
-                                Story Scene Art
+                    {/* Queue 2: Stage 2 LLM Scene Detection (Timestamped Text -> Scene Transition Timestamps) */}
+                    <div className="rounded-xl bg-black/40 border border-cyan-500/30 p-4 space-y-3 flex flex-col justify-between">
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 text-cyan-300 font-black text-base">
+                                    <Wand2 className="w-5 h-5 shrink-0" />
+                                    <span>2. Text → Scenes</span>
+                                </div>
+                                <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-200 text-xs font-black uppercase">
+                                    LLM
+                                </span>
                             </div>
-                            <div className="text-sm text-gray-400 font-semibold">
-                                {totals.art.keptScenes} scenes kept • {totals.art.pendingChapters} ch pending
-                                {totals.art.failedChapters > 0 && (
-                                    <span className="text-rose-400 ml-2">• {totals.art.failedChapters} failed</span>
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-400 font-bold">
+                                    {totals.llmScenes?.detectedScenes ?? 0} scenes • {totals.llmScenes?.pendingChapters ?? 0} ch waiting
+                                </span>
+                                <span className="font-mono font-black text-white text-base">
+                                    {totals.llmScenes?.doneChapters ?? 0}/{totals.llmScenes?.totalChapters ?? 0} Ch
+                                </span>
+                            </div>
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1 pt-1">
+                                {(queueBreakdown.llmSceneQueue || []).length === 0 ? (
+                                    <div className="text-xs text-gray-500 font-bold py-2">Queue empty — scene timestamps ready</div>
+                                ) : (
+                                    (queueBreakdown.llmSceneQueue || []).slice(0, 6).map((item: any) => (
+                                        <div key={item.chapterKey} className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1.5 text-xs flex items-center justify-between gap-2">
+                                            <span className="font-bold text-white truncate">{item.bookTitle} · Ch {item.chapterIndex}</span>
+                                            <span className={`font-black uppercase shrink-0 ${item.status === 'processing' ? 'text-emerald-300' : String(item.detail || '').includes('Blocked') ? 'text-amber-300' : 'text-cyan-300'}`}>
+                                                {String(item.detail || '').includes('Blocked') ? 'Needs STT' : item.status}
+                                            </span>
+                                        </div>
+                                    ))
                                 )}
                             </div>
                         </div>
-                        <div className="text-2xl font-black text-white">
-                            {totals.art.doneChapters} / {totals.art.totalChapters}
-                        </div>
                     </div>
 
-                    <div className="rounded-xl bg-black/40 border border-white/10 p-4 flex items-center justify-between">
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-2 text-emerald-300 font-black text-base">
-                                <Volume2 className="w-5 h-5" />
-                                Narrator Voices
+                    {/* Queue 3: Stage 3 Scene Imaging (Created Scenes -> Painted Artwork) */}
+                    <div className="rounded-xl bg-black/40 border border-purple-500/30 p-4 space-y-3 flex flex-col justify-between">
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 text-purple-300 font-black text-base">
+                                    <ImageIcon className="w-5 h-5 shrink-0" />
+                                    <span>3. Scenes → Art</span>
+                                </div>
+                                <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-200 text-xs font-black uppercase">
+                                    API • Quota
+                                </span>
                             </div>
-                            <div className="text-sm text-gray-400 font-semibold">
-                                {totals.voices.pending} pending
-                                {totals.voices.failed > 0 && (
-                                    <span className="text-rose-400 ml-2">• {totals.voices.failed} failed</span>
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-400 font-bold">
+                                    {totals.art.keptScenes} painted • {totals.art.pendingChapters} ch waiting
+                                </span>
+                                <span className="font-mono font-black text-white text-base">
+                                    {totals.art.doneChapters}/{totals.art.totalChapters} Ch
+                                </span>
+                            </div>
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1 pt-1">
+                                {(queueBreakdown.artQueue || []).length === 0 ? (
+                                    <div className="text-xs text-gray-500 font-bold py-2">Queue empty — all scenes painted</div>
+                                ) : (
+                                    (queueBreakdown.artQueue || []).slice(0, 6).map((item: any) => (
+                                        <div key={item.chapterKey} className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1.5 text-xs flex items-center justify-between gap-2">
+                                            <span className="font-bold text-white truncate">{item.bookTitle} · Ch {item.chapterIndex}</span>
+                                            <span className={`font-black uppercase shrink-0 ${item.status === 'processing' ? 'text-emerald-300' : String(item.detail || '').includes('Waiting') ? 'text-amber-300' : 'text-purple-300'}`}>
+                                                {String(item.detail || '').includes('Waiting') ? 'Needs Scenes' : item.status}
+                                            </span>
+                                        </div>
+                                    ))
                                 )}
                             </div>
                         </div>
-                        <div className="text-2xl font-black text-white">
-                            {totals.voices.done} / {totals.voices.total}
+                    </div>
+
+                    {/* Queue 4: Stage 1B Voice Enhancement (Audio -> Cadence-Matched .m4a) */}
+                    <div className="rounded-xl bg-black/40 border border-emerald-500/30 p-4 space-y-3 flex flex-col justify-between">
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 text-emerald-300 font-black text-base">
+                                    <Volume2 className="w-5 h-5 shrink-0" />
+                                    <span>1B. Audio → Voices</span>
+                                </div>
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 text-xs font-black uppercase">
+                                    CPU • 1:1 Time
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-400 font-bold">
+                                    {totals.voices.pending} queued
+                                    {totals.voices.failed > 0 && <span className="text-rose-400 ml-1">({totals.voices.failed} err)</span>}
+                                </span>
+                                <span className="font-mono font-black text-white text-base">
+                                    {totals.voices.done}/{totals.voices.total} Ch
+                                </span>
+                            </div>
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1 pt-1">
+                                {(queueBreakdown.voiceQueue || []).length === 0 ? (
+                                    <div className="text-xs text-gray-500 font-bold py-2">Queue empty — all voices rendered</div>
+                                ) : (
+                                    (queueBreakdown.voiceQueue || []).slice(0, 6).map((item: any) => (
+                                        <div key={item.chapterKey} className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1.5 text-xs flex items-center justify-between gap-2">
+                                            <span className="font-bold text-white truncate">{item.bookTitle} · Ch {item.chapterIndex}</span>
+                                            <span className={`font-black uppercase shrink-0 ${item.status === 'processing' ? 'text-emerald-300' : 'text-emerald-200'}`}>
+                                                {item.status}
+                                            </span>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Interactive Queue Table + Add Book Picker */}
+                {/* Interactive Queued Books Table + Add Book Picker */}
                 <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <h3 className="text-lg font-black text-white">
-                            Queued Audiobooks ({queuedBooks.length})
+                            Queued Books ({queuedBooks.length})
                         </h3>
 
                         {availableBooks.length > 0 && (
@@ -466,7 +635,7 @@ export default function TasksPage() {
 
                     {queuedBooks.length === 0 ? (
                         <div className="rounded-xl bg-black/30 border border-white/10 p-5 text-base text-gray-400 font-semibold">
-                            No audiobooks queued. Use the selector above or enable Queue on any book in Media → Audiobooks.
+                            No audiobooks queued.
                         </div>
                     ) : (
                         <div className="space-y-2.5">
@@ -482,7 +651,7 @@ export default function TasksPage() {
                                                 : 'bg-black/40 border-white/10'
                                         }`}
                                     >
-                                        {/* Book Title + Toggles */}
+                                        {/* Book Title + 4-Stage Pipeline Toggles */}
                                         <div className="flex items-center gap-3.5 min-w-[260px] flex-1">
                                             <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-base font-black text-gray-300 shrink-0">
                                                 #{idx + 1}
@@ -499,7 +668,7 @@ export default function TasksPage() {
                                                     )}
                                                     {isBookActive && (
                                                         <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-xs font-black uppercase">
-                                                            Active
+                                                            {studioStatus.activeTask || 'Active'}
                                                         </span>
                                                     )}
                                                     {book.failed_chapters_count > 0 && (
@@ -512,7 +681,7 @@ export default function TasksPage() {
                                                     )}
                                                 </div>
 
-                                                {/* Clickable Task Pills + Live Progress */}
+                                                {/* Clickable Stage Pills */}
                                                 <div className="flex items-center gap-2 flex-wrap pt-0.5">
                                                     <button
                                                         onClick={() => runAction(`flag_stt_${book.book_key}`, {
@@ -521,15 +690,22 @@ export default function TasksPage() {
                                                             subAction: 'toggle_flag',
                                                             field: 'transcribe_enabled'
                                                         })}
-                                                        title="Toggle Transcription for this book"
+                                                        title="Stage 1: Toggle Audio -> Timestamped Text Transcription"
                                                         className={`px-2.5 py-1 rounded-lg text-xs font-black border cursor-pointer ${
                                                             book.transcribe_enabled
                                                                 ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40'
                                                                 : 'bg-white/5 text-gray-500 border-white/10 line-through'
                                                         }`}
                                                     >
-                                                        STT: {book.transcribed_chapters || 0}/{totalCh}
+                                                        1. STT: {book.transcribed_chapters || 0}/{totalCh}
                                                     </button>
+
+                                                    <span
+                                                        title="Stage 2: LLM Scene Transitions created from timestamped transcripts"
+                                                        className="px-2.5 py-1 rounded-lg text-xs font-black border bg-cyan-500/15 text-cyan-200 border-cyan-500/35"
+                                                    >
+                                                        2. Scenes: {book.detected_scenes_count ?? book.illustrated_scenes ?? 0}
+                                                    </span>
 
                                                     <button
                                                         onClick={() => runAction(`flag_art_${book.book_key}`, {
@@ -538,14 +714,14 @@ export default function TasksPage() {
                                                             subAction: 'toggle_flag',
                                                             field: 'illustrate_enabled'
                                                         })}
-                                                        title="Toggle Scene Art for this book"
+                                                        title="Stage 3: Toggle Scene Painting (requires Stage 1 & 2)"
                                                         className={`px-2.5 py-1 rounded-lg text-xs font-black border cursor-pointer ${
                                                             book.illustrate_enabled
-                                                                ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
+                                                                ? 'bg-purple-500/20 text-purple-200 border-purple-500/40'
                                                                 : 'bg-white/5 text-gray-500 border-white/10 line-through'
                                                         }`}
                                                     >
-                                                        Art: {book.illustrated_chapters || 0}/{totalCh} ({book.illustrated_scenes || 0} img)
+                                                        3. Art: {book.painted_scenes_count ?? book.illustrated_scenes ?? 0}/{book.detected_scenes_count ?? book.illustrated_scenes ?? 0} painted
                                                     </button>
 
                                                     <button
@@ -555,14 +731,14 @@ export default function TasksPage() {
                                                             subAction: 'toggle_flag',
                                                             field: 'enhance_audio_enabled'
                                                         })}
-                                                        title="Toggle Narrator Voice Rendering for this book"
+                                                        title="Stage 1B: Toggle Cadence-Matched Narrator Voice Rendering"
                                                         className={`px-2.5 py-1 rounded-lg text-xs font-black border cursor-pointer ${
                                                             book.enhance_audio_enabled
                                                                 ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
                                                                 : 'bg-white/5 text-gray-500 border-white/10 line-through'
                                                         }`}
                                                     >
-                                                        Voice: {book.enhanced_chapters || 0}/{totalCh}
+                                                        1B. Voice: {book.enhanced_chapters || 0}/{totalCh}
                                                     </button>
                                                 </div>
                                             </div>
@@ -576,7 +752,7 @@ export default function TasksPage() {
                                                     bookKey: book.book_key,
                                                     subAction: 'start_now'
                                                 })}
-                                                title="Start generating this book right now (bypasses daily quota)"
+                                                title="Start running pipeline for this book right now"
                                                 className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 font-black text-sm flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
                                             >
                                                 <Play className="w-4 h-4 fill-current" />
@@ -619,7 +795,7 @@ export default function TasksPage() {
                                                     bookKey: book.book_key,
                                                     subAction: 'redo_art'
                                                 })}
-                                                title="Reset and regenerate all scene art for this book"
+                                                title="Reset and regenerate scenes & art for this book"
                                                 className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-gray-200 font-bold text-sm flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
                                             >
                                                 <RotateCcw className="w-4 h-4" />
@@ -628,11 +804,11 @@ export default function TasksPage() {
 
                                             <Link
                                                 href={`/discover?tab=audiobooks&bookKey=${encodeURIComponent(book.book_key)}`}
-                                                title="Open this book in the Audiobook Studio Editor"
+                                                title="Open this book in Media"
                                                 className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-200 font-bold text-sm flex items-center gap-1.5 whitespace-nowrap"
                                             >
                                                 <Sliders className="w-4 h-4" />
-                                                Edit
+                                                Open
                                             </Link>
 
                                             <button
@@ -656,7 +832,116 @@ export default function TasksPage() {
                 </div>
             </section>
 
-            {/* 2. SERVER SCHEDULERS: ARR BATCH SEARCH & DISK / TORRENT GUARD */}
+            {/* 2. EPG SYNCING SCHEDULER & FREQUENCY */}
+            <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                        <Tv className="w-6 h-6 text-sky-400 shrink-0" />
+                        <h2 className="text-xl font-black text-white">EPG Sync Scheduler & Frequency</h2>
+                        <span className="px-3 py-1 rounded-lg text-xs font-black uppercase bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                            {epgSchedules.length} Provider(s) • {liveStreams.length} Active Stream(s)
+                        </span>
+                    </div>
+                    <button
+                        onClick={() => runAction('epg_sync_all', { action: 'trigger_epg_sync' })}
+                        disabled={busyKey === 'epg_sync_all'}
+                        title="Sync XMLTV EPG guide across all Live TV providers now"
+                        className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-base flex items-center gap-2 cursor-pointer"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${epgSyncs.length > 0 ? 'animate-spin' : ''}`} />
+                        Sync All EPG
+                    </button>
+                </div>
+
+                {epgSchedules.length === 0 ? (
+                    <div className="rounded-xl bg-black/30 border border-white/10 p-4 text-base text-gray-400 font-semibold">
+                        No Live TV / IPTV providers configured yet.
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {epgSchedules.map((epg: any) => {
+                            const isSyncing = epg.status === 'downloading' || epg.status === 'parsing' || epg.status === 'saving' || epg.status === 'scanning_rules';
+                            return (
+                                <div key={epg.libraryId} className="rounded-xl bg-black/40 border border-white/10 p-4 space-y-3">
+                                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                                        <div className="flex items-center gap-2.5">
+                                            <span className="text-lg font-black text-white">{epg.libraryName}</span>
+                                            <span className="px-2.5 py-0.5 rounded-lg bg-sky-500/15 text-sky-300 text-xs font-mono font-black border border-sky-500/30">
+                                                {(epg.programCount || 0).toLocaleString()} Progs
+                                            </span>
+                                            {isSyncing && (
+                                                <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 text-xs font-black uppercase animate-pulse">
+                                                    {epg.status} ({epg.progressPercent || 0}%)
+                                                </span>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => runAction(`epg_sync_${epg.libraryId}`, { action: 'trigger_epg_sync', libraryId: epg.libraryId })}
+                                            disabled={busyKey === `epg_sync_${epg.libraryId}` || isSyncing}
+                                            title="Sync this provider's XMLTV EPG now"
+                                            className="px-3.5 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-200 font-black text-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                        >
+                                            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                                            Sync
+                                        </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <div className="rounded-lg bg-black/50 border border-white/10 p-2.5 space-y-1">
+                                            <span className="text-xs font-black uppercase text-gray-400">Sync Frequency</span>
+                                            <select
+                                                value={epg.intervalHours ?? 24}
+                                                onChange={(e) => runAction(`epg_int_${epg.libraryId}`, {
+                                                    action: 'update_epg_schedule',
+                                                    libraryId: epg.libraryId,
+                                                    intervalHours: Number(e.target.value)
+                                                })}
+                                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-sm font-bold text-white cursor-pointer"
+                                            >
+                                                <option value={1}>Every 1h</option>
+                                                <option value={3}>Every 3h</option>
+                                                <option value={6}>Every 6h</option>
+                                                <option value={12}>Every 12h</option>
+                                                <option value={24}>Every 24h</option>
+                                                <option value={48}>Every 48h</option>
+                                                <option value={0}>Manual Only</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="rounded-lg bg-black/50 border border-white/10 p-2.5 space-y-1">
+                                            <span className="text-xs font-black uppercase text-gray-400">Channel Scope</span>
+                                            <select
+                                                value={epg.scope || 'all'}
+                                                onChange={(e) => runAction(`epg_scope_${epg.libraryId}`, {
+                                                    action: 'update_epg_schedule',
+                                                    libraryId: epg.libraryId,
+                                                    scope: e.target.value
+                                                })}
+                                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-sm font-bold text-white cursor-pointer"
+                                            >
+                                                <option value="all">All Channels</option>
+                                                <option value="shortlists">Shortlists Only</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="rounded-lg bg-black/50 border border-white/10 p-2.5 space-y-1">
+                                            <span className="text-xs font-black uppercase text-gray-400">Next Auto-Sync</span>
+                                            <div className="text-base font-black text-white">
+                                                {epg.intervalHours > 0 ? formatNextRun(epg.nextSyncTimestamp) : 'Manual Only'}
+                                            </div>
+                                            <div className="text-xs text-gray-400 truncate">
+                                                Last: {epg.lastSync ? new Date(epg.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </section>
+
+            {/* 3. SERVER SCHEDULERS: ARR BATCH SEARCH & DISK / TORRENT GUARD */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {/* Arr Batch Search Scheduler */}
                 <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
@@ -807,36 +1092,8 @@ export default function TasksPage() {
                 </section>
             </div>
 
-            {/* 3. LIVE TV STREAMS, EPG SYNC, DVR & TRANSFERS */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                {/* Live Streams & EPG Sync */}
-                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5">
-                            <Tv className="w-6 h-6 text-sky-400" />
-                            <h2 className="text-lg font-black text-white">Live TV & EPG</h2>
-                        </div>
-                        <button
-                            onClick={() => runAction('epg_sync', { action: 'trigger_epg_sync' })}
-                            disabled={busyKey === 'epg_sync'}
-                            title="Run XMLTV EPG sync now"
-                            className="px-3.5 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 text-sky-200 font-bold text-sm flex items-center gap-1.5 cursor-pointer"
-                        >
-                            <RefreshCw className="w-4 h-4" />
-                            Sync EPG
-                        </button>
-                    </div>
-                    <div className="text-base font-bold text-gray-300">
-                        {liveStreams.length} Active Stream(s) • {epgSyncs.length} EPG Sync(s)
-                    </div>
-                    {liveStreams.map((hub: any) => (
-                        <div key={hub.hubKey} className="rounded-xl bg-black/40 border border-white/10 p-3 flex items-center justify-between">
-                            <span className="text-base font-bold text-white truncate">{hub.channelName || hub.hubKey}</span>
-                            <span className="text-xs font-black text-emerald-300 uppercase">{hub.subscriberCount} viewers</span>
-                        </div>
-                    ))}
-                </section>
-
+            {/* 4. DVR RECORDINGS & LIVE SERVER LOG */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {/* DVR Recordings */}
                 <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-3">
                     <div className="flex items-center justify-between gap-2">

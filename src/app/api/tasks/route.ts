@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getAllActiveEpgSyncs, checkAndRunScheduledEpgSyncs } from '@/lib/iptvEpgSync';
+import {
+    getAllActiveEpgSyncs,
+    checkAndRunScheduledEpgSyncs,
+    getEpgSyncStatus,
+    deriveXtreamEpgUrl,
+    executeEpgSync
+} from '@/lib/iptvEpgSync';
 import {
     getAudiobookStudioConfig,
     saveAudiobookStudioConfig,
@@ -24,7 +30,10 @@ import {
     setSetting,
     getSchedulerConfig,
     setSchedulerConfig,
-    getSystemLogs
+    getSystemLogs,
+    getTheaterLibraries,
+    updateTheaterLibrary,
+    getIptvEpgCountForLibrary
 } from '@/lib/db';
 import { getActiveStreamHubsSummary } from '@/lib/iptvStreamHub';
 import { cancelRecordingProcess } from '@/lib/iptvDvrScheduler';
@@ -39,8 +48,37 @@ export async function GET() {
         // 1. Live TV Stream Hubs
         const activeStreamHubs = getActiveStreamHubsSummary();
 
-        // 2. Live TV EPG Syncs
+        // 2. Live TV EPG Syncs & Per-Library EPG Sync Schedules
         const activeEpgSyncs = getAllActiveEpgSyncs();
+        const theaterLibs = getTheaterLibraries();
+        const liveLibs = theaterLibs.filter(l => l.type === 'live');
+        const epgSchedules = liveLibs.map(lib => {
+            const streamUrl = lib.folders?.[0] || '';
+            const epgUrl = (lib.folders?.[1] || deriveXtreamEpgUrl(streamUrl)).trim();
+            const intervalHoursRaw = parseInt(lib.folders?.[2] || '24', 10);
+            const intervalHours = isNaN(intervalHoursRaw) ? 24 : intervalHoursRaw;
+            const lastSync = lib.folders?.[3] || null;
+            const scope = lib.folders?.[4] || 'all';
+            const lastSyncMs = lastSync ? new Date(lastSync).getTime() : 0;
+            const nextSyncTimestamp = (intervalHours > 0 && lastSyncMs > 0)
+                ? new Date(lastSyncMs + intervalHours * 3600 * 1000).toISOString()
+                : (intervalHours > 0 && epgUrl ? new Date(Date.now() + 60 * 1000).toISOString() : null);
+            const liveSyncState = getEpgSyncStatus(lib.id);
+            const dbProgCount = getIptvEpgCountForLibrary(lib.id);
+            return {
+                libraryId: lib.id,
+                libraryName: lib.name,
+                hasEpgUrl: Boolean(epgUrl),
+                intervalHours,
+                lastSync,
+                nextSyncTimestamp,
+                scope,
+                programCount: dbProgCount || liveSyncState.programCount || 0,
+                status: liveSyncState.status,
+                progressPercent: liveSyncState.progressPercent,
+                message: liveSyncState.message
+            };
+        });
 
         // 3. Live TV DVR Recordings & Rules
         const allDvrRecordings = getDvrRecordings();
@@ -69,11 +107,15 @@ export async function GET() {
             }));
 
         // Compute exact chapter-level totals across queued books (and fallback to all books if none queued)
-        const targetBooksForTotals = queuedBooksRaw.length > 0 ? queuedBooksRaw : allBooks;
         let sttDone = 0;
         let sttTotal = 0;
         let sttPending = 0;
         let sttFailed = 0;
+
+        let llmScenesDoneChapters = 0;
+        let llmScenesTotalChapters = 0;
+        let llmDetectedScenesCount = 0;
+        let llmScenesPendingChapters = 0;
 
         let artDoneChapters = 0;
         let artTotalChapters = 0;
@@ -93,20 +135,31 @@ export async function GET() {
             const chCount = Math.max(book.total_chapters || 0, chapters.length);
             let bookFailedCount = 0;
             let bookLastError = '';
+            let bookDetectedScenes = 0;
+            let bookPaintedScenes = 0;
 
             for (const ch of chapters) {
+                const hasTranscript = ch.transcription_status === 'completed' && Boolean(ch.synced_lyrics && ch.synced_lyrics.trim().length > 20);
                 if (book.transcribe_enabled) {
-                    if (ch.transcription_status === 'completed') sttDone++;
+                    if (hasTranscript) sttDone++;
                     else if (ch.transcription_status === 'failed') {
                         sttFailed++;
                         bookFailedCount++;
                         if (ch.error_message && !bookLastError) bookLastError = ch.error_message;
                     } else sttPending++;
                 }
-                const keptImgs = (ch.images || []).filter(i => i.kept).length;
-                artKeptScenes += keptImgs;
+                const validScenes = (ch.images || []).filter(i => i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
+                const paintedImgs = validScenes.filter(i => Boolean(i.url));
+                llmDetectedScenesCount += validScenes.length;
+                bookDetectedScenes += validScenes.length;
+                artKeptScenes += paintedImgs.length;
+                bookPaintedScenes += paintedImgs.length;
+
                 if (book.illustrate_enabled) {
-                    if (ch.illustration_status === 'completed' && keptImgs > 0) artDoneChapters++;
+                    if (validScenes.length > 0) llmScenesDoneChapters++;
+                    else llmScenesPendingChapters++;
+
+                    if (ch.illustration_status === 'completed' && paintedImgs.length > 0 && paintedImgs.length >= validScenes.length) artDoneChapters++;
                     else if (ch.illustration_status === 'failed') {
                         artFailedChapters++;
                         bookFailedCount++;
@@ -124,13 +177,18 @@ export async function GET() {
             }
 
             if (book.transcribe_enabled) sttTotal += chCount;
-            if (book.illustrate_enabled) artTotalChapters += chCount;
+            if (book.illustrate_enabled) {
+                llmScenesTotalChapters += chCount;
+                artTotalChapters += chCount;
+            }
             if (book.enhance_audio_enabled) voiceTotal += chCount;
             if (bookLastError && !lastErrorMsg) lastErrorMsg = bookLastError;
 
             return {
                 ...book,
                 synced_chapters_count: chapters.length,
+                detected_scenes_count: bookDetectedScenes,
+                painted_scenes_count: bookPaintedScenes,
                 failed_chapters_count: bookFailedCount,
                 last_error: bookLastError
             };
@@ -144,7 +202,7 @@ export async function GET() {
                 idleReason = 'Paused by user';
             } else if (queuedBooks.length === 0) {
                 idleReason = 'No books in queue';
-            } else if (quotaReached && artPendingChapters > 0 && sttPending === 0 && voicePending === 0) {
+            } else if (quotaReached && artPendingChapters > 0 && sttPending === 0 && llmScenesPendingChapters === 0 && voicePending === 0) {
                 idleReason = `Quota Paused: ${studioConfig.imagesGeneratedToday} / ${studioConfig.dailyImageQuota} daily images used (${artPendingChapters} chapters waiting)`;
             } else if ((sttFailed + artFailedChapters + voiceFailed) > 0 && sttPending === 0 && (!quotaReached || artPendingChapters === 0) && voicePending === 0) {
                 idleReason = `Failed: ${sttFailed + artFailedChapters + voiceFailed} chapter task(s) errored${lastErrorMsg ? ` — ${lastErrorMsg.slice(0, 80)}` : ''}`;
@@ -192,6 +250,7 @@ export async function GET() {
             queuedCount,
             liveStreams: activeStreamHubs,
             epgSyncs: activeEpgSyncs,
+            epgSchedules,
             dvr: {
                 active: activeDvrRecordings,
                 scheduled: scheduledDvrRecordings,
@@ -229,6 +288,12 @@ export async function GET() {
                         total: sttTotal,
                         pending: sttPending,
                         failed: sttFailed
+                    },
+                    llmScenes: {
+                        doneChapters: llmScenesDoneChapters,
+                        totalChapters: llmScenesTotalChapters,
+                        detectedScenes: llmDetectedScenesCount,
+                        pendingChapters: llmScenesPendingChapters
                     },
                     art: {
                         doneChapters: artDoneChapters,
@@ -458,9 +523,46 @@ export async function POST(request: Request) {
             return NextResponse.json({ ok: true, message: 'Cleanup guard updated.' });
         }
 
+        if (action === 'update_epg_schedule') {
+            const libs = getTheaterLibraries().filter(l => l.type === 'live');
+            const targets = body.libraryId ? libs.filter(l => l.id === body.libraryId) : libs;
+            for (const lib of targets) {
+                const streamUrl = lib.folders?.[0] || '';
+                const epgUrl = lib.folders?.[1] || deriveXtreamEpgUrl(streamUrl);
+                const nextInterval = body.intervalHours !== undefined ? String(body.intervalHours) : (lib.folders?.[2] || '24');
+                const lastSync = lib.folders?.[3] || '';
+                const nextScope = body.scope !== undefined ? String(body.scope) : (lib.folders?.[4] || 'all');
+                updateTheaterLibrary(lib.id, [streamUrl, epgUrl, nextInterval, lastSync, nextScope]);
+                if (body.runNow && epgUrl) {
+                    executeEpgSync(lib.id, epgUrl, nextScope).catch(() => {});
+                }
+            }
+            return NextResponse.json({
+                ok: true,
+                message: body.runNow ? 'EPG schedule saved and sync started.' : 'EPG sync schedule updated.'
+            });
+        }
+
         if (action === 'trigger_epg_sync') {
-            checkAndRunScheduledEpgSyncs().catch(() => {});
-            return NextResponse.json({ ok: true, message: 'EPG sync triggered.' });
+            const libs = getTheaterLibraries().filter(l => l.type === 'live');
+            const targets = body.libraryId ? libs.filter(l => l.id === body.libraryId) : libs;
+            let started = 0;
+            for (const lib of targets) {
+                const streamUrl = lib.folders?.[0] || '';
+                const epgUrl = (lib.folders?.[1] || deriveXtreamEpgUrl(streamUrl)).trim();
+                const scope = lib.folders?.[4] || 'all';
+                if (epgUrl) {
+                    started++;
+                    executeEpgSync(lib.id, epgUrl, scope).catch(() => {});
+                }
+            }
+            if (started === 0) {
+                checkAndRunScheduledEpgSyncs().catch(() => {});
+            }
+            return NextResponse.json({
+                ok: true,
+                message: started > 0 ? `EPG sync started for ${started} provider(s).` : 'Checked scheduled EPG syncs.'
+            });
         }
 
         if (action === 'purge_fake_svg') {

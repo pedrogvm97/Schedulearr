@@ -2373,12 +2373,19 @@ function TheaterPageContent() {
         fetchAudiobooksStudioOverview();
     };
 
-    const handleRunChapterTaskFromBookModal = async (book: any, ch: any, idx: number, taskType: 'transcribe' | 'illustrate' | 'enhance') => {
+    const handleRunChapterTaskFromBookModal = async (
+        book: any,
+        ch: any,
+        idx: number,
+        taskType: 'transcribe' | 'detect_scenes' | 'paint_scenes' | 'illustrate' | 'enhance'
+    ) => {
         const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
-        const cKey = ch.chapterKey || ch.id;
+        const cKey = ch.chapterKey || `${bKey}::ch${idx + 1}`;
         const taskKey = `${cKey}:${taskType}`;
         setRunningBookModalTask(taskKey);
+        setTheaterExpandedChapters(prev => ({ ...prev, [idx]: true }));
         try {
+            await loadBookStudioChapters(book);
             const res = await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2395,18 +2402,20 @@ function TheaterPageContent() {
                     chapterTitle: ch.title || ch.name,
                     chapterIndex: ch.trackNumber || idx + 1,
                     filePath: ch.path,
-                    durationSec: (ch.durationMs || 0) / 1000
+                    durationSec: ch.durationMs ? Math.round(ch.durationMs / 1000) : 300,
+                    runInBackground: true
                 })
             });
             const data = await res.json();
-            if (res.ok && data.ok !== false) {
-                toast.success(data.message || 'Chapter task completed!');
+            if (res.ok && data.ok !== false && data.success !== false) {
+                toast.info(data.message || `Started ${taskType} for Chapter ${idx + 1}`);
                 if (data.chapter) {
                     setAudiobookChaptersStudioMap(prev => ({ ...prev, [cKey]: data.chapter }));
                 }
                 if (data.book) {
                     setAudiobooksStudioMap(prev => ({ ...prev, [bKey]: data.book }));
                 }
+                fetchAudiobooksStudioOverview();
             } else {
                 toast.error(data.message || data.error || 'Task failed');
             }
@@ -2462,7 +2471,7 @@ function TheaterPageContent() {
         if (!book) return;
         const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
         try {
-            toast.info(`Queueing whole book "${book.cleanTitle || book.title}" (Structure → Cover → Transcriptions → Scene Art → Voices)...`);
+            toast.info(`Queueing whole book "${book.cleanTitle || book.title}" (1. Transcribe → 2. LLM Scenes → 3. Paint Art → 4. Voice)...`);
             const res = await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2601,6 +2610,7 @@ function TheaterPageContent() {
                         coverUrl: data.book.coverUrl,
                         loading: false
                     });
+                    fetchAudiobooksStudioOverview();
                 } else {
                     setAudiobookDetails({ loading: false });
                 }
@@ -3387,7 +3397,9 @@ function TheaterPageContent() {
             { pattern: /\bchapterhouse[:\s]+dune\b/i, cleanTitle: 'Chapterhouse: Dune', collection: 'Dune Chronicles', bookNumber: 6, releaseYear: '1985' },
             // Frank Herbert — ConSentiency
             { pattern: /\bwhipping\s+star\b/i, cleanTitle: 'Whipping Star', collection: 'ConSentiency', bookNumber: 1, releaseYear: '1970' },
-            { pattern: /\bthe\s+dosadi\s+experiment\b/i, cleanTitle: 'The Dosadi Experiment', collection: 'ConSentiency', bookNumber: 2, releaseYear: '1977' }
+            { pattern: /\bthe\s+dosadi\s+experiment\b/i, cleanTitle: 'The Dosadi Experiment', collection: 'ConSentiency', bookNumber: 2, releaseYear: '1977' },
+            // Franz Kafka
+            { pattern: /\b(?:the\s+)?metamorphosis\b/i, cleanTitle: 'The Metamorphosis', collection: '', bookNumber: 0, releaseYear: '1915' }
         ];
 
         const parseBookMetaClient = (rawBookTitle: string, folder?: string, filePath?: string) => {
@@ -3676,17 +3688,27 @@ function TheaterPageContent() {
             const cleanBookTitleBase = parsedInitial.cleanTitle || bookTitle;
 
             const key = `${canonicalAuthor} - ${cleanBookTitleBase}`.toLowerCase().trim();
+            const altKeyNoThe = key.replace(/\s-\sthe\s/, ' - ');
+            const altKeyWithThe = key.includes(' - the ') ? key : key.replace(/\s-\s/, ' - the ');
             const legacyKey = `${rawAuthorStr} - ${bookTitle}`.toLowerCase().trim();
 
             if (!map.has(key)) {
-                const savedMeta = audiobookCollectionsState?.bookMetadata?.[key] || audiobookCollectionsState?.bookMetadata?.[legacyKey];
-                const bStudio = audiobooksStudioMap[key] || audiobooksStudioMap[legacyKey];
+                const savedMeta =
+                    audiobookCollectionsState?.bookMetadata?.[key] ||
+                    audiobookCollectionsState?.bookMetadata?.[altKeyNoThe] ||
+                    audiobookCollectionsState?.bookMetadata?.[altKeyWithThe] ||
+                    audiobookCollectionsState?.bookMetadata?.[legacyKey];
+                const bStudio =
+                    audiobooksStudioMap[key] ||
+                    audiobooksStudioMap[altKeyNoThe] ||
+                    audiobooksStudioMap[altKeyWithThe] ||
+                    audiobooksStudioMap[legacyKey];
 
                 const parsedStudio = parseBookMetaClient(bStudio?.title || savedMeta?.cleanTitle || cleanBookTitleBase, item.folder, item.path);
                 const cleanTitle = parsedStudio.cleanTitle || parsedInitial.cleanTitle || cleanBookTitleBase;
                 const effectiveAuthor = bStudio?.canonical_author || canonicalAuthor;
                 const bookNumber = savedMeta?.bookNumber ?? parsedStudio.bookNumber ?? parsedInitial.bookNumber;
-                const releaseYear = bStudio?.published_year || savedMeta?.releaseYear || (item as any).releaseYear || parsedStudio.releaseYear || parsedInitial.releaseYear;
+                const releaseYear = parsedInitial.releaseYear || parsedStudio.releaseYear || bStudio?.published_year || savedMeta?.releaseYear || (item as any).releaseYear;
                 const inferredCollection = savedMeta?.collectionName !== undefined ? savedMeta.collectionName : (parsedStudio.inferredCollection || parsedInitial.inferredCollection);
                 const hasOptimizedAudio = Boolean((bStudio?.enhanced_chapters || 0) > 0 || /(?:\boptimized\b|\benhanced\b|\bhq\s+audio\b)/i.test(item.path || ''));
                 const translator = bStudio?.translator || (item as any).translator || parsedAuthor.translator;
@@ -3698,10 +3720,7 @@ function TheaterPageContent() {
                         : bStudio?.reading_status === 'ongoing' || (bStudio?.progress_percent || 0) > 0
                         ? 'ongoing'
                         : 'unstarted';
-                const onBedsideTable = Boolean(
-                    bStudio?.on_bedside_table === 1 ||
-                    (bStudio?.on_bedside_table === undefined && readingStatus === 'ongoing')
-                );
+                const onBedsideTable = Boolean(bStudio?.on_bedside_table === 1 || bStudio?.on_bedside_table === true);
 
                 const score = q ? smartMatchScore(q, cleanTitle, bookTitle, effectiveAuthor, translator || '', genre, inferredCollection || '', `${effectiveAuthor} ${cleanTitle}`) : 0;
                 map.set(key, {
@@ -3711,7 +3730,7 @@ function TheaterPageContent() {
                     rawTitle: bookTitle,
                     cleanTitle,
                     bookNumber,
-                    releaseYear,
+                    releaseYear: releaseYear ? String(releaseYear) : undefined,
                     inferredCollection,
                     author: effectiveAuthor,
                     rawAuthor: rawAuthorStr,
@@ -3726,7 +3745,7 @@ function TheaterPageContent() {
                     illustratedScenes: bStudio?.illustrated_scenes || 0,
                     authorThumb: (item as any).authorThumb,
                     folder: item.folder,
-                    posterUrl: item.posterUrl,
+                    posterUrl: item.posterUrl || bStudio?.thumb || bStudio?.custom_cover_url || undefined,
                     chapters: [],
                     totalDurationMs: 0,
                     hasOptimizedAudio,
@@ -3753,9 +3772,13 @@ function TheaterPageContent() {
             }
         }
 
-        // Sort chapters numerically
+        // Sort chapters numerically and enrich missing durations from SQLite studio metadata
         for (const b of map.values()) {
             b.chapters.sort((a, b) => (a.trackNumber || 0) - (b.trackNumber || 0) || a.title.localeCompare(b.title));
+            const bStudio = audiobooksStudioMap[b.bookKey];
+            if ((!b.totalDurationMs || b.totalDurationMs <= b.chapters.length * 300000) && bStudio?.total_duration_sec && Number(bStudio.total_duration_sec) > b.chapters.length * 300) {
+                b.totalDurationMs = Number(bStudio.total_duration_sec) * 1000;
+            }
         }
 
         const bookList = Array.from(map.values());
@@ -5826,9 +5849,9 @@ function TheaterPageContent() {
                                     bMeta?.custom_cover_url &&
                                     !bMeta.custom_cover_url.toLowerCase().includes('.svg')
                                 );
-                                const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : book.posterUrl;
-                                const isFinished = book.readingStatus === 'finished';
-                                const isBedside = book.onBedsideTable;
+                                const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : (book.posterUrl || bMeta?.thumb || bMeta?.custom_cover_url || null);
+                                const isFinished = bMeta ? bMeta.reading_status === 'finished' : book.readingStatus === 'finished';
+                                const isBedside = bMeta ? Boolean(bMeta.on_bedside_table === 1 || bMeta.on_bedside_table === true) : book.onBedsideTable;
 
                                 return (
                                     <div
@@ -6171,7 +6194,7 @@ function TheaterPageContent() {
                                                         bMeta?.custom_cover_url &&
                                                         !bMeta.custom_cover_url.toLowerCase().includes('.svg')
                                                     );
-                                                    const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : book.posterUrl;
+                                                    const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : (book.posterUrl || bMeta?.thumb || bMeta?.custom_cover_url || null);
                                                     const formattedDur = formatBookDuration(book.totalDurationMs);
 
                                                     return (
@@ -7723,7 +7746,7 @@ function TheaterPageContent() {
                     return `${s}s`;
                 };
                 const isFinished = bMeta?.reading_status === 'finished' || (selectedAudiobook as any).readingStatus === 'finished';
-                const isOnBedside = bMeta?.on_bedside_table === 1 || (selectedAudiobook as any).onBedsideTable || bMeta?.reading_status === 'ongoing';
+                const isOnBedside = bMeta ? Boolean(bMeta.on_bedside_table) : Boolean((selectedAudiobook as any).onBedsideTable);
 
                 return (
                 <div
@@ -7738,7 +7761,7 @@ function TheaterPageContent() {
                                 <div className="w-full aspect-[3/4] rounded-3xl bg-gradient-to-b from-[#2e1d11] to-[#120b07] border-2 border-amber-500/40 overflow-hidden flex items-center justify-center text-orange-400 shadow-2xl relative">
                                     {(() => {
                                         const customCoverActive = Boolean(bMeta?.use_custom_cover && bMeta?.custom_cover_url && !String(bMeta.custom_cover_url).toLowerCase().includes('.svg'));
-                                        const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : (audiobookDetails?.coverUrl || selectedAudiobook.posterUrl);
+                                        const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : (audiobookDetails?.coverUrl || bMeta?.thumb || selectedAudiobook.posterUrl);
 
                                         return effectiveCoverUrl ? (
                                             <img
@@ -7864,7 +7887,7 @@ function TheaterPageContent() {
                                                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                         }`}
                                     >
-                                        <Bookmark size={16} />
+                                        <Bookmark size={16} className={isOnBedside ? 'fill-current' : ''} />
                                         <span>Bedside</span>
                                     </button>
 
@@ -8065,7 +8088,7 @@ function TheaterPageContent() {
                                     <div className="space-y-5">
                                         {/* Prominent Top Creation Menu */}
                                         <div className="p-5 rounded-3xl bg-gradient-to-br from-purple-950/40 via-zinc-900 to-zinc-950 border-2 border-purple-500/50 space-y-4">
-                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div>
                                                     <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Style</label>
                                                     <select
@@ -8084,21 +8107,6 @@ function TheaterPageContent() {
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Scenes / Chapter</label>
-                                                    <select
-                                                        value={bMeta?.images_per_chapter || 3}
-                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { imagesPerChapter: Number(e.target.value) })}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-purple-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
-                                                    >
-                                                        <option value={1}>1 Scene / Chapter</option>
-                                                        <option value={2}>2 Scenes / Chapter</option>
-                                                        <option value={3}>3 Scenes / Chapter</option>
-                                                        <option value={4}>4 Scenes / Chapter</option>
-                                                        <option value={6}>6 Scenes / Chapter</option>
-                                                        <option value={8}>8 Scenes / Chapter</option>
-                                                    </select>
-                                                </div>
-                                                <div>
                                                     <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Focus</label>
                                                     <select
                                                         value={bMeta?.art_focus || 'auto-choice'}
@@ -8113,30 +8121,47 @@ function TheaterPageContent() {
                                                 </div>
                                             </div>
 
-                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                                                <button
-                                                    onClick={async () => {
-                                                        toast.info('Discovering book scenes...');
-                                                        await fetch('/api/theater/audiobooks/studio', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ action: 'discover_book_structure', bookKey: bKey })
-                                                        });
-                                                        toast.success('Auto-generated scenes');
-                                                        loadBookStudioChapters(selectedAudiobook);
-                                                    }}
-                                                    className="sm:col-span-5 py-3.5 px-5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-purple-200 border-2 border-purple-500/50 font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
-                                                >
-                                                    <Wand2 size={20} className="text-purple-400" />
-                                                    <span>Auto Gen Scenes</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'art')}
-                                                    className="sm:col-span-5 py-3.5 px-5 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-                                                >
-                                                    <Sparkles size={20} />
-                                                    <span>Gen All</span>
-                                                </button>
+                                            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <button
+                                                        onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
+                                                        title="Stage 1: Transcribe audio to timestamped text across all chapters"
+                                                        className="py-2.5 px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                                                    >
+                                                        <FileText size={16} />
+                                                        <span>1. Transcribe</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={async () => {
+                                                            toast.info('Detecting scene transitions from transcripts...');
+                                                            for (let i = 0; i < selectedAudiobook.chapters.length; i++) {
+                                                                const ch = selectedAudiobook.chapters[i];
+                                                                const cKey = `${bKey}::ch${i + 1}`;
+                                                                await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'detect_scenes');
+                                                            }
+                                                        }}
+                                                        title="Stage 2: LLM divides timestamped transcript into scene transitions & prompts"
+                                                        className="py-2.5 px-4 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                                                    >
+                                                        <Wand2 size={16} />
+                                                        <span>2. Detect Scenes</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={async () => {
+                                                            toast.info('Painting detected scenes...');
+                                                            for (let i = 0; i < selectedAudiobook.chapters.length; i++) {
+                                                                const ch = selectedAudiobook.chapters[i];
+                                                                const cKey = `${bKey}::ch${i + 1}`;
+                                                                await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'paint_scenes');
+                                                            }
+                                                        }}
+                                                        title="Stage 3: Paint artwork for detected scenes"
+                                                        className="py-2.5 px-4 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 shadow cursor-pointer"
+                                                    >
+                                                        <Sparkles size={16} />
+                                                        <span>3. Paint Art</span>
+                                                    </button>
+                                                </div>
                                                 <button
                                                     onClick={async () => {
                                                         await fetch('/api/theater/audiobooks/studio', {
@@ -8144,13 +8169,14 @@ function TheaterPageContent() {
                                                             headers: { 'Content-Type': 'application/json' },
                                                             body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'art', redoNow: false })
                                                         });
-                                                        toast.success('Deleted illustrations');
+                                                        toast.success('Cleared scenes & art');
                                                         loadBookStudioChapters(selectedAudiobook);
                                                     }}
-                                                    className="sm:col-span-2 py-3.5 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                                                    title="Clear all detected scenes and artwork"
+                                                    className="py-2.5 px-3.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
                                                 >
-                                                    <Trash2 size={16} />
-                                                    <span>Delete All</span>
+                                                    <Trash2 size={15} />
+                                                    <span>Clear</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -8166,33 +8192,67 @@ function TheaterPageContent() {
                                                     Object.values(audiobookChaptersStudioMap).find(
                                                         (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
                                                     );
-                                                const keptImages = (cMeta?.images || []).filter((im: any) => im.kept !== false && im.url && !String(im.url).toLowerCase().includes('.svg'));
-                                                const durSec = ch.durationMs ? Math.round(ch.durationMs / 1000) : 300;
-                                                const targetCount = Math.max(Number(bMeta?.images_per_chapter || 3), keptImages.length, 1);
+                                                const detectedScenes = (cMeta?.images || []).filter((im: any) => im.kept !== false && !String(im.url || '').toLowerCase().includes('.svg'));
+                                                const paintedScenes = detectedScenes.filter((im: any) => Boolean(im.url));
+                                                const hasTranscript = Boolean(cMeta?.synced_lyrics && String(cMeta.synced_lyrics).trim().length > 20);
+                                                const durSec = Number(cMeta?.duration_sec) > 0 && Number(cMeta?.duration_sec) !== 300
+                                                    ? Number(cMeta.duration_sec)
+                                                    : (ch.durationMs ? Math.round(ch.durationMs / 1000) : 300);
                                                 const isExpanded = Boolean(theaterExpandedChapters[idx]);
 
                                                 return (
                                                     <div key={cKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
                                                         <div
                                                             onClick={() => setTheaterExpandedChapters(prev => ({ ...prev, [idx]: !prev[idx] }))}
-                                                            className="p-4 bg-zinc-900/90 flex items-center justify-between gap-3 cursor-pointer"
+                                                            className="p-4 bg-zinc-900/90 flex items-center justify-between gap-3 cursor-pointer flex-wrap"
                                                         >
-                                                            <div className="flex items-center gap-3 min-w-0">
+                                                            <div className="flex items-center gap-3 min-w-0 flex-wrap">
                                                                 <span className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 font-mono text-sm font-black flex items-center justify-center">
                                                                     {idx + 1}
                                                                 </span>
                                                                 <span className="font-bold text-white text-base truncate">{ch.title || ch.name}</span>
-                                                                <span className="text-xs font-black text-purple-300">{keptImages.length} Scenes</span>
+                                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${hasTranscript ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                                                                    {hasTranscript ? 'Text ✓' : 'No Text'}
+                                                                </span>
+                                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${detectedScenes.length > 0 ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                                                                    {detectedScenes.length} Scenes
+                                                                </span>
+                                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${paintedScenes.length > 0 ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                                                                    {paintedScenes.length}/{detectedScenes.length} Art
+                                                                </span>
                                                             </div>
                                                             <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                                                <button
-                                                                    onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'illustrate')}
-                                                                    className="px-3.5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
-                                                                >
-                                                                    <RefreshCw size={14} className={runningBookModalTask === `${cKey}:illustrate` ? 'animate-spin' : ''} />
-                                                                    <span>{keptImages.length > 0 ? 'Regen Ch' : 'Gen Ch'}</span>
-                                                                </button>
-                                                                {keptImages.length > 0 && (
+                                                                {!hasTranscript && (
+                                                                    <button
+                                                                        onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'transcribe')}
+                                                                        title="Stage 1: Transcribe audio to timestamped text first"
+                                                                        className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                    >
+                                                                        <FileText size={14} className={runningBookModalTask === `${cKey}:transcribe` ? 'animate-spin' : ''} />
+                                                                        <span>1. Transcribe</span>
+                                                                    </button>
+                                                                )}
+                                                                {hasTranscript && (
+                                                                    <button
+                                                                        onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'detect_scenes')}
+                                                                        title="Stage 2: LLM divides timestamped transcript into scene transitions"
+                                                                        className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                    >
+                                                                        <Wand2 size={14} className={runningBookModalTask === `${cKey}:detect_scenes` ? 'animate-spin' : ''} />
+                                                                        <span>{detectedScenes.length > 0 ? 'Redetect' : '2. Scenes'}</span>
+                                                                    </button>
+                                                                )}
+                                                                {detectedScenes.length > 0 && (
+                                                                    <button
+                                                                        onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'paint_scenes')}
+                                                                        title="Stage 3: Paint images for detected scenes"
+                                                                        className="px-3 py-1.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                    >
+                                                                        <Sparkles size={14} className={runningBookModalTask === `${cKey}:paint_scenes` ? 'animate-spin' : ''} />
+                                                                        <span>{paintedScenes.length < detectedScenes.length ? '3. Paint' : 'Repaint'}</span>
+                                                                    </button>
+                                                                )}
+                                                                {detectedScenes.length > 0 && (
                                                                     <button
                                                                         onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'art', cKey)}
                                                                         className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
@@ -8205,125 +8265,156 @@ function TheaterPageContent() {
                                                         </div>
 
                                                         {isExpanded && (
-                                                            <div className="p-4 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                                {Array.from({ length: targetCount }).map((_, sIdx) => {
-                                                                    const img = keptImages[sIdx];
-                                                                    const sliceSec = Math.max(15, Math.round(durSec / targetCount));
-                                                                    const startSec = img?.timestampSec ?? (sIdx * sliceSec);
-                                                                    const endSec = img?.endTimestampSec ?? Math.min(durSec, (sIdx + 1) * sliceSec);
-                                                                    const draftKey = `${cKey}::s${sIdx}`;
-                                                                    const promptVal = theaterScenePromptDrafts[draftKey] !== undefined
-                                                                        ? theaterScenePromptDrafts[draftKey]
-                                                                        : (img?.prompt || '');
-                                                                    const isBusy = theaterRepaintingSceneKey === draftKey;
+                                                            <div className="p-4 border-t border-zinc-800">
+                                                                {detectedScenes.length === 0 ? (
+                                                                    <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4 flex-wrap">
+                                                                        <span className="text-sm font-bold text-zinc-400">
+                                                                            {!hasTranscript ? 'Stage 1 required: Transcribe audio to timestamped text first' : 'Stage 2 required: Detect scene transitions from transcript'}
+                                                                        </span>
+                                                                        {!hasTranscript ? (
+                                                                            <button
+                                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'transcribe')}
+                                                                                className="px-4 py-2 rounded-xl bg-amber-500 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                            >
+                                                                                <FileText size={14} />
+                                                                                <span>1. Transcribe</span>
+                                                                            </button>
+                                                                        ) : (
+                                                                            <button
+                                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'detect_scenes')}
+                                                                                className="px-4 py-2 rounded-xl bg-cyan-500 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                            >
+                                                                                <Wand2 size={14} />
+                                                                                <span>2. Detect Scenes</span>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                                        {detectedScenes.map((img: any, sIdx: number) => {
+                                                                            const startSec = img?.timestampSec ?? 0;
+                                                                            const endSec = img?.endTimestampSec ?? durSec;
+                                                                            const draftKey = `${cKey}::s${sIdx}`;
+                                                                            const promptVal = theaterScenePromptDrafts[draftKey] !== undefined
+                                                                                ? theaterScenePromptDrafts[draftKey]
+                                                                                : (img?.prompt || '');
+                                                                            const isBusy = theaterRepaintingSceneKey === draftKey;
 
-                                                                    return (
-                                                                        <div key={img?.id || sIdx} className="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between">
-                                                                            <div className="aspect-video bg-zinc-900 relative flex items-center justify-center overflow-hidden">
-                                                                                {img?.url ? (
-                                                                                    <img src={img.url} alt={`Scene ${sIdx + 1}`} className="w-full h-full object-cover" />
-                                                                                ) : (
-                                                                                    <button
-                                                                                        onClick={async () => {
-                                                                                            setTheaterRepaintingSceneKey(draftKey);
-                                                                                            await fetch('/api/theater/audiobooks/studio', {
-                                                                                                method: 'POST',
-                                                                                                headers: { 'Content-Type': 'application/json' },
-                                                                                                body: JSON.stringify({
-                                                                                                    action: 'regenerate_single_scene',
-                                                                                                    bookKey: bKey,
-                                                                                                    bookTitle: selectedAudiobook.title,
-                                                                                                    author: selectedAudiobook.author,
-                                                                                                    chapterKey: cKey,
-                                                                                                    chapterIndex: idx + 1,
-                                                                                                    chapterTitle: ch.title || ch.name,
-                                                                                                    filePath: ch.path || '',
-                                                                                                    durationSec: durSec,
-                                                                                                    sceneIndex: sIdx,
-                                                                                                    customPrompt: promptVal.trim() || undefined,
-                                                                                                    startSec,
-                                                                                                    endSec
-                                                                                                })
-                                                                                            });
-                                                                                            setTheaterRepaintingSceneKey(null);
-                                                                                            loadBookStudioChapters(selectedAudiobook);
-                                                                                        }}
-                                                                                        disabled={isBusy}
-                                                                                        className="px-4 py-2.5 rounded-xl bg-purple-500 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
-                                                                                    >
-                                                                                        <Sparkles size={15} className={isBusy ? 'animate-spin' : ''} />
-                                                                                        <span>{isBusy ? 'Painting...' : 'Gen Scene'}</span>
-                                                                                    </button>
-                                                                                )}
-                                                                                <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white text-xs font-black">
-                                                                                    Scene {sIdx + 1}
-                                                                                </span>
-                                                                            </div>
-                                                                            <div className="p-3 space-y-2">
-                                                                                <input
-                                                                                    type="text"
-                                                                                    value={promptVal}
-                                                                                    onChange={e => setTheaterScenePromptDrafts(prev => ({ ...prev, [draftKey]: e.target.value }))}
-                                                                                    placeholder="Scene prompt..."
-                                                                                    className="w-full px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-white"
-                                                                                />
-                                                                                <div className="flex items-center justify-between gap-2">
-                                                                                    <button
-                                                                                        onClick={async () => {
-                                                                                            setTheaterRepaintingSceneKey(draftKey);
-                                                                                            await fetch('/api/theater/audiobooks/studio', {
-                                                                                                method: 'POST',
-                                                                                                headers: { 'Content-Type': 'application/json' },
-                                                                                                body: JSON.stringify({
-                                                                                                    action: 'regenerate_single_scene',
-                                                                                                    bookKey: bKey,
-                                                                                                    bookTitle: selectedAudiobook.title,
-                                                                                                    author: selectedAudiobook.author,
-                                                                                                    chapterKey: cKey,
-                                                                                                    chapterIndex: idx + 1,
-                                                                                                    chapterTitle: ch.title || ch.name,
-                                                                                                    filePath: ch.path || '',
-                                                                                                    durationSec: durSec,
-                                                                                                    imageId: img?.id,
-                                                                                                    sceneIndex: sIdx,
-                                                                                                    customPrompt: promptVal.trim() || undefined,
-                                                                                                    startSec,
-                                                                                                    endSec
-                                                                                                })
-                                                                                            });
-                                                                                            setTheaterRepaintingSceneKey(null);
-                                                                                            loadBookStudioChapters(selectedAudiobook);
-                                                                                        }}
-                                                                                        disabled={isBusy}
-                                                                                        className="flex-1 py-1.5 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-500/40 text-xs font-black uppercase cursor-pointer"
-                                                                                    >
-                                                                                        {img ? 'Regen' : 'Gen'}
-                                                                                    </button>
-                                                                                    {img?.id && (
-                                                                                        <button
-                                                                                            onClick={async () => {
-                                                                                                await fetch('/api/theater/audiobooks/studio', {
-                                                                                                    method: 'POST',
-                                                                                                    headers: { 'Content-Type': 'application/json' },
-                                                                                                    body: JSON.stringify({
-                                                                                                        action: 'curate_images',
-                                                                                                        chapterKey: cKey,
-                                                                                                        imageId: img.id,
-                                                                                                        subAction: 'delete'
-                                                                                                    })
-                                                                                                });
-                                                                                                loadBookStudioChapters(selectedAudiobook);
-                                                                                            }}
-                                                                                            className="p-1.5 rounded-lg bg-red-500/15 text-red-300 cursor-pointer"
-                                                                                        >
-                                                                                            <Trash2 size={14} />
-                                                                                        </button>
-                                                                                    )}
+                                                                            return (
+                                                                                <div key={img?.id || sIdx} className="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between">
+                                                                                    <div className="aspect-video bg-zinc-900 relative flex items-center justify-center overflow-hidden">
+                                                                                        {img?.url ? (
+                                                                                            <img src={img.url} alt={`Scene ${sIdx + 1}`} className="w-full h-full object-cover" />
+                                                                                        ) : (
+                                                                                            <button
+                                                                                                onClick={async () => {
+                                                                                                    setTheaterRepaintingSceneKey(draftKey);
+                                                                                                    await fetch('/api/theater/audiobooks/studio', {
+                                                                                                        method: 'POST',
+                                                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                                                        body: JSON.stringify({
+                                                                                                            action: 'regenerate_single_scene',
+                                                                                                            bookKey: bKey,
+                                                                                                            bookTitle: selectedAudiobook.title,
+                                                                                                            author: selectedAudiobook.author,
+                                                                                                            chapterKey: cKey,
+                                                                                                            chapterIndex: idx + 1,
+                                                                                                            chapterTitle: ch.title || ch.name,
+                                                                                                            filePath: ch.path || '',
+                                                                                                            durationSec: durSec,
+                                                                                                            imageId: img?.id,
+                                                                                                            sceneIndex: sIdx,
+                                                                                                            customPrompt: promptVal.trim() || undefined,
+                                                                                                            startSec,
+                                                                                                            endSec
+                                                                                                        })
+                                                                                                    });
+                                                                                                    setTheaterRepaintingSceneKey(null);
+                                                                                                    loadBookStudioChapters(selectedAudiobook);
+                                                                                                }}
+                                                                                                disabled={isBusy}
+                                                                                                className="px-3.5 py-2 rounded-xl bg-purple-500 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                                            >
+                                                                                                <Sparkles size={14} className={isBusy ? 'animate-spin' : ''} />
+                                                                                                <span>{isBusy ? 'Painting...' : 'Paint'}</span>
+                                                                                            </button>
+                                                                                        )}
+                                                                                        <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white text-xs font-black">
+                                                                                            #{sIdx + 1} · {Math.floor(startSec / 60)}:{String(Math.floor(startSec % 60)).padStart(2, '0')} - {Math.floor(endSec / 60)}:{String(Math.floor(endSec % 60)).padStart(2, '0')}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="p-3 space-y-2">
+                                                                                        {img?.sceneTitle && (
+                                                                                            <div className="text-xs font-black text-purple-300 truncate" title={img.transitionReason || img.sceneTitle}>
+                                                                                                {img.sceneTitle}
+                                                                                            </div>
+                                                                                        )}
+                                                                                        <input
+                                                                                            type="text"
+                                                                                            value={promptVal}
+                                                                                            onChange={e => setTheaterScenePromptDrafts(prev => ({ ...prev, [draftKey]: e.target.value }))}
+                                                                                            placeholder="Scene prompt..."
+                                                                                            className="w-full px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-white"
+                                                                                        />
+                                                                                        <div className="flex items-center justify-between gap-2">
+                                                                                            <button
+                                                                                                onClick={async () => {
+                                                                                                    setTheaterRepaintingSceneKey(draftKey);
+                                                                                                    await fetch('/api/theater/audiobooks/studio', {
+                                                                                                        method: 'POST',
+                                                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                                                        body: JSON.stringify({
+                                                                                                            action: 'regenerate_single_scene',
+                                                                                                            bookKey: bKey,
+                                                                                                            bookTitle: selectedAudiobook.title,
+                                                                                                            author: selectedAudiobook.author,
+                                                                                                            chapterKey: cKey,
+                                                                                                            chapterIndex: idx + 1,
+                                                                                                            chapterTitle: ch.title || ch.name,
+                                                                                                            filePath: ch.path || '',
+                                                                                                            durationSec: durSec,
+                                                                                                            imageId: img?.id,
+                                                                                                            sceneIndex: sIdx,
+                                                                                                            customPrompt: promptVal.trim() || undefined,
+                                                                                                            startSec,
+                                                                                                            endSec
+                                                                                                        })
+                                                                                                    });
+                                                                                                    setTheaterRepaintingSceneKey(null);
+                                                                                                    loadBookStudioChapters(selectedAudiobook);
+                                                                                                }}
+                                                                                                disabled={isBusy}
+                                                                                                className="flex-1 py-1.5 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-500/40 text-xs font-black uppercase cursor-pointer"
+                                                                                            >
+                                                                                                {img?.url ? 'Repaint' : 'Paint'}
+                                                                                            </button>
+                                                                                            {img?.id && (
+                                                                                                <button
+                                                                                                    onClick={async () => {
+                                                                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                                                                            method: 'POST',
+                                                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                                                            body: JSON.stringify({
+                                                                                                                action: 'curate_images',
+                                                                                                                chapterKey: cKey,
+                                                                                                                imageId: img.id,
+                                                                                                                subAction: 'delete'
+                                                                                                            })
+                                                                                                        });
+                                                                                                        loadBookStudioChapters(selectedAudiobook);
+                                                                                                    }}
+                                                                                                    className="p-1.5 rounded-lg bg-red-500/15 text-red-300 cursor-pointer"
+                                                                                                >
+                                                                                                    <Trash2 size={14} />
+                                                                                                </button>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
                                                                                 </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         )}
                                                     </div>

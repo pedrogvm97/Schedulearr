@@ -8,6 +8,11 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.17] Strict 3-Stage Sequential Audiobook Pipeline (Audio -> Timestamped Text -> LLM Scenes -> Painted Art), Unified Theater/Media Book State, and Overhauled /tasks Resource Categories & EPG Scheduler',
+  '  - Enforce strict sequential Audiobook pipeline: Stage 1 (Audio -> Timestamped Text via Cloud STT or Local whisper.cpp) -> Stage 2 (Timestamped Text -> LLM Scene Transition Timestamps & Prompts) -> Stage 3 (Created Scenes -> Painted Artwork), plus 1:1 cadence-matched FFmpeg Voice DSP',
+  '  - Remove fake uncreated Scene 1 (0:00-3:00) placeholder cards and premature GEN SCENE buttons when chapters have 0 detected scenes',
+  '  - Unify canonical book_key, cover art, original publication year (e.g. 1915 vs recording year), duration, and filled Bedside icon across Theater and Media',
+  '  - Overhaul /tasks with 4 Resource Categories (Using LLMs, Using Local CPU, Using External APIs, Consuming Quotas), 4 separate pipeline queues, and inline EPG Sync Scheduler & Frequency per Live TV provider',
   '• [v0.6.16] Slow-feed chronological LLM scene transition detector, real native + local Whisper.cpp transcription, visual Series cards grid, character-grounded art prompts, and dark scrollbars',
   '  - Replace broken dynamic form-data import in Docker standalone with native Node 20 FormData/Blob + compiled local C++ whisper-cli (whisper.cpp) + active HuggingFace Whisper Spaces, with full-chapter checkpointing and live progress polling',
   '  - Replace fixed "Scenes / Chapter" math division with a chronological 3-minute excerpt-by-excerpt LLM scene transition detector that reads each file window, identifies exact transition timestamps, reasons, and characters, and paints story-specific scenes',
@@ -82,7 +87,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.16';
+    let currentVersion = '0.6.17';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

@@ -60,7 +60,9 @@ const CLIENT_BOOK_CATALOG: Array<{ pattern: RegExp; cleanTitle: string; collecti
     { pattern: /\bchapterhouse[:\s]+dune\b/i, cleanTitle: 'Chapterhouse: Dune', collection: 'Dune Chronicles', bookNumber: 6, releaseYear: '1985' },
     // Frank Herbert — ConSentiency
     { pattern: /\bwhipping\s+star\b/i, cleanTitle: 'Whipping Star', collection: 'ConSentiency', bookNumber: 1, releaseYear: '1970' },
-    { pattern: /\bthe\s+dosadi\s+experiment\b/i, cleanTitle: 'The Dosadi Experiment', collection: 'ConSentiency', bookNumber: 2, releaseYear: '1977' }
+    { pattern: /\bthe\s+dosadi\s+experiment\b/i, cleanTitle: 'The Dosadi Experiment', collection: 'ConSentiency', bookNumber: 2, releaseYear: '1977' },
+    // Franz Kafka
+    { pattern: /\b(?:the\s+)?metamorphosis\b/i, cleanTitle: 'The Metamorphosis', collection: '', bookNumber: 1, releaseYear: '1915' }
 ];
 
 function parseBookMetaClient(rawBookTitle: string, folder?: string, filePath?: string) {
@@ -582,6 +584,7 @@ export function AudiobooksMediaManager() {
             let illCh = 0;
             let enhCh = 0;
             let totalScenesCount = 0;
+            let summedChapterDurSec = 0;
 
             effectiveChapters.forEach((chTrack: any, idx: number) => {
                 const cMeta =
@@ -591,9 +594,16 @@ export function AudiobooksMediaManager() {
                     studioChaptersMap[`${book.bookKey}::ch${idx + 1}`] ||
                     dbChaps.find((c: any) => Number(c.chapter_index) === idx + 1 || Number(c.chapter_index) === idx || (chTrack.path && c.file_path === chTrack.path));
 
+                const cDurSec = Number(cMeta?.duration_sec || 0);
+                if ((!chTrack.durationMs || chTrack.durationMs === 300000) && cDurSec > 0 && cDurSec !== 300) {
+                    chTrack.durationMs = cDurSec * 1000;
+                }
+                const trackDurSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : cDurSec;
+                if (trackDurSec > 0) summedChapterDurSec += trackDurSec;
+
                 if (cMeta) {
                     if (cMeta.transcription_status === 'completed' && cMeta.synced_lyrics) transCh++;
-                    const validImages = (cMeta.images || []).filter((i: any) => i.kept !== false && i.url && !String(i.url).toLowerCase().includes('.svg'));
+                    const validImages = (cMeta.images || []).filter((i: any) => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
                     if (validImages.length > 0) {
                         illCh++;
                         totalScenesCount += validImages.length;
@@ -609,6 +619,10 @@ export function AudiobooksMediaManager() {
                 ? customCoverUrl
                 : (book.posterUrl || meta?.thumb || customCoverUrl || null);
 
+            const rawBookDurSec = book.totalDurationMs ? Math.round(book.totalDurationMs / 1000) : 0;
+            const metaDurSec = Number(meta?.total_duration_sec || 0);
+            const effectiveTotalDurSec = Math.max(rawBookDurSec, summedChapterDurSec, metaDurSec);
+
             return {
                 ...book,
                 chapters: effectiveChapters,
@@ -619,7 +633,7 @@ export function AudiobooksMediaManager() {
                 translator: meta?.translator || book.translator || null,
                 narrator: meta?.narrator || book.narrator || null,
                 genre: meta?.genre || book.genre || inferBookGenre(book.cleanTitle, book.author, book.inferredCollection),
-                publishedYear: meta?.published_year ? String(meta.published_year) : (book.releaseYear || null),
+                publishedYear: book.releaseYear || (meta?.published_year ? String(meta.published_year) : null),
                 posterUrl: effectivePosterUrl,
                 customCoverUrl,
                 meta,
@@ -627,7 +641,7 @@ export function AudiobooksMediaManager() {
                 transCh,
                 illCh,
                 enhCh,
-                totalDurSec: Number(meta?.total_duration_sec || (book.totalDurationMs ? Math.round(book.totalDurationMs / 1000) : 0)),
+                totalDurSec: effectiveTotalDurSec,
                 illustratedScenes: totalScenesCount || Number(meta?.illustrated_scenes || 0),
                 isQueued: Boolean(meta?.queue_enabled || meta?.is_queued === 1),
                 queueOrder: Number(meta?.queue_priority || meta?.queue_order || 0)
@@ -905,7 +919,7 @@ export function AudiobooksMediaManager() {
                         chapterKey: `${book.bookKey}::ch${idx + 1}`,
                         title: t.title || t.name || `Chapter ${idx + 1}`,
                         path: t.path || '',
-                        durationSec: t.durationMs ? Math.round(t.durationMs / 1000) : 300
+                        durationSec: t.durationMs ? Math.round(t.durationMs / 1000) : 0
                     }))
                 })
             });
@@ -1040,7 +1054,7 @@ export function AudiobooksMediaManager() {
         }
     };
 
-    // AUTO GEN SCENES: Runs slow-feed chronological LLM excerpt-by-excerpt scene transition discovery & illustration across the book
+    // STAGE 2: Detect Scene Transitions with LLM from Timestamped Transcript (without painting images yet)
     const handleAutoGenScenes = async () => {
         if (!currentModalBook) return;
         setRunningStudioAction('auto_gen_scenes');
@@ -1064,7 +1078,7 @@ export function AudiobooksMediaManager() {
                     chapterTitle: firstCh?.title || firstCh?.name || 'Chapter 1',
                     filePath: firstCh?.path || firstMeta.file_path || '',
                     durationSec: firstCh?.durationMs ? Math.round(firstCh.durationMs / 1000) : (firstMeta.duration_sec || 300),
-                    taskType: aiSubTab === 'transcription' ? 'transcribe' : 'illustrate',
+                    taskType: aiSubTab === 'transcription' ? 'transcribe' : 'detect_scenes',
                     artStyle: editArtStyle || undefined,
                     voicePreset: editVoicePreset || undefined,
                     runInBackground: true,
@@ -1074,13 +1088,59 @@ export function AudiobooksMediaManager() {
             const data = await res.json();
             if (res.ok && data.success !== false) {
                 setExpandedChapterIndices(prev => ({ ...prev, 0: true }));
-                toast.info(`Started slow-feed LLM scene transition reading for "${currentModalBook.title}"`);
+                toast.info(`Started LLM Scene Detection across "${currentModalBook.title}"`);
                 pollStudioOnly();
             } else {
-                toast.error(data.error || 'Failed to start scene discovery');
+                toast.error(data.error || 'Complete Step 1 (Transcription) before detecting scenes');
             }
         } catch {
-            toast.error('Failed to start scene discovery');
+            toast.error('Failed to start scene detection');
+        } finally {
+            setRunningStudioAction(null);
+        }
+    };
+
+    // STAGE 3: Paint Created Scenes with Image API across the book
+    const handlePaintAllScenes = async () => {
+        if (!currentModalBook) return;
+        setRunningStudioAction('paint_all_scenes');
+        try {
+            await handleSaveBookStudioSettings(true);
+            await syncBookChaptersSilently(currentModalBook);
+            const firstCh = currentModalBook.chapters[0];
+            const firstMeta = firstCh ? resolveChapterMeta(currentModalBook.bookKey, firstCh, 0) : {};
+            const firstChKey = firstMeta.chapter_key || `${currentModalBook.bookKey}::ch1`;
+
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'run_chapter_task',
+                    bookKey: currentModalBook.bookKey,
+                    bookTitle: currentModalBook.title,
+                    author: currentModalBook.author,
+                    chapterKey: firstChKey,
+                    chapterIndex: 1,
+                    chapterTitle: firstCh?.title || firstCh?.name || 'Chapter 1',
+                    filePath: firstCh?.path || firstMeta.file_path || '',
+                    durationSec: firstCh?.durationMs ? Math.round(firstCh.durationMs / 1000) : (firstMeta.duration_sec || 300),
+                    taskType: 'paint_scenes',
+                    artStyle: editArtStyle || undefined,
+                    voicePreset: editVoicePreset || undefined,
+                    runInBackground: true,
+                    allChapters: true
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success !== false) {
+                setExpandedChapterIndices(prev => ({ ...prev, 0: true }));
+                toast.info(`Started painting detected scenes across "${currentModalBook.title}"`);
+                pollStudioOnly();
+            } else {
+                toast.error(data.error || 'Detect scenes (Step 2) before painting');
+            }
+        } catch {
+            toast.error('Failed to start scene painting');
         } finally {
             setRunningStudioAction(null);
         }
@@ -1103,25 +1163,10 @@ export function AudiobooksMediaManager() {
 
             const label =
                 targetSubTab === 'illustration'
-                    ? 'Illustrations'
+                    ? 'Full Pipeline (Transcribe → Scenes → Paint)'
                     : targetSubTab === 'transcription'
                     ? 'Transcriptions'
                     : 'Voice Audio';
-
-            // If Illustration, also generate/ensure book cover in background
-            if (targetSubTab === 'illustration' && !currentModalBook.customCoverUrl) {
-                fetch('/api/theater/audiobooks/studio', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'generate_book_cover',
-                        bookKey: currentModalBook.bookKey,
-                        title: currentModalBook.title,
-                        author: currentModalBook.author,
-                        activateImmediately: true
-                    })
-                }).catch(() => {});
-            }
 
             const firstCh = currentModalBook.chapters[0];
             const firstMeta = firstCh ? resolveChapterMeta(currentModalBook.bookKey, firstCh, 0) : {};
@@ -1150,7 +1195,7 @@ export function AudiobooksMediaManager() {
             const data = await res.json();
             if (res.ok && data.success !== false) {
                 setExpandedChapterIndices(prev => ({ ...prev, 0: true }));
-                toast.info(`Started ${label} across all chapters of "${currentModalBook.title}"`);
+                toast.info(`Started ${label} across "${currentModalBook.title}"`);
                 pollStudioOnly();
             } else {
                 toast.error(data.error || `Failed to start ${label}`);
@@ -1229,7 +1274,12 @@ export function AudiobooksMediaManager() {
         }
     };
 
-    const handleRunChapterTask = async (chTrack: any, idx: number, task: 'transcribe' | 'illustrate' | 'enhance' | 'all', overrideVoicePreset?: string) => {
+    const handleRunChapterTask = async (
+        chTrack: any,
+        idx: number,
+        task: 'transcribe' | 'detect_scenes' | 'paint_scenes' | 'illustrate' | 'enhance' | 'all',
+        overrideVoicePreset?: string
+    ) => {
         if (!currentModalBook) return;
         const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, idx);
         const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${idx + 1}`;
@@ -1260,7 +1310,16 @@ export function AudiobooksMediaManager() {
             });
             const data = await res.json();
             if (res.ok && data.success !== false) {
-                const taskLabel = task === 'transcribe' ? 'Transcription' : task === 'illustrate' ? 'Scene Illustration' : 'Voice Enhancement';
+                const taskLabel =
+                    task === 'transcribe'
+                        ? 'Step 1: Transcription'
+                        : task === 'detect_scenes'
+                        ? 'Step 2: LLM Scene Detection'
+                        : task === 'paint_scenes'
+                        ? 'Step 3: Scene Painting'
+                        : task === 'illustrate'
+                        ? 'Full Scene Pipeline'
+                        : 'Voice Enhancement';
                 toast.info(`Started ${taskLabel} for Chapter ${idx + 1}`);
                 pollStudioOnly();
             } else {
@@ -2772,36 +2831,46 @@ export function AudiobooksMediaManager() {
                                                     </div>
                                                 </div>
 
-                                                {/* HUGE PRIMARY ACTION BUTTONS: AUTO GEN SCENES + GEN ALL */}
-                                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+                                                {/* SEQUENTIAL 3-STAGE PIPELINE CONTROLS: 1. TRANSCRIBE -> 2. DETECT SCENES (LLM) -> 3. PAINT SCENES (API) */}
+                                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 pt-1">
                                                     <button
-                                                        onClick={handleAutoGenScenes}
+                                                        onClick={() => handleGenAllForSubTab('transcription')}
                                                         disabled={runningStudioAction !== null}
-                                                        title="Read chapter excerpts chronologically with LLM to detect exact scene transitions and paint each scene"
-                                                        className="sm:col-span-5 py-4 px-6 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-purple-200 border-2 border-purple-500/50 font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-lg cursor-pointer disabled:opacity-50"
+                                                        title="Stage 1: Transcribe audio to timestamped text across all chapters"
+                                                        className="sm:col-span-3 py-3 px-4 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                                                     >
-                                                        <Wand2 size={22} className={runningStudioAction === 'auto_gen_scenes' ? 'animate-spin text-purple-400' : 'text-purple-400'} />
-                                                        <span>Auto Gen Scenes</span>
+                                                        <Mic2 size={18} className={runningStudioAction === 'gen_all_transcription' ? 'animate-spin text-amber-400' : 'text-amber-400'} />
+                                                        <span>1. Transcribe</span>
                                                     </button>
 
                                                     <button
-                                                        onClick={() => handleGenAllForSubTab('illustration')}
+                                                        onClick={handleAutoGenScenes}
                                                         disabled={runningStudioAction !== null}
-                                                        title="Discover scene transitions and generate illustrations across all chapters"
-                                                        className="sm:col-span-5 py-4 px-6 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-xl shadow-purple-500/30 cursor-pointer disabled:opacity-50"
+                                                        title="Stage 2: Feed timestamped transcript into LLM to create scene transition timestamps and prompts"
+                                                        className="sm:col-span-4 py-3 px-4 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-purple-200 border border-purple-500/50 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                                                     >
-                                                        <Sparkles size={22} className={runningStudioAction === 'gen_all_illustration' ? 'animate-spin' : ''} />
-                                                        <span>Gen All</span>
+                                                        <Wand2 size={18} className={runningStudioAction === 'auto_gen_scenes' ? 'animate-spin text-purple-400' : 'text-purple-400'} />
+                                                        <span>2. Detect Scenes</span>
+                                                    </button>
+
+                                                    <button
+                                                        onClick={handlePaintAllScenes}
+                                                        disabled={runningStudioAction !== null}
+                                                        title="Stage 3: Paint artwork for all LLM-detected scenes using Image API"
+                                                        className="sm:col-span-3 py-3 px-4 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-purple-500/25 cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        <Sparkles size={18} className={runningStudioAction === 'paint_all_scenes' ? 'animate-spin' : ''} />
+                                                        <span>3. Paint Art</span>
                                                     </button>
 
                                                     <button
                                                         onClick={() => handleResetAssets('illustrations', undefined, false)}
                                                         disabled={runningStudioAction !== null}
-                                                        title="Delete all generated illustrations for this book"
-                                                        className="sm:col-span-2 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                                        title="Delete all scenes and illustrations for this book"
+                                                        className="sm:col-span-2 py-3 px-3 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                                                     >
-                                                        <Trash2 size={18} />
-                                                        <span>Delete All</span>
+                                                        <Trash2 size={16} />
+                                                        <span>Clear</span>
                                                     </button>
                                                 </div>
                                             </div>
@@ -2843,19 +2912,26 @@ export function AudiobooksMediaManager() {
                                                 </div>
                                             </div>
 
-                                            {/* ── BELOW: CHAPTERS & CREATED SCENES DIVISION (WITH INDIVIDUAL DELETE / ADD / REGEN) ── */}
+                                            {/* ── BELOW: CHAPTERS & CREATED SCENES DIVISION (SEQUENTIAL PIPELINE: 1. TRANSCRIBE -> 2. DETECT SCENES -> 3. PAINT) ── */}
                                             <div className="space-y-4">
                                                 {currentModalBook.chapters.map((chTrack: any, chIdx: number) => {
                                                     const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
                                                     const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${chIdx + 1}`;
                                                     const durSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : (chMeta.duration_sec || 300);
-                                                    const existingImages: any[] = (chMeta.images || []).filter(
-                                                        (i: any) => i.kept !== false && i.url && !String(i.url).toLowerCase().includes('.svg')
+                                                    const rawLyrics: string = chMeta.synced_lyrics || '';
+                                                    const transcriptLinesCount = rawLyrics.split('\n').map((l: string) => l.trim()).filter(Boolean).length;
+                                                    const isTranscribed = chMeta.transcription_status === 'completed' && transcriptLinesCount > 0;
+                                                    const isTranscribing = chMeta.transcription_status === 'processing' || runningChapterTaskKey === `${chapterKey}::transcribe`;
+
+                                                    const detectedScenes: any[] = (chMeta.images || []).filter(
+                                                        (i: any) => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg')
                                                     );
+                                                    const paintedScenesCount = detectedScenes.filter((i: any) => Boolean(i.url)).length;
                                                     const isExpanded = Boolean(expandedChapterIndices[chIdx]);
-                                                    const isIllProcessing = chMeta.illustration_status === 'processing' || runningChapterTaskKey === `${chapterKey}::illustrate`;
+                                                    const isDetectingScenes = runningChapterTaskKey === `${chapterKey}::detect_scenes` || chMeta.illustration_status === 'scenes_detected';
+                                                    const isPaintingScenes = runningChapterTaskKey === `${chapterKey}::paint_scenes`;
+                                                    const isIllProcessing = chMeta.illustration_status === 'processing' || runningChapterTaskKey === `${chapterKey}::illustrate` || runningChapterTaskKey === `${chapterKey}::detect_scenes` || runningChapterTaskKey === `${chapterKey}::paint_scenes`;
                                                     const illProgress = Number(chMeta.illustration_progress || 0);
-                                                    const targetSlotsCount = Math.max(existingImages.length, 1);
 
                                                     return (
                                                         <div key={chapterKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
@@ -2872,15 +2948,23 @@ export function AudiobooksMediaManager() {
                                                                         <h5 className="text-base sm:text-lg font-black text-white truncate">
                                                                             {chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`}
                                                                         </h5>
-                                                                        <div className="flex items-center gap-2.5 text-xs font-bold text-zinc-400 flex-wrap">
+                                                                        <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 flex-wrap mt-0.5">
                                                                             <span className="font-mono">{formatMMSS(durSec)}</span>
                                                                             <span>•</span>
-                                                                            <span className={existingImages.length > 0 ? 'text-purple-300 font-black' : 'text-zinc-500'}>
-                                                                                {existingImages.length} {existingImages.length === 1 ? 'Scene' : 'Scenes'}
+                                                                            <span className={isTranscribed ? 'text-amber-300 font-black' : 'text-zinc-500'}>
+                                                                                {isTranscribed ? `1. Text (${transcriptLinesCount} lines)` : '1. No Transcript'}
+                                                                            </span>
+                                                                            <span>•</span>
+                                                                            <span className={detectedScenes.length > 0 ? 'text-purple-300 font-black' : 'text-zinc-500'}>
+                                                                                2. {detectedScenes.length} {detectedScenes.length === 1 ? 'Scene' : 'Scenes'}
+                                                                            </span>
+                                                                            <span>•</span>
+                                                                            <span className={paintedScenesCount > 0 ? 'text-emerald-300 font-black' : 'text-zinc-500'}>
+                                                                                3. {paintedScenesCount}/{detectedScenes.length} Painted
                                                                             </span>
                                                                             {isIllProcessing && (
                                                                                 <span className="px-2.5 py-0.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-purple-200 font-mono font-black animate-pulse">
-                                                                                    Reading &amp; Painting {illProgress > 0 ? `${illProgress}%` : '...'}
+                                                                                    Working {illProgress > 0 ? `${illProgress}%` : '...'}
                                                                                 </span>
                                                                             )}
                                                                             {chMeta.illustration_status === 'failed' && chMeta.error_message && (
@@ -2892,14 +2976,54 @@ export function AudiobooksMediaManager() {
                                                                     </div>
                                                                 </div>
 
-                                                                {/* Individual Chapter Tools: + Add Scene | Gen Chapter | Delete All */}
+                                                                {/* Individual Chapter Sequential Tools: 1. Transcribe | 2. Detect Scenes | 3. Paint | + Scene */}
                                                                 <div className="flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+                                                                    {!isTranscribed && (
+                                                                        <button
+                                                                            onClick={() => handleRunChapterTask(chTrack, chIdx, 'transcribe')}
+                                                                            disabled={isTranscribing}
+                                                                            title="Stage 1: Transcribe chapter audio to timestamped text first"
+                                                                            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                        >
+                                                                            <Mic2 size={15} className={isTranscribing ? 'animate-spin' : ''} />
+                                                                            <span>{isTranscribing ? 'Transcribing...' : '1. Transcribe'}</span>
+                                                                        </button>
+                                                                    )}
+
+                                                                    <button
+                                                                        onClick={() => handleRunChapterTask(chTrack, chIdx, 'detect_scenes')}
+                                                                        disabled={!isTranscribed || isIllProcessing}
+                                                                        title={
+                                                                            !isTranscribed
+                                                                                ? 'Requires Stage 1 (Timestamped Transcript) before LLM can detect scene transitions'
+                                                                                : 'Stage 2: Feed timestamped transcript to LLM in 3-minute windows to create scenes with transition timestamps'
+                                                                        }
+                                                                        className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-purple-200 border border-purple-500/50 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                                                                    >
+                                                                        <Wand2 size={15} className={runningChapterTaskKey === `${chapterKey}::detect_scenes` ? 'animate-spin text-purple-400' : 'text-purple-400'} />
+                                                                        <span>{detectedScenes.length > 0 ? '2. Redetect' : '2. Scenes'}</span>
+                                                                    </button>
+
+                                                                    <button
+                                                                        onClick={() => handleRunChapterTask(chTrack, chIdx, 'paint_scenes')}
+                                                                        disabled={detectedScenes.length === 0 || isIllProcessing}
+                                                                        title={
+                                                                            detectedScenes.length === 0
+                                                                                ? 'Requires Stage 2 (Detected Scenes with timestamps) before painting images'
+                                                                                : 'Stage 3: Paint images for all detected scenes in this chapter'
+                                                                        }
+                                                                        className="px-3.5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                                                                    >
+                                                                        <Sparkles size={15} className={isPaintingScenes ? 'animate-spin' : ''} />
+                                                                        <span>3. Paint</span>
+                                                                    </button>
+
                                                                     <button
                                                                         onClick={() => {
                                                                             setExpandedChapterIndices(prev => ({ ...prev, [chIdx]: true }));
-                                                                            const newIdx = existingImages.length;
-                                                                            const lastEnd = existingImages.length > 0
-                                                                                ? (existingImages[existingImages.length - 1]?.endSec ?? existingImages[existingImages.length - 1]?.endTimestampSec ?? 0)
+                                                                            const newIdx = detectedScenes.length;
+                                                                            const lastEnd = detectedScenes.length > 0
+                                                                                ? (detectedScenes[detectedScenes.length - 1]?.endSec ?? detectedScenes[detectedScenes.length - 1]?.endTimestampSec ?? 0)
                                                                                 : 0;
                                                                             const nextStart = lastEnd > 0 && lastEnd < durSec - 30 ? lastEnd : Math.min(durSec - 30, newIdx * 180);
                                                                             handleRepaintSingleScene(chTrack, chIdx, {
@@ -2910,24 +3034,14 @@ export function AudiobooksMediaManager() {
                                                                                 artType: 'scene'
                                                                             });
                                                                         }}
-                                                                        title="Add and generate a new scene in this chapter"
-                                                                        className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-purple-300 border border-purple-500/40 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                        title="Manually add a custom scene window to this chapter"
+                                                                        className="px-3 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-xs font-black uppercase flex items-center gap-1 cursor-pointer"
                                                                     >
-                                                                        <Plus size={15} />
-                                                                        <span>Add Scene</span>
+                                                                        <Plus size={14} />
+                                                                        <span>Scene</span>
                                                                     </button>
 
-                                                                    <button
-                                                                        onClick={() => handleRunChapterTask(chTrack, chIdx, 'illustrate')}
-                                                                        disabled={isIllProcessing}
-                                                                        title="Read this chapter in 3-minute excerpt windows with LLM to detect scene transitions and generate illustrations"
-                                                                        className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                                    >
-                                                                        <RefreshCw size={15} className={isIllProcessing ? 'animate-spin' : ''} />
-                                                                        <span>{isIllProcessing ? 'Working...' : existingImages.length > 0 ? 'Regen Ch' : 'Gen Ch'}</span>
-                                                                    </button>
-
-                                                                    {existingImages.length > 0 && (
+                                                                    {detectedScenes.length > 0 && (
                                                                         <button
                                                                             onClick={() => handleResetAssets('illustrations', chapterKey, false)}
                                                                             title="Delete all scenes in this chapter"
@@ -2943,147 +3057,216 @@ export function AudiobooksMediaManager() {
                                                                 </div>
                                                             </div>
 
-                                                            {/* Expanded Chapter Scenes Grid */}
+                                                            {/* Expanded Chapter Content: Either Sequential Pipeline Status (when 0 scenes) or Real Detected Scenes Grid */}
                                                             {isExpanded && (
-                                                                <div className="p-5 border-t border-zinc-800/80 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                                    {Array.from({ length: targetSlotsCount }).map((_, sIdx) => {
-                                                                        const existingImg = existingImages[sIdx];
-                                                                        const startSec = existingImg?.startSec ?? existingImg?.timestampSec ?? (sIdx * 180);
-                                                                        const endSec = existingImg?.endSec ?? existingImg?.endTimestampSec ?? Math.min(durSec, startSec + 180);
-                                                                        const draftKey = `${chapterKey}::s${sIdx}`;
-                                                                        const promptVal = scenePromptDrafts[draftKey] !== undefined
-                                                                            ? scenePromptDrafts[draftKey]
-                                                                            : (existingImg?.prompt || '');
-                                                                        const isSceneBusy = repaintingSceneKey === draftKey;
-                                                                        const sceneCharacters: string[] = Array.isArray(existingImg?.characters) ? existingImg.characters : [];
-
-                                                                        return (
-                                                                            <div
-                                                                                key={existingImg?.id || `slot-${sIdx}`}
-                                                                                className="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between"
-                                                                            >
-                                                                                {/* 16:9 Scene Artwork or Gen Button */}
-                                                                                <div className="aspect-video bg-zinc-900 relative flex items-center justify-center overflow-hidden border-b border-zinc-800">
-                                                                                    {existingImg?.url ? (
-                                                                                        <img
-                                                                                            src={existingImg.url}
-                                                                                            alt={existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
-                                                                                            className="w-full h-full object-cover"
-                                                                                        />
-                                                                                    ) : (
-                                                                                        <button
-                                                                                            onClick={() =>
-                                                                                                handleRepaintSingleScene(chTrack, chIdx, {
-                                                                                                    sceneIndex: sIdx,
-                                                                                                    customPrompt: promptVal.trim() || undefined,
-                                                                                                    sceneTitle: `Scene ${sIdx + 1}`,
-                                                                                                    startSec,
-                                                                                                    endSec,
-                                                                                                    artType: sIdx === 0 ? 'chapter_header' : 'scene'
-                                                                                                })
-                                                                                            }
-                                                                                            disabled={isSceneBusy}
-                                                                                            className="px-5 py-3 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-xl cursor-pointer disabled:opacity-50"
-                                                                                        >
-                                                                                            <Sparkles size={18} className={isSceneBusy ? 'animate-spin' : ''} />
-                                                                                            <span>{isSceneBusy ? 'Painting...' : 'Gen Scene'}</span>
-                                                                                        </button>
-                                                                                    )}
-
-                                                                                    <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg bg-black/85 text-white text-xs font-black max-w-[62%] truncate">
-                                                                                        {existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
-                                                                                    </div>
-                                                                                    <div className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/85 text-amber-300 text-xs font-mono font-bold">
-                                                                                        {formatMMSS(startSec)} – {formatMMSS(endSec)}
-                                                                                    </div>
+                                                                <div className="p-5 border-t border-zinc-800/80">
+                                                                    {detectedScenes.length === 0 ? (
+                                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                                                                            {/* Step 1 Card */}
+                                                                            <div className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 ${isTranscribed ? 'bg-amber-500/10 border-amber-500/40' : 'bg-zinc-950 border-zinc-800'}`}>
+                                                                                <div className="flex items-center justify-between">
+                                                                                    <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                                                                                        Stage 1 • Audio → Text
+                                                                                    </span>
+                                                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${isTranscribed ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}>
+                                                                                        {isTranscribed ? `${transcriptLinesCount} Timestamped Lines` : 'Pending'}
+                                                                                    </span>
                                                                                 </div>
+                                                                                <button
+                                                                                    onClick={() => handleRunChapterTask(chTrack, chIdx, 'transcribe')}
+                                                                                    disabled={isTranscribing}
+                                                                                    title="Extract verbatim text with [MM:SS] timestamps from chapter audio"
+                                                                                    className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                                                                >
+                                                                                    <Mic2 size={16} className={isTranscribing ? 'animate-spin' : ''} />
+                                                                                    <span>{isTranscribing ? 'Transcribing...' : isTranscribed ? 'Redo Transcript' : '1. Transcribe Audio'}</span>
+                                                                                </button>
+                                                                            </div>
 
-                                                                                {/* Scene Transition Metadata, Characters, Prompt & Individual Controls */}
-                                                                                <div className="p-3.5 space-y-2.5">
-                                                                                    {(existingImg?.transitionReason || sceneCharacters.length > 0) && (
-                                                                                        <div className="space-y-1.5">
-                                                                                            {existingImg?.transitionReason && (
-                                                                                                <p className="text-xs font-bold text-purple-300 leading-snug line-clamp-2">
-                                                                                                    {existingImg.transitionReason}
-                                                                                                </p>
+                                                                            {/* Step 2 Card */}
+                                                                            <div className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 ${isTranscribed ? 'bg-purple-500/10 border-purple-500/40' : 'bg-zinc-950/60 border-zinc-800/60 opacity-60'}`}>
+                                                                                <div className="flex items-center justify-between">
+                                                                                    <span className="text-xs font-black uppercase tracking-wider text-purple-300">
+                                                                                        Stage 2 • Text → Scenes (LLM)
+                                                                                    </span>
+                                                                                    <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-xs font-bold">
+                                                                                        {isTranscribed ? 'Ready' : 'Needs Stage 1'}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <button
+                                                                                    onClick={() => handleRunChapterTask(chTrack, chIdx, 'detect_scenes')}
+                                                                                    disabled={!isTranscribed || isIllProcessing}
+                                                                                    title="Feed timestamped transcript to LLM to identify scene transition timestamps, characters, and prompts"
+                                                                                    className="w-full py-2.5 px-4 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+                                                                                >
+                                                                                    <Wand2 size={16} className={runningChapterTaskKey === `${chapterKey}::detect_scenes` ? 'animate-spin' : ''} />
+                                                                                    <span>{runningChapterTaskKey === `${chapterKey}::detect_scenes` ? 'Detecting Scenes...' : '2. Detect Scenes (LLM)'}</span>
+                                                                                </button>
+                                                                            </div>
+
+                                                                            {/* Step 3 Card */}
+                                                                            <div className="p-4 rounded-2xl border bg-zinc-950/60 border-zinc-800/60 opacity-60 flex flex-col justify-between gap-3">
+                                                                                <div className="flex items-center justify-between">
+                                                                                    <span className="text-xs font-black uppercase tracking-wider text-emerald-300">
+                                                                                        Stage 3 • Scenes → Art (API)
+                                                                                    </span>
+                                                                                    <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-xs font-bold">
+                                                                                        Needs Stage 2
+                                                                                    </span>
+                                                                                </div>
+                                                                                <button
+                                                                                    disabled
+                                                                                    title="Requires Stage 2 (LLM Scene Detection) first"
+                                                                                    className="w-full py-2.5 px-4 rounded-xl bg-zinc-800 text-zinc-400 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
+                                                                                >
+                                                                                    <Sparkles size={16} />
+                                                                                    <span>3. Paint Scenes</span>
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                                            {detectedScenes.map((existingImg: any, sIdx: number) => {
+                                                                                const startSec = existingImg?.startSec ?? existingImg?.timestampSec ?? (sIdx * 180);
+                                                                                const endSec = existingImg?.endSec ?? existingImg?.endTimestampSec ?? Math.min(durSec, startSec + 180);
+                                                                                const draftKey = `${chapterKey}::s${sIdx}`;
+                                                                                const promptVal = scenePromptDrafts[draftKey] !== undefined
+                                                                                    ? scenePromptDrafts[draftKey]
+                                                                                    : (existingImg?.prompt || '');
+                                                                                const isSceneBusy = repaintingSceneKey === draftKey;
+                                                                                const sceneCharacters: string[] = Array.isArray(existingImg?.characters) ? existingImg.characters : [];
+
+                                                                                return (
+                                                                                    <div
+                                                                                        key={existingImg?.id || `slot-${sIdx}`}
+                                                                                        className="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between"
+                                                                                    >
+                                                                                        {/* 16:9 Scene Artwork or Stage 3 Paint Button */}
+                                                                                        <div className="aspect-video bg-zinc-900 relative flex items-center justify-center overflow-hidden border-b border-zinc-800">
+                                                                                            {existingImg?.url ? (
+                                                                                                <img
+                                                                                                    src={existingImg.url}
+                                                                                                    alt={existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
+                                                                                                    className="w-full h-full object-cover"
+                                                                                                />
+                                                                                            ) : (
+                                                                                                <button
+                                                                                                    onClick={() =>
+                                                                                                        handleRepaintSingleScene(chTrack, chIdx, {
+                                                                                                            imageId: existingImg?.id,
+                                                                                                            sceneIndex: sIdx,
+                                                                                                            customPrompt: promptVal.trim() || undefined,
+                                                                                                            sceneTitle: existingImg?.sceneTitle || `Scene ${sIdx + 1}`,
+                                                                                                            startSec,
+                                                                                                            endSec,
+                                                                                                            artType: sIdx === 0 ? 'chapter_header' : 'scene'
+                                                                                                        })
+                                                                                                    }
+                                                                                                    disabled={isSceneBusy}
+                                                                                                    title="Stage 3: Paint this LLM-detected scene using Image API"
+                                                                                                    className="px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50"
+                                                                                                >
+                                                                                                    <Sparkles size={16} className={isSceneBusy ? 'animate-spin' : ''} />
+                                                                                                    <span>{isSceneBusy ? 'Painting...' : '3. Paint Scene'}</span>
+                                                                                                </button>
                                                                                             )}
-                                                                                            {sceneCharacters.length > 0 && (
-                                                                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                                                                    {sceneCharacters.map((charName: string, cIdx: number) => (
-                                                                                                        <span
-                                                                                                            key={cIdx}
-                                                                                                            className="px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-purple-200 text-[11px] font-bold"
-                                                                                                        >
-                                                                                                            {charName}
-                                                                                                        </span>
-                                                                                                    ))}
+
+                                                                                            <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg bg-black/85 text-white text-xs font-black max-w-[62%] truncate">
+                                                                                                {existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
+                                                                                            </div>
+                                                                                            <div className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/85 text-amber-300 text-xs font-mono font-bold">
+                                                                                                {formatMMSS(startSec)} – {formatMMSS(endSec)}
+                                                                                            </div>
+                                                                                        </div>
+
+                                                                                        {/* Scene Transition Metadata, Characters, Prompt & Individual Controls */}
+                                                                                        <div className="p-3.5 space-y-2.5">
+                                                                                            {(existingImg?.transitionReason || sceneCharacters.length > 0) && (
+                                                                                                <div className="space-y-1.5">
+                                                                                                    {existingImg?.transitionReason && (
+                                                                                                        <p className="text-xs font-bold text-purple-300 leading-snug line-clamp-2">
+                                                                                                            {existingImg.transitionReason}
+                                                                                                        </p>
+                                                                                                    )}
+                                                                                                    {sceneCharacters.length > 0 && (
+                                                                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                                            {sceneCharacters.map((charName: string, cIdx: number) => (
+                                                                                                                <span
+                                                                                                                    key={cIdx}
+                                                                                                                    className="px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-purple-200 text-[11px] font-bold"
+                                                                                                                >
+                                                                                                                    {charName}
+                                                                                                                </span>
+                                                                                                            ))}
+                                                                                                        </div>
+                                                                                                    )}
                                                                                                 </div>
                                                                                             )}
+
+                                                                                            <textarea
+                                                                                                rows={3}
+                                                                                                value={promptVal}
+                                                                                                onChange={e => setScenePromptDrafts(prev => ({ ...prev, [draftKey]: e.target.value }))}
+                                                                                                placeholder={`Scene ${sIdx + 1} character & action prompt...`}
+                                                                                                className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs sm:text-sm text-zinc-200 focus:outline-none focus:border-purple-500 resize-none"
+                                                                                            />
+
+                                                                                            <div className="flex items-center justify-between gap-2">
+                                                                                                <button
+                                                                                                    onClick={() =>
+                                                                                                        handleRepaintSingleScene(chTrack, chIdx, {
+                                                                                                            imageId: existingImg?.id,
+                                                                                                            sceneIndex: sIdx,
+                                                                                                            customPrompt: promptVal.trim() || undefined,
+                                                                                                            sceneTitle: existingImg?.sceneTitle || `Scene ${sIdx + 1}`,
+                                                                                                            startSec,
+                                                                                                            endSec,
+                                                                                                            artType: sIdx === 0 ? 'chapter_header' : 'scene'
+                                                                                                        })
+                                                                                                    }
+                                                                                                    disabled={isSceneBusy}
+                                                                                                    title="Paint or regenerate this scene illustration"
+                                                                                                    className="flex-1 py-2 px-3 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/40 text-xs font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                                                >
+                                                                                                    <RefreshCw size={14} className={isSceneBusy ? 'animate-spin' : ''} />
+                                                                                                    <span>{existingImg?.url ? 'Regen' : 'Paint'}</span>
+                                                                                                </button>
+
+                                                                                                <button
+                                                                                                    onClick={() =>
+                                                                                                        handleRepaintSingleScene(chTrack, chIdx, {
+                                                                                                            sceneIndex: detectedScenes.length,
+                                                                                                            customPrompt: promptVal.trim() || undefined,
+                                                                                                            sceneTitle: `${existingImg?.sceneTitle || `Scene ${sIdx + 1}`} (Alt)`,
+                                                                                                            startSec,
+                                                                                                            endSec,
+                                                                                                            artType: 'scene'
+                                                                                                        })
+                                                                                                    }
+                                                                                                    disabled={isSceneBusy}
+                                                                                                    title="Generate an alternative version for this scene"
+                                                                                                    className="py-2 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-black uppercase flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                                                                                >
+                                                                                                    <Plus size={14} />
+                                                                                                    <span>Alt</span>
+                                                                                                </button>
+
+                                                                                                {existingImg?.id && (
+                                                                                                    <button
+                                                                                                        onClick={() => handleCurateSceneImage(chapterKey, existingImg.id, 'delete')}
+                                                                                                        title="Delete this scene"
+                                                                                                        className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
+                                                                                                    >
+                                                                                                        <Trash2 size={15} />
+                                                                                                    </button>
+                                                                                                )}
+                                                                                            </div>
                                                                                         </div>
-                                                                                    )}
-
-                                                                                    <textarea
-                                                                                        rows={3}
-                                                                                        value={promptVal}
-                                                                                        onChange={e => setScenePromptDrafts(prev => ({ ...prev, [draftKey]: e.target.value }))}
-                                                                                        placeholder={`Scene ${sIdx + 1} character & action prompt...`}
-                                                                                        className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs sm:text-sm text-zinc-200 focus:outline-none focus:border-purple-500 resize-none"
-                                                                                    />
-
-                                                                                    <div className="flex items-center justify-between gap-2">
-                                                                                        <button
-                                                                                            onClick={() =>
-                                                                                                handleRepaintSingleScene(chTrack, chIdx, {
-                                                                                                    imageId: existingImg?.id,
-                                                                                                    sceneIndex: sIdx,
-                                                                                                    customPrompt: promptVal.trim() || undefined,
-                                                                                                    sceneTitle: existingImg?.sceneTitle || `Scene ${sIdx + 1}`,
-                                                                                                    startSec,
-                                                                                                    endSec,
-                                                                                                    artType: sIdx === 0 ? 'chapter_header' : 'scene'
-                                                                                                })
-                                                                                            }
-                                                                                            disabled={isSceneBusy}
-                                                                                            title="Regenerate this scene illustration"
-                                                                                            className="flex-1 py-2 px-3 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/40 text-xs font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                                                        >
-                                                                                            <RefreshCw size={14} className={isSceneBusy ? 'animate-spin' : ''} />
-                                                                                            <span>{existingImg ? 'Regen' : 'Gen'}</span>
-                                                                                        </button>
-
-                                                                                        <button
-                                                                                            onClick={() =>
-                                                                                                handleRepaintSingleScene(chTrack, chIdx, {
-                                                                                                    sceneIndex: existingImages.length,
-                                                                                                    customPrompt: promptVal.trim() || undefined,
-                                                                                                    sceneTitle: `${existingImg?.sceneTitle || `Scene ${sIdx + 1}`} (Alt)`,
-                                                                                                    startSec,
-                                                                                                    endSec,
-                                                                                                    artType: 'scene'
-                                                                                                })
-                                                                                            }
-                                                                                            disabled={isSceneBusy}
-                                                                                            title="Generate an alternative version for this scene"
-                                                                                            className="py-2 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-black uppercase flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                                                                        >
-                                                                                            <Plus size={14} />
-                                                                                            <span>Alt</span>
-                                                                                        </button>
-
-                                                                                        {existingImg?.id && (
-                                                                                            <button
-                                                                                                onClick={() => handleCurateSceneImage(chapterKey, existingImg.id, 'delete')}
-                                                                                                title="Delete this scene image"
-                                                                                                className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
-                                                                                            >
-                                                                                                <Trash2 size={15} />
-                                                                                            </button>
-                                                                                        )}
                                                                                     </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })}
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </div>

@@ -1412,6 +1412,16 @@ export const clearIptvEpgForLibrary = (libraryId: string): boolean => {
     }
 };
 
+export const getIptvEpgCountForLibrary = (libraryId: string): number => {
+    try {
+        if (!libraryId) return 0;
+        const row = db.prepare('SELECT COUNT(*) as cnt FROM iptv_epg WHERE library_id = ?').get(libraryId) as any;
+        return Number(row?.cnt || 0);
+    } catch {
+        return 0;
+    }
+};
+
 export const insertIptvEpgChunk = (
     libraryId: string,
     chunk: Array<{
@@ -2519,11 +2529,111 @@ const mapChapterRow = (r: any): AudiobookChapterMeta => {
 
 let hasReconciledAudiobookChaptersThisBoot = false;
 
+const normalizeBookTitleForMatch = (t: string): string =>
+    (t || '')
+        .toLowerCase()
+        .replace(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/g, '')
+        .replace(/^\d{1,2}\s*[-–—._:]+\s*/, '')
+        .replace(/^(the|a|an)\s+/i, '')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+
+const normalizeBookKeyIdentity = (rawBookKeyOrTitle: string, rawAuthor?: string): string => {
+    const raw = (rawBookKeyOrTitle || '').trim();
+    if (rawAuthor) {
+        const cleanAuth = parseAndCanonicalizeAuthor(rawAuthor, raw).canonicalAuthor.toLowerCase().trim();
+        return `${normalizeBookTitleForMatch(raw)}::${cleanAuth}`;
+    }
+    if (raw.includes('__')) {
+        const [tPart, aPart] = raw.split('__');
+        const cleanAuth = parseAndCanonicalizeAuthor(aPart || '', tPart || '').canonicalAuthor.toLowerCase().trim();
+        return `${normalizeBookTitleForMatch(tPart || '')}::${cleanAuth}`;
+    }
+    if (raw.includes(' - ')) {
+        const [aPart, ...tParts] = raw.split(' - ');
+        const tJoined = tParts.join(' - ');
+        const cleanAuth = parseAndCanonicalizeAuthor(aPart || '', tJoined).canonicalAuthor.toLowerCase().trim();
+        return `${normalizeBookTitleForMatch(tJoined)}::${cleanAuth}`;
+    }
+    return normalizeBookTitleForMatch(raw);
+};
+
 export const getAllAudiobooksMeta = (): AudiobookBookMeta[] => {
     try {
         if (!hasReconciledAudiobookChaptersThisBoot) {
             hasReconciledAudiobookChaptersThisBoot = true;
             try {
+                // 1. Clear legacy pre-v0.6.16 "No Speech-to-Text API key configured" error banners so local Whisper.cpp / HF Spaces can run cleanly
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta
+                    SET transcription_status = CASE WHEN (synced_lyrics IS NULL OR synced_lyrics = '') THEN 'idle' ELSE transcription_status END,
+                        error_message = ''
+                    WHERE error_message LIKE '%No Speech-to-Text API key%'
+                       OR error_message LIKE '%Speech-to-Text failed to transcribe%'
+                `).run();
+
+                // 2. Deduplicate audiobook_books_meta rows that refer to the exact same book (e.g. "The Metamorphosis" vs "Metamorphosis (1915)")
+                const allRawRows = db.prepare('SELECT * FROM audiobook_books_meta').all() as any[];
+                const byCanonicalIdentity = new Map<string, any[]>();
+                for (const r of allRawRows) {
+                    const mapped = mapBookRow(r);
+                    const idKey = normalizeBookKeyIdentity(mapped.title, mapped.canonical_author || mapped.author);
+                    if (!normalizeBookTitleForMatch(mapped.title)) continue;
+                    const arr = byCanonicalIdentity.get(idKey) || [];
+                    arr.push(r);
+                    byCanonicalIdentity.set(idKey, arr);
+                }
+
+                for (const [, group] of byCanonicalIdentity.entries()) {
+                    if (group.length <= 1) continue;
+                    const scored = group.map(r => {
+                        const chCountRow = db.prepare('SELECT COUNT(*) as cnt FROM audiobook_chapters_meta WHERE book_key = ?').get(r.book_key) as { cnt: number };
+                        const chCnt = Number(chCountRow?.cnt || 0);
+                        const hasThumb = r.thumb ? 20 : 0;
+                        const hasCustomCover = r.custom_cover_url ? 15 : 0;
+                        return { row: r, score: chCnt * 100 + hasThumb + hasCustomCover };
+                    }).sort((a, b) => b.score - a.score);
+
+                    const keeper = scored[0].row;
+                    const keeperKey = keeper.book_key;
+                    for (let i = 1; i < scored.length; i++) {
+                        const dup = scored[i].row;
+                        const dupKey = dup.book_key;
+                        // Merge metadata fields from duplicate row into keeper row
+                        db.prepare(`
+                            UPDATE audiobook_books_meta SET
+                                thumb = COALESCE(audiobook_books_meta.thumb, ?),
+                                custom_cover_url = COALESCE(audiobook_books_meta.custom_cover_url, ?),
+                                published_year = COALESCE(NULLIF(audiobook_books_meta.published_year, '2024'), ?),
+                                genre = COALESCE(audiobook_books_meta.genre, ?),
+                                narrator = COALESCE(audiobook_books_meta.narrator, ?),
+                                translator = COALESCE(audiobook_books_meta.translator, ?),
+                                real_structure_json = CASE WHEN audiobook_books_meta.real_structure_json IS NULL OR audiobook_books_meta.real_structure_json = '' THEN ? ELSE audiobook_books_meta.real_structure_json END,
+                                on_bedside_table = CASE WHEN audiobook_books_meta.on_bedside_table = 1 OR ? = 1 THEN 1 ELSE 0 END,
+                                reading_status = CASE WHEN audiobook_books_meta.reading_status != 'unstarted' THEN audiobook_books_meta.reading_status ELSE ? END,
+                                queue_enabled = CASE WHEN audiobook_books_meta.queue_enabled = 1 OR ? = 1 THEN 1 ELSE 0 END
+                            WHERE book_key = ?
+                        `).run(
+                            dup.thumb || null,
+                            dup.custom_cover_url || null,
+                            dup.published_year || null,
+                            dup.genre || null,
+                            dup.narrator || null,
+                            dup.translator || null,
+                            dup.real_structure_json || '',
+                            dup.on_bedside_table ? 1 : 0,
+                            dup.reading_status || 'unstarted',
+                            dup.queue_enabled ? 1 : 0,
+                            keeperKey
+                        );
+
+                        // Move chapters to keeperKey and let getAudiobookChaptersMeta merge them by chapter_index
+                        db.prepare('UPDATE audiobook_chapters_meta SET book_key = ? WHERE book_key = ?').run(keeperKey, dupKey);
+                        db.prepare('DELETE FROM audiobook_books_meta WHERE book_key = ?').run(dupKey);
+                    }
+                    getAudiobookChaptersMeta(keeperKey);
+                }
+
                 const rawKeys = db.prepare('SELECT book_key FROM audiobook_books_meta').all() as Array<{ book_key: string }>;
                 for (const rk of (rawKeys || [])) {
                     if (rk.book_key) recalculateAudiobookTotals(rk.book_key);
@@ -2538,10 +2648,30 @@ export const getAllAudiobooksMeta = (): AudiobookBookMeta[] => {
     }
 };
 
-export const getAudiobookMeta = (bookKey: string): AudiobookBookMeta | null => {
+export const getAudiobookMeta = (bookKey: string, fallbackTitle?: string, fallbackAuthor?: string): AudiobookBookMeta | null => {
     try {
+        if (!bookKey) return null;
         const row = db.prepare('SELECT * FROM audiobook_books_meta WHERE book_key = ?').get(bookKey) as any;
-        return row ? mapBookRow(row) : null;
+        if (row) return mapBookRow(row);
+
+        // Fallback: check normalized book identity so "franz kafka - metamorphosis" and "franz kafka - the metamorphosis" always resolve to the same row
+        const targetId = fallbackTitle
+            ? normalizeBookKeyIdentity(fallbackTitle, fallbackAuthor)
+            : normalizeBookKeyIdentity(bookKey);
+        const targetTitleOnly = fallbackTitle
+            ? normalizeBookTitleForMatch(fallbackTitle)
+            : normalizeBookTitleForMatch(bookKey.includes(' - ') ? bookKey.split(' - ').slice(1).join(' - ') : bookKey);
+
+        if (!targetTitleOnly) return null;
+        const allRows = db.prepare('SELECT * FROM audiobook_books_meta').all() as any[];
+        for (const r of allRows) {
+            const mapped = mapBookRow(r);
+            const rowId = normalizeBookKeyIdentity(mapped.title, mapped.canonical_author || mapped.author);
+            if (rowId === targetId || normalizeBookTitleForMatch(mapped.title) === targetTitleOnly) {
+                return mapped;
+            }
+        }
+        return null;
     } catch (e) {
         console.error('Error fetching audiobook meta:', e);
         return null;
@@ -2549,7 +2679,8 @@ export const getAudiobookMeta = (bookKey: string): AudiobookBookMeta | null => {
 };
 
 export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_key: string }): AudiobookBookMeta => {
-    const existing = getAudiobookMeta(meta.book_key);
+    const existing = getAudiobookMeta(meta.book_key, meta.title, meta.canonical_author || meta.author);
+    const effectiveBookKey = existing?.book_key || meta.book_key;
     const thumbVal = meta.thumb ?? meta.poster_url ?? existing?.thumb;
     const queueEnabled = meta.queue_enabled !== undefined ? meta.queue_enabled : (meta.is_queued !== undefined ? Boolean(meta.is_queued) : (existing?.queue_enabled ?? false));
     const queuePriority = meta.queue_priority ?? meta.queue_order ?? existing?.queue_priority ?? 100;
@@ -2567,7 +2698,7 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
             : (existing?.on_bedside_table ?? (mergedReadingStatus === 'ongoing'));
 
     const merged: AudiobookBookMeta = {
-        book_key: meta.book_key,
+        book_key: effectiveBookKey,
         title: rawTitleInput,
         author: canonicalAuthor,
         canonical_author: canonicalAuthor,
@@ -2723,26 +2854,35 @@ export const reorderAudiobookQueue = (orderedBookKeys: string[]) => {
 
 export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[] => {
     try {
-        const rows = db.prepare('SELECT * FROM audiobook_chapters_meta WHERE book_key = ? ORDER BY chapter_index ASC').all(bookKey) as any[];
+        const canonicalBook = getAudiobookMeta(bookKey);
+        const effectiveBookKey = canonicalBook?.book_key || bookKey;
+        if (effectiveBookKey !== bookKey) {
+            try {
+                db.prepare('UPDATE audiobook_chapters_meta SET book_key = ? WHERE book_key = ?').run(effectiveBookKey, bookKey);
+            } catch {}
+        }
+
+        const rows = db.prepare('SELECT * FROM audiobook_chapters_meta WHERE book_key = ? ORDER BY chapter_index ASC').all(effectiveBookKey) as any[];
         const mapped = (rows || []).map(mapChapterRow);
         if (mapped.length <= 1) return mapped;
 
-        // Deduplicate chapters that represent the same audio track (e.g. '::ch1' vs 'plex-...' or 0-based vs 1-based index)
+        // Deduplicate chapters that represent the same audio track (by chapter_index when > 0, or file_path)
         const canonicalByTrack = new Map<string, AudiobookChapterMeta>();
         const duplicateKeysToDelete: string[] = [];
 
         for (const ch of mapped) {
             const normFile = (ch.file_path || '').trim().toLowerCase();
             const normTitle = (ch.title || '').trim().toLowerCase();
-            const canonicalKey = normFile
-                ? `file:${normFile}`
-                : `title:${normTitle}::dur:${Math.round((ch.duration_sec || 0) / 5)}`;
+            const canonicalKey = ch.chapter_index > 0
+                ? `idx:${ch.chapter_index}`
+                : normFile
+                    ? `file:${normFile}`
+                    : `title:${normTitle}`;
 
             const existing = canonicalByTrack.get(canonicalKey);
             if (!existing) {
                 canonicalByTrack.set(canonicalKey, ch);
             } else {
-                // Merge assets into the preferred row (prefer '::ch' key or the one with more scenes/lyrics)
                 const preferCurrent =
                     ch.chapter_key.includes('::ch') && !existing.chapter_key.includes('::ch');
                 const keeper = preferCurrent ? ch : existing;
@@ -2751,12 +2891,15 @@ export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[
                 // Merge images without duplicates
                 const combinedImages = [...(keeper.images || [])];
                 for (const img of (donor.images || [])) {
-                    if (img?.url && !combinedImages.some(k => k.url === img.url)) {
+                    const isDup = combinedImages.some(
+                        k => (img?.url && k.url === img.url) || (!img?.url && !k.url && k.startSec === img?.startSec && k.sceneTitle === img?.sceneTitle)
+                    );
+                    if (!isDup) {
                         combinedImages.push(img);
                     }
                 }
                 keeper.images = combinedImages;
-                if (combinedImages.some(i => i.kept !== false) && keeper.illustration_status !== 'completed') {
+                if (combinedImages.some(i => i.kept !== false && i.url) && keeper.illustration_status !== 'completed') {
                     keeper.illustration_status = 'completed';
                     keeper.illustration_progress = 100;
                 }
@@ -2772,7 +2915,13 @@ export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[
                     keeper.audio_enhance_status = donor.audio_enhance_status;
                     keeper.audio_enhance_progress = donor.audio_enhance_progress;
                 }
-                if ((!keeper.duration_sec || keeper.duration_sec <= 0) && donor.duration_sec > 0) {
+                if (!keeper.file_path && donor.file_path) {
+                    keeper.file_path = donor.file_path;
+                }
+                // Preserve real probed/Plex duration over 300s fallback
+                if ((keeper.duration_sec === 300 || !keeper.duration_sec || keeper.duration_sec <= 0) && donor.duration_sec && donor.duration_sec > 0) {
+                    keeper.duration_sec = donor.duration_sec;
+                } else if (donor.duration_sec && donor.duration_sec !== 300 && donor.duration_sec > (keeper.duration_sec || 0)) {
                     keeper.duration_sec = donor.duration_sec;
                 }
 
@@ -2790,6 +2939,7 @@ export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[
                 for (const kept of canonicalByTrack.values()) {
                     db.prepare(`
                         UPDATE audiobook_chapters_meta SET
+                            file_path = COALESCE(?, file_path),
                             images_json = ?,
                             illustration_status = ?,
                             illustration_progress = ?,
@@ -2804,6 +2954,7 @@ export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[
                             duration_sec = ?
                         WHERE chapter_key = ?
                     `).run(
+                        kept.file_path || null,
                         JSON.stringify(kept.images || []),
                         kept.illustration_status,
                         kept.illustration_progress,
@@ -2829,10 +2980,24 @@ export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[
     }
 };
 
-export const getAudiobookChapterMeta = (chapterKey: string): AudiobookChapterMeta | null => {
+export const getAudiobookChapterMeta = (chapterKey: string, fallbackBookKey?: string, fallbackChapterIndex?: number): AudiobookChapterMeta | null => {
     try {
+        if (!chapterKey) return null;
         const row = db.prepare('SELECT * FROM audiobook_chapters_meta WHERE chapter_key = ?').get(chapterKey) as any;
-        return row ? mapChapterRow(row) : null;
+        if (row) return mapChapterRow(row);
+
+        // Fallback 1: Parse "bookKey::chN" or "bookKey_ch_N"
+        const matchCh = chapterKey.match(/^(.+?)(?:::ch|_ch_|::ch-)(\d+)$/i);
+        const targetBookPart = fallbackBookKey || (matchCh ? matchCh[1] : '');
+        const targetIdx = fallbackChapterIndex ?? (matchCh ? parseInt(matchCh[2], 10) : 0);
+
+        if (targetBookPart && targetIdx > 0) {
+            const canonicalBook = getAudiobookMeta(targetBookPart);
+            const effBookKey = canonicalBook?.book_key || targetBookPart;
+            const byIdx = db.prepare('SELECT * FROM audiobook_chapters_meta WHERE book_key = ? AND chapter_index = ?').get(effBookKey, targetIdx) as any;
+            if (byIdx) return mapChapterRow(byIdx);
+        }
+        return null;
     } catch (e) {
         console.error('Error fetching audiobook chapter meta:', e);
         return null;
@@ -2840,7 +3005,11 @@ export const getAudiobookChapterMeta = (chapterKey: string): AudiobookChapterMet
 };
 
 export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> & { chapter_key: string; book_key: string }): AudiobookChapterMeta => {
-    const existing = getAudiobookChapterMeta(meta.chapter_key);
+    const canonicalBook = getAudiobookMeta(meta.book_key);
+    const effectiveBookKey = canonicalBook?.book_key || meta.book_key;
+    const existing = getAudiobookChapterMeta(meta.chapter_key, effectiveBookKey, meta.chapter_index);
+    const effectiveChapterKey = existing?.chapter_key || meta.chapter_key;
+
     const mergedVoices: Record<string, string> = {
         ...(existing?.processed_voices || {}),
         ...(meta.processed_voices || {})
@@ -2851,7 +3020,12 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
         mergedVoices[mergedVoicePreset] = mergedEnhancedPath;
     }
 
-    const durationSec = meta.duration_sec ?? existing?.duration_sec ?? 0;
+    const incomingDur = meta.duration_sec ?? 0;
+    const prevDur = existing?.duration_sec ?? 0;
+    const durationSec = (incomingDur > 0 && incomingDur !== 300)
+        ? incomingDur
+        : (prevDur > 0 ? prevDur : incomingDur);
+
     const tStatus = meta.transcription_status ?? existing?.transcription_status ?? 'idle';
     const tProgress = meta.transcription_progress ?? existing?.transcription_progress ?? 0;
     const transcribedSec =
@@ -2862,10 +3036,12 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
                 : existing?.transcribed_seconds ?? 0;
 
     const merged: AudiobookChapterMeta = {
-        chapter_key: meta.chapter_key,
-        book_key: meta.book_key,
+        chapter_key: effectiveChapterKey,
+        book_key: effectiveBookKey,
         chapter_index: meta.chapter_index ?? existing?.chapter_index ?? 0,
-        title: meta.title ?? existing?.title ?? 'Chapter',
+        title: (existing?.title && existing.title.length > (meta.title || '').length && !/^(chapter\s+\d+|i+|v|x+)$/i.test(existing.title))
+            ? existing.title
+            : (meta.title ?? existing?.title ?? 'Chapter'),
         file_path: meta.file_path || existing?.file_path,
         duration_sec: durationSec,
         transcribed_seconds: transcribedSec,
@@ -2901,7 +3077,7 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
             chapter_index = excluded.chapter_index,
             title = excluded.title,
             file_path = COALESCE(excluded.file_path, audiobook_chapters_meta.file_path),
-            duration_sec = CASE WHEN excluded.duration_sec > 0 THEN excluded.duration_sec ELSE audiobook_chapters_meta.duration_sec END,
+            duration_sec = CASE WHEN excluded.duration_sec > 0 AND excluded.duration_sec != 300 THEN excluded.duration_sec WHEN audiobook_chapters_meta.duration_sec > 0 THEN audiobook_chapters_meta.duration_sec ELSE excluded.duration_sec END,
             transcribed_seconds = excluded.transcribed_seconds,
             transcription_status = excluded.transcription_status,
             transcription_progress = excluded.transcription_progress,
@@ -3028,8 +3204,20 @@ export const resetAudiobookAssetsInDb = (
 export const recalculateAudiobookTotals = (bookKey: string) => {
     try {
         const chapters = getAudiobookChaptersMeta(bookKey);
-        if (chapters.length === 0) return;
-        const transcribed = chapters.filter(c => c.transcription_status === 'completed').length;
+        if (chapters.length === 0) {
+            db.prepare(`
+                UPDATE audiobook_books_meta SET
+                    transcribed_chapters = 0,
+                    illustrated_chapters = 0,
+                    enhanced_chapters = 0,
+                    transcribed_seconds = 0,
+                    illustrated_scenes = 0,
+                    updated_at = ?
+                WHERE book_key = ?
+            `).run(new Date().toISOString(), bookKey);
+            return;
+        }
+        const transcribed = chapters.filter(c => c.transcription_status === 'completed' && c.synced_lyrics && c.synced_lyrics.trim().length > 20).length;
         const illustrated = chapters.filter(c => (c.images || []).some(img => img.kept !== false && img.url && !String(img.url).toLowerCase().includes('.svg'))).length;
         const enhanced = chapters.filter(c => c.audio_enhance_status === 'completed').length;
         const totalDurationSec = chapters.reduce((acc, c) => acc + (Number(c.duration_sec) || 0), 0);

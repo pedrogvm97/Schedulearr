@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
+import { getAudiobookMeta, upsertAudiobookMeta } from '@/lib/db';
+import { parseCleanBookTitleAndNumber } from '@/lib/audiobookStudio';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,17 +16,19 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: 'Title or author is required' }, { status: 400 });
         }
 
+        const parsedCatalog = parseCleanBookTitleAndNumber(title || query);
         let bookData: any = null;
         let authorBio: string | null = null;
         let coverUrl: string | null = null;
         let narrator: string | null = null;
         let description: string | null = null;
-        let releaseYear: string | null = null;
+        let releaseYear: string | null = parsedCatalog.releaseYear || null;
+        let itunesYear: string | null = null;
         let genre: string | null = null;
 
         // 1. Query iTunes Audiobooks Search API (best for audiobooks covers, narrator, and audio metadata)
         try {
-            const itunesSearchTerm = `${title || query} ${author}`.trim();
+            const itunesSearchTerm = `${parsedCatalog.cleanTitle || title || query} ${author}`.trim();
             const itunesRes = await axios.get('https://itunes.apple.com/search', {
                 params: {
                     term: itunesSearchTerm,
@@ -43,7 +47,7 @@ export async function GET(req: Request) {
                 narrator = match.artistName || null;
                 description = match.description ? match.description.replace(/<[^>]*>/g, '') : null;
                 if (match.releaseDate) {
-                    releaseYear = match.releaseDate.split('-')[0];
+                    itunesYear = match.releaseDate.split('-')[0];
                 }
                 genre = match.primaryGenreName || null;
             }
@@ -51,10 +55,10 @@ export async function GET(req: Request) {
             console.warn('iTunes Audiobook lookup notice:', e.message);
         }
 
-        // 2. Query OpenLibrary API (best for author biography, book synopsis, and publication history)
+        // 2. Query OpenLibrary API (best for author biography, book synopsis, and original publication year)
         try {
             const olParams: any = { limit: 5 };
-            if (title) olParams.title = title;
+            if (title) olParams.title = parsedCatalog.cleanTitle || title;
             if (author) olParams.author = author;
             if (!title && !author) olParams.q = query;
 
@@ -70,6 +74,7 @@ export async function GET(req: Request) {
                     coverUrl = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
                 }
 
+                // Prefer OpenLibrary first_publish_year over iTunes audiobook recording year
                 if (!releaseYear && doc.first_publish_year) {
                     releaseYear = String(doc.first_publish_year);
                 }
@@ -112,8 +117,30 @@ export async function GET(req: Request) {
             console.warn('OpenLibrary lookup notice:', e.message);
         }
 
+        if (!releaseYear && itunesYear) {
+            releaseYear = itunesYear;
+        }
+
+        // Automatically persist discovered coverUrl, releaseYear, genre, and narrator to SQLite so Theater and Media share identical metadata
+        if (title && (coverUrl || releaseYear || genre || narrator)) {
+            try {
+                const candidateKey = `${(author || 'Unknown Author').toLowerCase().trim()} - ${(parsedCatalog.cleanTitle || title).toLowerCase().trim()}`;
+                const existing = getAudiobookMeta(candidateKey, parsedCatalog.cleanTitle || title, author || undefined);
+                if (existing) {
+                    const shouldUpdateYear = releaseYear && (!existing.published_year || (existing.published_year === '2024' && releaseYear !== '2024'));
+                    upsertAudiobookMeta({
+                        book_key: existing.book_key,
+                        thumb: existing.thumb || coverUrl || undefined,
+                        published_year: (shouldUpdateYear ? releaseYear : existing.published_year) || undefined,
+                        genre: existing.genre || genre || undefined,
+                        narrator: existing.narrator || narrator || undefined
+                    });
+                }
+            } catch {}
+        }
+
         bookData = {
-            title: title || query,
+            title: parsedCatalog.cleanTitle || title || query,
             author: author || 'Unknown Author',
             authorBio: authorBio || 'No writer biography available yet for this author.',
             narrator: narrator || author || 'Narrator not specified',
