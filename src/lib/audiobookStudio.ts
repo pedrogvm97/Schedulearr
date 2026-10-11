@@ -1090,6 +1090,7 @@ export const callStudioTextLlmWithFailover = async (params: {
     maxTokens?: number;
     temperature?: number;
     description?: string;
+    skipFreeFallback?: boolean;
 }): Promise<{ text: string; providerUsed: string } | null> => {
     const config = getAudiobookStudioConfig();
     const candidates = getCandidateStudioKeys(config, ['gemini', 'claude', 'openai', 'groq']);
@@ -1099,7 +1100,7 @@ export const callStudioTextLlmWithFailover = async (params: {
     for (const keyEntry of candidates) {
         try {
             if (keyEntry.provider === 'gemini') {
-                const geminiModels = ['gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-2.0-flash'];
+                const geminiModels = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest'];
                 let lastGemErr: any = null;
                 for (const modelName of geminiModels) {
                     try {
@@ -1109,7 +1110,7 @@ export const callStudioTextLlmWithFailover = async (params: {
                                 contents: [{ parts: [{ text: params.prompt }] }],
                                 generationConfig: { temperature, maxOutputTokens: maxTokens }
                             },
-                            { timeout: 22000 }
+                            { timeout: 20000 }
                         );
                         const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
                         if (text) {
@@ -1124,6 +1125,7 @@ export const callStudioTextLlmWithFailover = async (params: {
                         }
                     } catch (gemErr: any) {
                         lastGemErr = gemErr;
+                        if (gemErr?.response?.status === 429) break;
                     }
                 }
                 if (lastGemErr) throw lastGemErr;
@@ -1173,7 +1175,7 @@ export const callStudioTextLlmWithFailover = async (params: {
                 if (text) {
                     recordStudioApiMetric({
                         task: params.task,
-                        keyOrProvider: keyEntry.id,
+                        keyOrProvider: keyOrProviderId(keyEntry),
                         providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
                         success: true,
                         description: params.description
@@ -1208,7 +1210,7 @@ export const callStudioTextLlmWithFailover = async (params: {
             }
         } catch (err: any) {
             const errMsg = err?.response?.data?.error?.message || err.message || 'API error';
-            console.warn(`⚠️ [AudiobookStudio] Key ${keyEntry.maskedKey} (${keyEntry.provider}) failed on ${params.task}: ${errMsg}. Trying next backup key...`);
+            console.warn(`⚠️ [AudiobookStudio] Key ${keyEntry.maskedKey} (${keyEntry.provider}) failed on ${params.task}: ${errMsg}.`);
             recordStudioApiMetric({
                 task: params.task,
                 keyOrProvider: keyEntry.id,
@@ -1217,61 +1219,44 @@ export const callStudioTextLlmWithFailover = async (params: {
                 errorMessage: errMsg,
                 description: params.description
             });
-            if (err?.response?.status === 429) {
-                await new Promise(r => setTimeout(r, 4500));
-            }
         }
     }
 
-    // Built-in Free LLM Fallback (Pollinations OpenAI-compatible text endpoint) with polite rate-limit retry
-    for (let freeAttempt = 0; freeAttempt < 3; freeAttempt++) {
-        if (freeAttempt > 0) {
-            const waitMs = freeAttempt * 6000;
-            updateLiveStatus({
-                lastLog: `Rate-limited on LLM excerpt analysis — pausing ${Math.round(waitMs / 1000)}s before retry ${freeAttempt + 1}/3...`
-            });
-            await new Promise(r => setTimeout(r, waitMs));
-        }
-        try {
-            const resp = await axios.post(
-                'https://text.pollinations.ai/openai',
-                {
-                    model: 'openai',
-                    messages: [{ role: 'user', content: params.prompt }],
-                    temperature
-                },
-                {
-                    headers: { 'Content-Type': 'application/json' },
-                    timeout: 35000
-                }
-            );
-            const text = resp.data?.choices?.[0]?.message?.content?.trim() || '';
-            if (text && text.length > 5) {
-                recordStudioApiMetric({
-                    task: params.task,
-                    keyOrProvider: 'free_pollinations_llm',
-                    providerLabel: 'Pollinations LLM (Free Built-in)',
-                    success: true,
-                    description: params.description
-                });
-                return { text, providerUsed: 'Pollinations LLM (Free Built-in)' };
-            }
-        } catch (freeErr: any) {
-            if (freeAttempt === 2) {
-                recordStudioApiMetric({
-                    task: params.task,
-                    keyOrProvider: 'free_pollinations_llm',
-                    providerLabel: 'Pollinations LLM (Free Built-in)',
-                    success: false,
-                    errorMessage: freeErr?.message || 'Free LLM rate limited',
-                    description: params.description
-                });
-            }
-        }
+    if (params.skipFreeFallback) {
+        return null;
     }
+
+    // Single fast attempt on Built-in Free LLM Fallback (never blocks with 6s/12s retry loops)
+    try {
+        const resp = await axios.post(
+            'https://text.pollinations.ai/openai',
+            {
+                model: 'openai',
+                messages: [{ role: 'user', content: params.prompt }],
+                temperature
+            },
+            {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 16000
+            }
+        );
+        const text = resp.data?.choices?.[0]?.message?.content?.trim() || '';
+        if (text && text.length > 5) {
+            recordStudioApiMetric({
+                task: params.task,
+                keyOrProvider: 'free_pollinations_llm',
+                providerLabel: 'Pollinations LLM (Free Built-in)',
+                success: true,
+                description: params.description
+            });
+            return { text, providerUsed: 'Pollinations LLM (Free Built-in)' };
+        }
+    } catch {}
 
     return null;
 };
+
+const keyOrProviderId = (k: StudioApiKeyEntry) => k.id;
 
 /**
  * AI Real-Life Book Structure Discovery:
@@ -2236,8 +2221,9 @@ const transcribeChunkViaFreeWhisperSpace = async (
 };
 
 /**
- * Transcribes a single audio chunk file (`tmpSample`) covering `[startOffsetSec, startOffsetSec + currentChunkLenSec]`
- * using configured STT keys (Gemini / Groq / OpenAI) with automatic fallback to local `whisper-cli` and HF Spaces.
+ * Transcribes a single audio chunk file (`tmpSample`) covering `[startOffsetSec, startOffsetSec + currentChunkLenSec]`.
+ * Self-reliant by default: runs Local `whisper-cli` (`whisper.cpp` on CPU) FIRST whenever `sttEngine === 'whisper_tiny_local'`,
+ * preserving external API keys for Image Generation (or falling back to Cloud STT only if local Whisper fails).
  */
 const transcribeSingleExtractedAudioFile = async (params: {
     tmpSample: string;
@@ -2250,8 +2236,29 @@ const transcribeSingleExtractedAudioFile = async (params: {
 }): Promise<{ lrcLines: string[]; plainParts: string[]; providerLabel: string; error?: string }> => {
     const { tmpSample, startOffsetSec, currentChunkLenSec, book, chapter, sttCandidates, progressPct = 50 } = params;
     let lastSttError = '';
+    const freshConfig = getAudiobookStudioConfig();
+    const preferLocalFirst = freshConfig.sttEngine !== 'openai_whisper' && freshConfig.sttEngine !== 'gemini_audio';
 
-    // 1. Configured Cloud STT Keys (Gemini, Groq Whisper, OpenAI Whisper)
+    // 1. Primary Self-Reliant Local Whisper.cpp CLI (Offline CPU) when preferLocalFirst is active
+    if (preferLocalFirst) {
+        updateLiveStatus({
+            isRunning: true,
+            activeBookKey: book.book_key,
+            activeBookTitle: book.title,
+            activeChapterKey: chapter.chapter_key,
+            activeChapterTitle: chapter.title,
+            activeTask: 'transcribing',
+            activeCategory: 'cpu',
+            progress: progressPct,
+            lastLog: `Transcribing "${chapter.title}" (${formatLrcTimestamp(startOffsetSec)}–${formatLrcTimestamp(startOffsetSec + currentChunkLenSec)}) via Local Whisper.cpp (Offline CPU)...`
+        });
+        const localWhisper = await transcribeChunkViaFreeWhisperSpace(tmpSample, startOffsetSec, currentChunkLenSec);
+        if (localWhisper && localWhisper.lrcLines.length > 0) {
+            return localWhisper;
+        }
+    }
+
+    // 2. Configured Cloud STT Keys (Groq Whisper, OpenAI Whisper, Gemini) — used if cloud STT was explicitly selected or if local Whisper failed
     for (const keyEntry of sttCandidates) {
         try {
             if (keyEntry.provider === 'gemini') {
@@ -2275,7 +2282,7 @@ const transcribeSingleExtractedAudioFile = async (params: {
                     `3. Output ONLY the [MM:SS.xx] transcript lines.`
                 ].join('\n');
 
-                const geminiModels = ['gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+                const geminiModels = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest'];
                 let rawOut = '';
                 for (const modelName of geminiModels) {
                     try {
@@ -2296,9 +2303,7 @@ const transcribeSingleExtractedAudioFile = async (params: {
                         if (rawOut) break;
                     } catch (modelErr: any) {
                         lastSttError = modelErr?.response?.data?.error?.message || modelErr.message || 'Gemini STT error';
-                        if (modelErr?.response?.status === 429) {
-                            await new Promise(r => setTimeout(r, 4000));
-                        }
+                        if (modelErr?.response?.status === 429) break;
                     }
                 }
 
@@ -2434,20 +2439,23 @@ const transcribeSingleExtractedAudioFile = async (params: {
         }
     }
 
-    // 2. Free Local Whisper.cpp CLI or HuggingFace Whisper Space
-    updateLiveStatus({
-        isRunning: true,
-        activeBookKey: book.book_key,
-        activeBookTitle: book.title,
-        activeChapterKey: chapter.chapter_key,
-        activeChapterTitle: chapter.title,
-        activeTask: 'transcribing',
-        progress: progressPct,
-        lastLog: `Transcribing "${chapter.title}" (${formatLrcTimestamp(startOffsetSec)}–${formatLrcTimestamp(startOffsetSec + currentChunkLenSec)}) via local Whisper.cpp / HF Space...`
-    });
-    const freeWhisper = await transcribeChunkViaFreeWhisperSpace(tmpSample, startOffsetSec, currentChunkLenSec);
-    if (freeWhisper && freeWhisper.lrcLines.length > 0) {
-        return freeWhisper;
+    // 3. Fallback to Local Whisper.cpp CLI if cloud STT was preferred first and failed
+    if (!preferLocalFirst) {
+        updateLiveStatus({
+            isRunning: true,
+            activeBookKey: book.book_key,
+            activeBookTitle: book.title,
+            activeChapterKey: chapter.chapter_key,
+            activeChapterTitle: chapter.title,
+            activeTask: 'transcribing',
+            activeCategory: 'cpu',
+            progress: progressPct,
+            lastLog: `Transcribing "${chapter.title}" (${formatLrcTimestamp(startOffsetSec)}–${formatLrcTimestamp(startOffsetSec + currentChunkLenSec)}) via Local Whisper.cpp (Offline CPU)...`
+        });
+        const freeWhisper = await transcribeChunkViaFreeWhisperSpace(tmpSample, startOffsetSec, currentChunkLenSec);
+        if (freeWhisper && freeWhisper.lrcLines.length > 0) {
+            return freeWhisper;
+        }
     }
 
     return {
@@ -2476,8 +2484,9 @@ export const transcribeAudioTimeWindow = async (
 
     const windowLenSec = Math.max(5, endSec - startSec);
     const freshConfig = getAudiobookStudioConfig();
+    const preferLocalFirst = freshConfig.sttEngine !== 'openai_whisper' && freshConfig.sttEngine !== 'gemini_audio';
     const sttCandidates = getCandidateStudioKeys(freshConfig, ['gemini', 'groq', 'openai']);
-    const subChunkSec = sttCandidates.length > 0 ? 180 : 60;
+    const subChunkSec = (!preferLocalFirst && sttCandidates.length > 0) ? 180 : 120;
     const numSubChunks = Math.max(1, Math.ceil(windowLenSec / subChunkSec));
 
     const windowLrcLines: string[] = [];
@@ -2704,10 +2713,11 @@ export const transcribeAudiobookChapter = async (
 
     // Tier 2 & Tier 3: Real Audio Speech-to-Text across the FULL chapter duration with checkpoint resume
     const freshConfig = getAudiobookStudioConfig();
+    const preferLocalFirst = freshConfig.sttEngine !== 'openai_whisper' && freshConfig.sttEngine !== 'gemini_audio';
     const sttCandidates = getCandidateStudioKeys(freshConfig, ['gemini', 'groq', 'openai']);
 
-    // Use 180s chunks when cloud STT keys exist, or 60s chunks for local/free Whisper so live lines appear every minute
-    const chunkDurationSec = sttCandidates.length > 0 ? 180 : 60;
+    // Use 120s chunks for local Whisper.cpp CPU (or 180s when cloud STT is explicitly selected)
+    const chunkDurationSec = (!preferLocalFirst && sttCandidates.length > 0) ? 180 : 120;
     const totalToTranscribeSec = Math.max(durationSec, 30);
     const numChunks = Math.max(1, Math.ceil(totalToTranscribeSec / chunkDurationSec));
     const allLrcLines: string[] = [];
@@ -3136,7 +3146,7 @@ const validateGeneratedStudioImage = async (params: {
         try {
             if (keyEntry.provider === 'gemini') {
                 const b64 = buf.toString('base64');
-                const geminiModels = ['gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-2.0-flash'];
+                const geminiModels = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest'];
                 for (const modelName of geminiModels) {
                     try {
                         const resp = await axios.post(
@@ -4087,12 +4097,147 @@ const fmtSecToMMSS = (sec: number): string => {
 };
 
 /**
- * STAGE 2: Timestamped Text -> Scene Transition Timestamps & Prompts (LLM)
+ * Self-reliant Local Transcript Scene & Prompt Analyzer:
+ * Extracts concrete narrative scene transitions, exact timestamps, characters present, and visual
+ * illustration prompts directly from the timestamped `[MM:SS.xx]` transcript lines on local CPU
+ * when external LLMs are rate-limited or unconfigured.
+ */
+const extractLocalScenesFromWindowTranscript = (params: {
+    linesInWindow: { time: number; raw: string; text: string }[];
+    winStartSec: number;
+    winEndSec: number;
+    isFirstWindow: boolean;
+    lastTransitionSec: number;
+    cleanChapLabel: string;
+    bookTitle: string;
+    author: string;
+    effectiveStyle: string;
+    knownCharacters: string[];
+    chapterPlotReference: string;
+}): Array<{
+    atSecond: number;
+    sceneTitle: string;
+    transitionReason: string;
+    characters: string[];
+    visualSetting: string;
+    illustrationPrompt: string;
+}> => {
+    const {
+        linesInWindow,
+        winStartSec,
+        winEndSec,
+        isFirstWindow,
+        lastTransitionSec,
+        cleanChapLabel,
+        bookTitle,
+        author,
+        effectiveStyle,
+        knownCharacters
+    } = params;
+
+    const results: Array<{
+        atSecond: number;
+        sceneTitle: string;
+        transitionReason: string;
+        characters: string[];
+        visualSetting: string;
+        illustrationPrompt: string;
+    }> = [];
+
+    const transitionCueRe = /\b(meanwhile|later\s+that|the\s+next\s+(?:day|morning|night)|hours?\s+later|suddenly|at\s+that\s+moment|when\s+(?:he|she|they)\s+(?:arrived|entered|opened|stepped|awoke|woke)|outside\s+the|inside\s+the|in\s+the\s+(?:hallway|corridor|control\s+room|bridge|chamber|courtyard|street|laboratory|office|bedroom))\b/i;
+
+    const buildSceneFromLines = (anchorIdx: number, forceStartSec?: number) => {
+        const slice = linesInWindow.slice(anchorIdx, Math.min(linesInWindow.length, anchorIdx + 10));
+        const passage = slice.map(s => s.text).join(' ').replace(/\s+/g, ' ').trim();
+        const atSec = forceStartSec !== undefined
+            ? forceStartSec
+            : Math.max(winStartSec, Math.min(winEndSec - 5, Math.round(slice[0]?.time ?? winStartSec)));
+
+        // Identify characters mentioned in this passage or fallback to known book characters
+        const foundChars: string[] = [];
+        for (const kc of knownCharacters) {
+            const lastToken = kc.split(/\s+/).pop() || kc;
+            if (lastToken.length >= 3 && new RegExp(`\\b${lastToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(passage)) {
+                if (!foundChars.includes(kc)) foundChars.push(kc);
+            }
+        }
+        const properMatches = passage.match(/\b[A-Z][a-z]{2,14}(?:\s+[A-Z][a-z]{2,14})?\b/g) || [];
+        const stopSet = new Set(['The', 'And', 'But', 'Then', 'When', 'Where', 'While', 'From', 'With', 'Into', 'Over', 'After', 'Before', 'This', 'That', 'There', 'Here', 'What', 'His', 'Her', 'Their', 'They', 'One', 'All', 'For', 'Near', 'Some', 'These']);
+        for (const pm of properMatches) {
+            if (!stopSet.has(pm) && !foundChars.includes(pm) && foundChars.length < 4) {
+                foundChars.push(pm);
+            }
+        }
+        const chars = foundChars.length > 0 ? foundChars.slice(0, 4) : knownCharacters.slice(0, 3);
+
+        // Build a concise 4-7 word title from the first meaningful clause in the passage
+        const cleanClause = (slice[0]?.text || passage || cleanChapLabel)
+            .replace(/^(this is a librivox recording.*|chapter\s+\d+.*|part\s+[ivx\d]+.*)$/i, '')
+            .replace(/^["'“”‘’\s]+|["'“”‘’.,!?;:\s]+$/g, '')
+            .trim();
+        const words = cleanClause.split(/\s+/).filter(Boolean).slice(0, 6).join(' ');
+        const sceneTitle = words.length > 4
+            ? words.replace(/[.,;!?]+$/, '')
+            : (atSec === 0 ? `${cleanChapLabel} — Opening` : `${cleanChapLabel} (${fmtSecToMMSS(atSec)})`);
+
+        const excerptSummary = passage.slice(0, 260) || `Story events at ${fmtSecToMMSS(atSec)} in ${cleanChapLabel} of ${bookTitle}`;
+        const charPhrase = chars.length > 0 ? `featuring ${chars.join(', ')}` : `featuring the central characters of "${bookTitle}"`;
+        const prompt = `${effectiveStyle} literary book illustration for "${bookTitle}" by ${author} (${cleanChapLabel} at ${fmtSecToMMSS(atSec)}), ${charPhrase} in dramatic action during the spoken passage: "${excerptSummary}". Expressive faces, authentic wardrobe, rich atmospheric lighting, cinematic composition, no text, no watermark`;
+
+        return {
+            atSecond: atSec,
+            sceneTitle,
+            transitionReason: atSec === 0
+                ? `Opening narration of "${cleanChapLabel}"`
+                : `Narrative shift in spoken transcript at ${fmtSecToMMSS(atSec)}`,
+            characters: chars,
+            visualSetting: `${bookTitle} — ${cleanChapLabel} setting`,
+            illustrationPrompt: prompt
+        };
+    };
+
+    if (linesInWindow.length === 0) {
+        if (isFirstWindow) {
+            results.push(buildSceneFromLines(0, 0));
+        }
+        return results;
+    }
+
+    let prevSec = lastTransitionSec;
+    if (isFirstWindow) {
+        // Skip LibriVox preamble lines if present in first 25s
+        const firstStoryIdx = linesInWindow.findIndex(l => l.time >= 15 && !/librivox|public domain|translated by/i.test(l.text));
+        const openScene = buildSceneFromLines(firstStoryIdx >= 0 ? firstStoryIdx : 0, 0);
+        results.push(openScene);
+        prevSec = 0;
+    }
+
+    // Scan window lines for natural narrative shifts spaced at least 240s (4 minutes) apart
+    for (let i = 0; i < linesInWindow.length; i++) {
+        const line = linesInWindow[i];
+        if (line.time - prevSec < 240) continue;
+        const prevLineTime = i > 0 ? linesInWindow[i - 1].time : line.time;
+        const acousticGap = line.time - prevLineTime;
+        const hasCue = transitionCueRe.test(line.text);
+        const isLongCadenceBreak = acousticGap >= 14 || (line.time - prevSec >= 420);
+
+        if (hasCue || isLongCadenceBreak) {
+            const sc = buildSceneFromLines(i);
+            results.push(sc);
+            prevSec = sc.atSecond;
+            if (results.length >= 3) break;
+        }
+    }
+
+    return results;
+};
+
+/**
+ * STAGE 2: Timestamped Text -> Scene Transition Timestamps & Prompts
  * STRICT PREREQUISITE: Requires Stage 1 (Audio -> Timestamped Text) to be completed first (`chapter.synced_lyrics`).
  * Never invents scenes before the chapter audio is transcribed into timestamped `[MM:SS.xx]` text!
- * Walks chronologically in 3-minute (`180s`) windows through the timestamped transcript and asks the LLM
- * IF and WHEN (`atSecond`) a narrative scene transition occurs, why it transitions, which characters are present,
- * and writes a grounded illustration prompt. Saves discovered scenes (with `url: ''` if unpainted) to `chapter.images`.
+ * Walks chronologically in 15-minute (`900s`) windows through the timestamped transcript; uses the configured LLM
+ * if available and immediately falls back to the self-reliant local transcript analyzer when rate-limited or offline.
  */
 export const detectAudiobookChapterScenesWithLlm = async (
     book: AudiobookBookMeta,
@@ -4155,8 +4300,6 @@ export const detectAudiobookChapterScenesWithLlm = async (
     const durationSec = Math.max(60, probedDur || 600);
 
     const effectiveStyle = (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Cinematic Concept Art');
-    const effectiveFocus = (book.art_focus && book.art_focus.trim()) ? book.art_focus.trim() : (freshConfig.artFocus || 'auto-choice');
-    const effectiveCustomPrompt = (book.custom_prompt && book.custom_prompt.trim()) ? book.custom_prompt.trim() : (freshConfig.customPromptTemplate || '');
 
     let currentBook = book;
     if (!currentBook.real_structure_json) {
@@ -4205,7 +4348,8 @@ export const detectAudiobookChapterScenesWithLlm = async (
         }
     }
 
-    const windowSizeSec = 180;
+    // Use 15-minute (900s) windows so a 45-minute chapter needs at most 3 passes instead of 15
+    const windowSizeSec = 900;
     const totalWindows = Math.max(1, Math.ceil(durationSec / windowSizeSec));
     const cleanChapLabel = latestChapter.title.replace(/\.(mp3|m4b|m4a|flac|ogg|wav)$/i, '').trim() || `Chapter ${latestChapter.chapter_index}`;
 
@@ -4218,7 +4362,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
         activeTask: 'llm_scene_analysis',
         activeCategory: 'llm',
         progress: 5,
-        lastLog: `[Stage 2 • LLM Scene Detection] Analyzing timestamped transcript for "${cleanChapLabel}" (${totalWindows} windows across ${fmtSecToMMSS(durationSec)})...`
+        lastLog: `[Stage 2 • Scene Detection] Analyzing timestamped transcript for "${cleanChapLabel}" (${totalWindows} window(s) across ${fmtSecToMMSS(durationSec)})...`
     });
 
     const discoveredScenes: AudiobookChapterSceneImage[] = [];
@@ -4226,6 +4370,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
     let activeSceneTitle = '';
     let activeSceneStartSec = 0;
     let lastTransitionSec = -999;
+    let llmRateLimitedInChapter = false;
 
     for (let wIdx = 0; wIdx < totalWindows; wIdx++) {
         const winStartSec = wIdx * windowSizeSec;
@@ -4235,7 +4380,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
         const basePct = Math.min(96, Math.max(6, Math.round(((wIdx + 0.5) / totalWindows) * 95)));
         const linesInWindow = parsedTimedLines.filter(l => l.time >= winStartSec - 2 && l.time <= winEndSec + 2);
         const formattedExcerpt = linesInWindow.length > 0
-            ? linesInWindow.map(l => `[${fmtSecToMMSS(l.time)}] ${l.text}`).join('\n').slice(0, 2600)
+            ? linesInWindow.map(l => `[${fmtSecToMMSS(l.time)}] ${l.text}`).join('\n').slice(0, 3800)
             : '';
 
         updateLiveStatus({
@@ -4245,41 +4390,12 @@ export const detectAudiobookChapterScenesWithLlm = async (
             activeChapterKey: latestChapter.chapter_key,
             activeChapterTitle: latestChapter.title,
             activeTask: 'llm_scene_analysis',
-            activeCategory: 'llm',
+            activeCategory: llmRateLimitedInChapter ? 'cpu' : 'llm',
             progress: basePct,
-            lastLog: `[Stage 2 • "${cleanChapLabel}" • Window ${wIdx + 1}/${totalWindows} (${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)})] Feeding timestamped transcript to LLM for scene transition detection...`
+            lastLog: `[Stage 2 • "${cleanChapLabel}" • Window ${wIdx + 1}/${totalWindows} (${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)})] Detecting narrative scene transitions from transcript...`
         });
 
         const isFirstWindow = wIdx === 0 && discoveredScenes.length === 0;
-        const llmAnalysisPrompt = [
-            `You are a literary narrative analyst and cinematic storyboard director reading the timestamped transcript of "${currentBook.title}" by ${currentBook.author}.`,
-            `We are analyzing audio file #${latestChapter.chapter_index} ("${cleanChapLabel}", total duration ${fmtSecToMMSS(durationSec)}) chronologically in 3-minute windows.`,
-            `Current Window: ${wIdx + 1} of ${totalWindows} (${fmtSecToMMSS(winStartSec)} to ${fmtSecToMMSS(winEndSec)}, seconds ${winStartSec}..${winEndSec}).`,
-            characterBible.size > 0 ? `Known Characters in Book: ${Array.from(characterBible).slice(0, 12).join(', ')}.` : '',
-            chapterPlotReference ? `Chapter Plot Context: ${chapterPlotReference.slice(0, 700)}` : '',
-            !isFirstWindow && activeSceneTitle
-                ? `Currently Active Scene (started at ${fmtSecToMMSS(activeSceneStartSec)}): "${activeSceneTitle}" — ${activeSceneSummary}`
-                : `This is the opening window (00:00) of "${cleanChapLabel}". You MUST establish the Opening Scene starting at second 0.`,
-            formattedExcerpt
-                ? `TIMESTAMPED AUDIO TRANSCRIPT EXCERPT (${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)}):\n${formattedExcerpt}`
-                : `Transcript window (${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)}): ${latestChapter.plain_transcript?.slice(0, 800) || chapterPlotReference}`,
-            ``,
-            `YOUR TASK:`,
-            isFirstWindow
-                ? `1. Define the Opening Scene at "atSecond": 0. And ONLY if a major second narrative shift also occurs later inside ${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)} (at least 75+ seconds after 00:00), include that transition too.`
-                : `1. Read the timestamped transcript excerpt carefully. Decide whether the story CONTINUES the current scene ("${activeSceneTitle}") OR transitions to a NEW scene inside ${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)}.`,
-            `2. A new scene transition should ONLY happen when there is a genuine narrative shift in the transcript: a new character enters/confronts (e.g., Chief Clerk arriving, family knocking/opening doors), a location change, a time jump, or a major dramatic turning point. If the passage is still the same ongoing conversation or moment, return "transitions": []!`,
-            `3. For every new scene transition you identify, provide:`,
-            `   - "atSecond": exact integer second between ${winStartSec} and ${winEndSec} where the transition happens in the transcript`,
-            `   - "sceneTitle": specific, evocative 3-7 word title for what happens in this scene (NEVER generic like "Scene 1")`,
-            `   - "transitionReason": 1 concise sentence explaining WHY a new scene starts at this exact timestamp`,
-            `   - "characters": array of specific character names present in this scene`,
-            `   - "visualSetting": specific room/location, era, and lighting`,
-            `   - "illustrationPrompt": a rich, concrete 55-80 word visual prompt in "${effectiveStyle}" style depicting the EXACT named characters, their facial expressions, period clothing, body language, and the specific plot action happening at this timestamp (NEVER an empty room!).`,
-            `Respond ONLY with valid JSON matching this schema:`,
-            `{"transitions":[{"atSecond":${winStartSec},"sceneTitle":"...","transitionReason":"...","characters":["..."],"visualSetting":"...","illustrationPrompt":"..."}]}`
-        ].filter(Boolean).join('\n');
-
         const transitionsToProcess: Array<{
             atSecond: number;
             sceneTitle: string;
@@ -4289,73 +4405,99 @@ export const detectAudiobookChapterScenesWithLlm = async (
             illustrationPrompt: string;
         }> = [];
 
-        const llmRes = await callStudioTextLlmWithFailover({
-            prompt: llmAnalysisPrompt,
-            task: 'art_prompt',
-            maxTokens: 700,
-            temperature: 0.35,
-            description: `Slow-feed scene transition check (${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)}) for "${currentBook.title}"`
-        });
+        if (!llmRateLimitedInChapter) {
+            const llmAnalysisPrompt = [
+                `You are a literary narrative analyst and cinematic storyboard director reading the timestamped transcript of "${currentBook.title}" by ${currentBook.author}.`,
+                `We are analyzing audio file #${latestChapter.chapter_index} ("${cleanChapLabel}", total duration ${fmtSecToMMSS(durationSec)}) chronologically.`,
+                `Current Window: ${wIdx + 1} of ${totalWindows} (${fmtSecToMMSS(winStartSec)} to ${fmtSecToMMSS(winEndSec)}, seconds ${winStartSec}..${winEndSec}).`,
+                characterBible.size > 0 ? `Known Characters in Book: ${Array.from(characterBible).slice(0, 12).join(', ')}.` : '',
+                chapterPlotReference ? `Chapter Plot Context: ${chapterPlotReference.slice(0, 700)}` : '',
+                !isFirstWindow && activeSceneTitle
+                    ? `Currently Active Scene (started at ${fmtSecToMMSS(activeSceneStartSec)}): "${activeSceneTitle}" — ${activeSceneSummary}`
+                    : `This is the opening window (00:00) of "${cleanChapLabel}". You MUST establish the Opening Scene starting at second 0.`,
+                formattedExcerpt
+                    ? `TIMESTAMPED AUDIO TRANSCRIPT EXCERPT (${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)}):\n${formattedExcerpt}`
+                    : `Transcript window (${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)}): ${latestChapter.plain_transcript?.slice(0, 1200) || chapterPlotReference}`,
+                ``,
+                `YOUR TASK:`,
+                isFirstWindow
+                    ? `1. Define the Opening Scene at "atSecond": 0, plus 1 or 2 additional scene transitions if major narrative shifts occur inside ${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)} (spaced at least 180s apart).`
+                    : `1. Identify 1 or 2 genuine narrative scene transitions inside ${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)} where the characters, setting, or dramatic action shifts.`,
+                `2. For every new scene transition you identify, provide:`,
+                `   - "atSecond": exact integer second between ${winStartSec} and ${winEndSec} where the transition happens in the transcript`,
+                `   - "sceneTitle": specific, evocative 3-7 word title for what happens in this scene`,
+                `   - "transitionReason": 1 concise sentence explaining WHY a new scene starts at this exact timestamp`,
+                `   - "characters": array of specific character names present in this scene`,
+                `   - "visualSetting": specific room/location, era, and lighting`,
+                `   - "illustrationPrompt": a rich, concrete 55-80 word visual prompt in "${effectiveStyle}" style depicting the EXACT named characters, their facial expressions, period clothing, body language, and the specific plot action happening at this timestamp.`,
+                `Respond ONLY with valid JSON matching this schema:`,
+                `{"transitions":[{"atSecond":${winStartSec},"sceneTitle":"...","transitionReason":"...","characters":["..."],"visualSetting":"...","illustrationPrompt":"..."}]}`
+            ].filter(Boolean).join('\n');
 
-        if (llmRes?.text) {
-            try {
-                const cleanedJson = llmRes.text.replace(/```json/gi, '').replace(/```/g, '').trim();
-                const firstBrace = cleanedJson.indexOf('{');
-                const lastBrace = cleanedJson.lastIndexOf('}');
-                if (firstBrace !== -1 && lastBrace > firstBrace) {
-                    const parsed = JSON.parse(cleanedJson.slice(firstBrace, lastBrace + 1));
-                    if (Array.isArray(parsed.transitions)) {
-                        for (const tr of parsed.transitions) {
-                            const rawSec = Number(tr.atSecond);
-                            const clampedSec = isFirstWindow && transitionsToProcess.length === 0
-                                ? 0
-                                : Math.max(winStartSec, Math.min(winEndSec - 5, Number.isFinite(rawSec) ? Math.round(rawSec) : winStartSec));
+            const llmRes = await callStudioTextLlmWithFailover({
+                prompt: llmAnalysisPrompt,
+                task: 'art_prompt',
+                maxTokens: 800,
+                temperature: 0.35,
+                description: `Scene transition check (${fmtSecToMMSS(winStartSec)}–${fmtSecToMMSS(winEndSec)}) for "${currentBook.title}"`,
+                skipFreeFallback: true
+            });
 
-                            if (clampedSec - lastTransitionSec < 60 && !(isFirstWindow && clampedSec === 0)) {
-                                continue;
-                            }
-                            const titleStr = String(tr.sceneTitle || '').trim();
-                            const promptStr = String(tr.illustrationPrompt || '').trim();
-                            if (titleStr && promptStr.length > 20) {
-                                transitionsToProcess.push({
-                                    atSecond: clampedSec,
-                                    sceneTitle: titleStr,
-                                    transitionReason: String(tr.transitionReason || `Narrative shift at ${fmtSecToMMSS(clampedSec)}`).trim(),
-                                    characters: Array.isArray(tr.characters) ? tr.characters.map((c: any) => String(c).trim()).filter(Boolean) : [],
-                                    visualSetting: String(tr.visualSetting || '').trim(),
-                                    illustrationPrompt: promptStr
-                                });
+            if (llmRes?.text) {
+                try {
+                    const cleanedJson = llmRes.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+                    const firstBrace = cleanedJson.indexOf('{');
+                    const lastBrace = cleanedJson.lastIndexOf('}');
+                    if (firstBrace !== -1 && lastBrace > firstBrace) {
+                        const parsed = JSON.parse(cleanedJson.slice(firstBrace, lastBrace + 1));
+                        if (Array.isArray(parsed.transitions)) {
+                            for (const tr of parsed.transitions) {
+                                const rawSec = Number(tr.atSecond);
+                                const clampedSec = isFirstWindow && transitionsToProcess.length === 0
+                                    ? 0
+                                    : Math.max(winStartSec, Math.min(winEndSec - 5, Number.isFinite(rawSec) ? Math.round(rawSec) : winStartSec));
+
+                                if (clampedSec - lastTransitionSec < 60 && !(isFirstWindow && clampedSec === 0)) {
+                                    continue;
+                                }
+                                const titleStr = String(tr.sceneTitle || '').trim();
+                                const promptStr = String(tr.illustrationPrompt || '').trim();
+                                if (titleStr && promptStr.length > 20) {
+                                    transitionsToProcess.push({
+                                        atSecond: clampedSec,
+                                        sceneTitle: titleStr,
+                                        transitionReason: String(tr.transitionReason || `Narrative shift at ${fmtSecToMMSS(clampedSec)}`).trim(),
+                                        characters: Array.isArray(tr.characters) ? tr.characters.map((c: any) => String(c).trim()).filter(Boolean) : [],
+                                        visualSetting: String(tr.visualSetting || '').trim(),
+                                        illustrationPrompt: promptStr
+                                    });
+                                }
                             }
                         }
                     }
-                }
-            } catch {}
+                } catch {}
+            } else {
+                // External LLM is unconfigured or rate-limited — switch remaining windows of this chapter to self-reliant local transcript analysis
+                llmRateLimitedInChapter = true;
+            }
         }
 
-        if (isFirstWindow && transitionsToProcess.length === 0) {
-            const snippet0 = formattedExcerpt.replace(/\[\d+:\d+\]\s*/g, ' ').trim().slice(0, 360) || chapterPlotReference.slice(0, 360);
-            const fallbackPrompt = await generateDynamicScenePrompt({
-                book: currentBook,
-                chapter: latestChapter,
-                sceneIndex: 0,
-                totalScenes: 4,
-                sceneTitle: `${cleanChapLabel} — Opening Scene`,
-                artType: 'chapter',
-                sceneSnippet: snippet0,
-                previousPrompts: [],
+        // Self-reliant Local Transcript Scene Extraction whenever LLM is unconfigured, rate-limited, or returned no transitions
+        if (transitionsToProcess.length === 0) {
+            const localTransitions = extractLocalScenesFromWindowTranscript({
+                linesInWindow,
+                winStartSec,
+                winEndSec,
+                isFirstWindow,
+                lastTransitionSec,
+                cleanChapLabel,
+                bookTitle: currentBook.title,
+                author: currentBook.author,
                 effectiveStyle,
-                effectiveFocus,
-                effectiveCustomPrompt,
-                config: freshConfig
+                knownCharacters: Array.from(characterBible),
+                chapterPlotReference
             });
-            transitionsToProcess.push({
-                atSecond: 0,
-                sceneTitle: `${cleanChapLabel} — Opening Scene`,
-                transitionReason: `Chapter opening at 00:00 of "${cleanChapLabel}"`,
-                characters: Array.from(characterBible).slice(0, 4),
-                visualSetting: `${currentBook.title} opening setting`,
-                illustrationPrompt: fallbackPrompt
-            });
+            transitionsToProcess.push(...localTransitions);
         }
 
         for (const tr of transitionsToProcess) {
@@ -4409,7 +4551,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
             lastTransitionSec = tr.atSecond;
         }
 
-        // Checkpoint discovered scene timestamps to SQLite after every 3m window so the user sees them live
+        // Checkpoint discovered scene timestamps to SQLite after every window so the user sees them live
         upsertAudiobookChapterMeta({
             chapter_key: latestChapter.chapter_key,
             book_key: book.book_key,
@@ -4417,10 +4559,6 @@ export const detectAudiobookChapterScenesWithLlm = async (
             images: discoveredScenes,
             error_message: ''
         });
-
-        if (wIdx < totalWindows - 1) {
-            await new Promise(r => setTimeout(r, 1200));
-        }
     }
 
     if (discoveredScenes.length > 0) {
@@ -4831,7 +4969,8 @@ export const resetAndRedoAudiobookAssets = async (params: {
 export const getQueueBreakdownAndHistory = () => {
     purgeAllFakeSvgArtFromDbAndDisk();
     const config = getAudiobookStudioConfig();
-    const hasCloudStt = getCandidateStudioKeys(config, ['gemini', 'groq', 'openai']).length > 0;
+    const preferLocalFirst = config.sttEngine !== 'openai_whisper' && config.sttEngine !== 'gemini_audio';
+    const hasCloudStt = !preferLocalFirst && getCandidateStudioKeys(config, ['gemini', 'groq', 'openai']).length > 0;
     const allBooks = getAllAudiobooksMeta();
     const queuedBooks = allBooks
         .filter(b => b.queue_enabled)
@@ -5576,7 +5715,7 @@ export const organizeAudiobookCollectionsWithAi = async (
     let aiJsonText = '';
 
     if (config.geminiApiKey) {
-        const geminiModels = ['gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-2.0-flash'];
+        const geminiModels = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest'];
         for (const modelName of geminiModels) {
             try {
                 const resp = await axios.post(
