@@ -132,7 +132,7 @@ const db = {
 };
 
 function initializeSchema(d: any) {
-    const CURRENT_SCHEMA_VER = 13;
+    const CURRENT_SCHEMA_VER = 15;
     try {
         const v = d.pragma('user_version', { simple: true });
         if (typeof v === 'number' && v >= CURRENT_SCHEMA_VER) {
@@ -499,6 +499,17 @@ function initializeSchema(d: any) {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_instant_dl_status ON instant_stream_downloads (status, replace_when_hq);
+
+      CREATE TABLE IF NOT EXISTS calendar_releases_cache (
+        id TEXT PRIMARY KEY,
+        release_date TEXT NOT NULL,
+        date_day TEXT NOT NULL,
+        instance_id TEXT,
+        media_type TEXT,
+        payload_json TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_calendar_releases_day ON calendar_releases_cache (date_day);
     `);
 
     // Migrations
@@ -3605,7 +3616,7 @@ export const getAiApiUsageEvents = (sinceIso?: string, limit: number = 5000): Ai
     }
 };
 
-export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '24h') => {
+export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '24h', providerFilter?: string) => {
     try {
         const now = Date.now();
         const sinceIso =
@@ -3618,6 +3629,9 @@ export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '2
                 : '1970-01-01T00:00:00.000Z';
 
         const bucketExpr = range === '24h' ? "substr(timestamp, 1, 13) || ':00'" : 'substr(timestamp, 1, 10)';
+        const hasProviderFilter = Boolean(providerFilter && providerFilter !== 'all');
+        const whereClause = hasProviderFilter ? 'WHERE timestamp >= ? AND provider = ?' : 'WHERE timestamp >= ?';
+        const queryArgs = hasProviderFilter ? [sinceIso, providerFilter!] : [sinceIso];
 
         const bucketRows = db
             .prepare(
@@ -3630,12 +3644,74 @@ export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '2
                 SUM(COALESCE(tokens_estimated, 0)) as tokens_used,
                 SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors
             FROM ai_api_usage_events
-            WHERE timestamp >= ?
+            ${whereClause}
             GROUP BY bucket
             ORDER BY bucket ASC
         `
             )
-            .all(sinceIso) as any[];
+            .all(...queryArgs) as any[];
+
+        // Compute per-minute request and token peaks within each bucket
+        const minutePeakRows = db
+            .prepare(
+                `
+            SELECT
+                bucket,
+                MAX(req_per_min) as peak_rpm,
+                MAX(tok_per_min) as peak_tpm
+            FROM (
+                SELECT
+                    ${bucketExpr} as bucket,
+                    substr(timestamp, 1, 16) as minute_key,
+                    COUNT(*) as req_per_min,
+                    SUM(COALESCE(tokens_estimated, 0)) as tok_per_min
+                FROM ai_api_usage_events
+                ${whereClause}
+                GROUP BY bucket, minute_key
+            )
+            GROUP BY bucket
+        `
+            )
+            .all(...queryArgs) as any[];
+        const minutePeakMap = new Map<string, { peakRpm: number; peakTpm: number }>();
+        for (const mp of minutePeakRows || []) {
+            minutePeakMap.set(String(mp.bucket || ''), {
+                peakRpm: Number(mp.peak_rpm || 0),
+                peakTpm: Number(mp.peak_tpm || 0)
+            });
+        }
+
+        // Compute daily request totals for RPD trend
+        const dayPeakRows = db
+            .prepare(
+                `
+            SELECT
+                substr(timestamp, 1, 10) as day_key,
+                COUNT(*) as req_per_day
+            FROM ai_api_usage_events
+            ${whereClause}
+            GROUP BY day_key
+        `
+            )
+            .all(...queryArgs) as any[];
+        const dayPeakMap = new Map<string, number>();
+        for (const dp of dayPeakRows || []) {
+            dayPeakMap.set(String(dp.day_key || ''), Number(dp.req_per_day || 0));
+        }
+
+        // Live rolling 60-second RPM & TPM
+        const oneMinAgoIso = new Date(now - 60 * 1000).toISOString();
+        const liveMinRow = db
+            .prepare(
+                `
+            SELECT
+                COUNT(*) as rpm_now,
+                SUM(COALESCE(tokens_estimated, 0)) as tpm_now
+            FROM ai_api_usage_events
+            WHERE timestamp >= ?
+        `
+            )
+            .get(oneMinAgoIso) as any;
 
         const byProviderRows = db
             .prepare(
@@ -3655,17 +3731,56 @@ export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '2
             )
             .all(sinceIso) as any[];
 
+        // Also compute per-provider peak RPM / TPM / RPD
+        const providerMinutePeaks = db
+            .prepare(
+                `
+            SELECT
+                provider,
+                MAX(req_per_min) as peak_rpm,
+                MAX(tok_per_min) as peak_tpm
+            FROM (
+                SELECT
+                    provider,
+                    substr(timestamp, 1, 16) as minute_key,
+                    COUNT(*) as req_per_min,
+                    SUM(COALESCE(tokens_estimated, 0)) as tok_per_min
+                FROM ai_api_usage_events
+                WHERE timestamp >= ?
+                GROUP BY provider, minute_key
+            )
+            GROUP BY provider
+        `
+            )
+            .all(sinceIso) as any[];
+        const provPeakMap = new Map<string, { peakRpm: number; peakTpm: number }>();
+        for (const pp of providerMinutePeaks || []) {
+            provPeakMap.set(String(pp.provider || ''), {
+                peakRpm: Number(pp.peak_rpm || 0),
+                peakTpm: Number(pp.peak_tpm || 0)
+            });
+        }
+
         const recentEvents = getAiApiUsageEvents(sinceIso, 50).reverse();
 
-        const buckets = (bucketRows || []).map(r => ({
-            bucket: String(r.bucket || ''),
-            requests: Number(r.requests || 0),
-            imagesGenerated: Number(r.images_generated || 0),
-            audioSeconds: Number(r.audio_seconds || 0),
-            audioHours: Number((Number(r.audio_seconds || 0) / 3600).toFixed(2)),
-            tokensUsed: Number(r.tokens_used || 0),
-            errors: Number(r.errors || 0)
-        }));
+        const buckets = (bucketRows || []).map(r => {
+            const bKey = String(r.bucket || '');
+            const dayKey = bKey.slice(0, 10);
+            const mp = minutePeakMap.get(bKey) || { peakRpm: 0, peakTpm: 0 };
+            const peakRpd = dayPeakMap.get(dayKey) || Number(r.requests || 0);
+            return {
+                bucket: bKey,
+                requests: Number(r.requests || 0),
+                imagesGenerated: Number(r.images_generated || 0),
+                audioSeconds: Number(r.audio_seconds || 0),
+                audioHours: Number((Number(r.audio_seconds || 0) / 3600).toFixed(2)),
+                tokensUsed: Number(r.tokens_used || 0),
+                errors: Number(r.errors || 0),
+                peakRpm: mp.peakRpm,
+                peakTpm: mp.peakTpm,
+                peakRpd
+            };
+        });
 
         const totalRequests = buckets.reduce((a, b) => a + b.requests, 0);
         const totalImages = buckets.reduce((a, b) => a + b.imagesGenerated, 0);
@@ -3673,10 +3788,22 @@ export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '2
         const totalAudioHours = Number((totalAudioSeconds / 3600).toFixed(2));
         const totalTokens = buckets.reduce((a, b) => a + b.tokensUsed, 0);
         const totalErrors = buckets.reduce((a, b) => a + b.errors, 0);
+        const maxPeakRpm = buckets.reduce((m, b) => Math.max(m, b.peakRpm || 0), 0);
+        const maxPeakTpm = buckets.reduce((m, b) => Math.max(m, b.peakTpm || 0), 0);
+        const maxPeakRpd = buckets.reduce((m, b) => Math.max(m, b.peakRpd || 0), 0);
+
+        const enrichedByProvider = (byProviderRows || []).map((r: any) => {
+            const pk = provPeakMap.get(String(r.provider || '')) || { peakRpm: 0, peakTpm: 0 };
+            return {
+                ...r,
+                peak_rpm: pk.peakRpm,
+                peak_tpm: pk.peakTpm
+            };
+        });
 
         return {
             buckets,
-            byProvider: byProviderRows || [],
+            byProvider: enrichedByProvider,
             recentEvents,
             totals: {
                 totalRequests,
@@ -3684,7 +3811,12 @@ export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '2
                 totalAudioSeconds,
                 totalAudioHours,
                 totalTokens,
-                totalErrors
+                totalErrors,
+                maxPeakRpm,
+                maxPeakTpm,
+                maxPeakRpd,
+                currentRpm: Number(liveMinRow?.rpm_now || 0),
+                currentTpm: Number(liveMinRow?.tpm_now || 0)
             }
         };
     } catch (e) {
@@ -3699,10 +3831,267 @@ export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '2
                 totalAudioSeconds: 0,
                 totalAudioHours: 0,
                 totalTokens: 0,
-                totalErrors: 0
+                totalErrors: 0,
+                maxPeakRpm: 0,
+                maxPeakTpm: 0,
+                maxPeakRpd: 0,
+                currentRpm: 0,
+                currentTpm: 0
             }
         };
     }
+};
+
+export type GranularAiCleanupTarget = 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all';
+
+export const cleanGeneratedAudiobookDataInDb = (options: {
+    target: GranularAiCleanupTarget;
+    bookKey?: string;
+}): { booksUpdated: number; chaptersUpdated: number; eventsCleared: number } => {
+    const now = new Date().toISOString();
+    const { target, bookKey } = options;
+    let booksUpdated = 0;
+    let chaptersUpdated = 0;
+    let eventsCleared = 0;
+
+    try {
+        if (target === 'api_history') {
+            const res = db.prepare('DELETE FROM ai_api_usage_events').run();
+            return { booksUpdated: 0, chaptersUpdated: 0, eventsCleared: Number(res?.changes || 0) };
+        }
+
+        if (target === 'all' && !bookKey) {
+            const res = purgeAllGeneratedAudiobookDataInDb();
+            const evRes = db.prepare('DELETE FROM ai_api_usage_events').run();
+            return {
+                booksUpdated: res.booksReset,
+                chaptersUpdated: res.chaptersDeleted,
+                eventsCleared: Number(evRes?.changes || 0)
+            };
+        }
+
+        const chapters = bookKey
+            ? (db.prepare('SELECT * FROM audiobook_chapters_meta WHERE book_key = ?').all(bookKey) as any[])
+            : (db.prepare('SELECT * FROM audiobook_chapters_meta').all() as any[]);
+
+        const affectedBookKeys = new Set<string>();
+        if (bookKey) affectedBookKeys.add(bookKey);
+
+        for (const ch of chapters) {
+            affectedBookKeys.add(ch.book_key);
+            if (target === 'images') {
+                // Keep scene timestamps & prompts, strip generated image URLs
+                let nextImagesJson = '[]';
+                try {
+                    const parsed = JSON.parse(ch.images_json || '[]');
+                    if (Array.isArray(parsed)) {
+                        nextImagesJson = JSON.stringify(
+                            parsed.map((sc: any) => ({
+                                ...sc,
+                                url: ''
+                            }))
+                        );
+                    }
+                } catch {}
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta SET
+                        illustration_status = 'idle',
+                        illustration_progress = 0,
+                        images_json = ?,
+                        error_message = NULL,
+                        updated_at = ?
+                    WHERE chapter_key = ?
+                `).run(nextImagesJson, now, ch.chapter_key);
+                chaptersUpdated++;
+            } else if (target === 'scenes') {
+                // Wipe both scenes and images, keep transcripts intact
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta SET
+                        illustration_status = 'idle',
+                        illustration_progress = 0,
+                        images_json = '[]',
+                        error_message = NULL,
+                        updated_at = ?
+                    WHERE chapter_key = ?
+                `).run(now, ch.chapter_key);
+                chaptersUpdated++;
+            } else if (target === 'transcripts') {
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta SET
+                        transcription_status = 'idle',
+                        transcription_progress = 0,
+                        transcribed_seconds = 0,
+                        synced_lyrics = NULL,
+                        synced_transcript = NULL,
+                        plain_transcript = NULL,
+                        transcript_lrc_path = NULL,
+                        transcript_txt_path = NULL,
+                        error_message = NULL,
+                        updated_at = ?
+                    WHERE chapter_key = ?
+                `).run(now, ch.chapter_key);
+                chaptersUpdated++;
+            } else if (target === 'voices') {
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta SET
+                        audio_enhance_status = 'idle',
+                        audio_enhance_progress = 0,
+                        enhanced_audio_path = NULL,
+                        enhanced_file_path = NULL,
+                        voice_preset = 'original',
+                        processed_voices_json = '{}',
+                        error_message = NULL,
+                        updated_at = ?
+                    WHERE chapter_key = ?
+                `).run(now, ch.chapter_key);
+                chaptersUpdated++;
+            } else if (target === 'all') {
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta SET
+                        transcription_status = 'idle',
+                        transcription_progress = 0,
+                        transcribed_seconds = 0,
+                        synced_lyrics = NULL,
+                        synced_transcript = NULL,
+                        plain_transcript = NULL,
+                        transcript_lrc_path = NULL,
+                        transcript_txt_path = NULL,
+                        illustration_status = 'idle',
+                        illustration_progress = 0,
+                        images_json = '[]',
+                        audio_enhance_status = 'idle',
+                        audio_enhance_progress = 0,
+                        enhanced_audio_path = NULL,
+                        enhanced_file_path = NULL,
+                        voice_preset = 'original',
+                        processed_voices_json = '{}',
+                        error_message = NULL,
+                        updated_at = ?
+                    WHERE chapter_key = ?
+                `).run(now, ch.chapter_key);
+                chaptersUpdated++;
+            }
+        }
+
+        for (const bKey of affectedBookKeys) {
+            recalculateAudiobookTotals(bKey);
+            booksUpdated++;
+        }
+
+        return { booksUpdated, chaptersUpdated, eventsCleared };
+    } catch (e) {
+        console.error('Error in cleanGeneratedAudiobookDataInDb:', e);
+        return { booksUpdated, chaptersUpdated, eventsCleared };
+    }
+};
+
+// ── Cached Calendar Releases Across Instances ──
+export const getCachedCalendarReleases = (startDay: string, endDay: string): any[] => {
+    try {
+        const sDay = String(startDay || '').slice(0, 10);
+        const eDay = String(endDay || '').slice(0, 10);
+        const rows = db
+            .prepare(
+                `
+            SELECT payload_json
+            FROM calendar_releases_cache
+            WHERE date_day >= ? AND date_day <= ?
+            ORDER BY release_date ASC
+        `
+            )
+            .all(sDay, eDay) as any[];
+        const events: any[] = [];
+        for (const r of rows || []) {
+            try {
+                events.push(JSON.parse(r.payload_json));
+            } catch {}
+        }
+        return events;
+    } catch (e) {
+        console.warn('Error reading cached calendar releases:', e);
+        return [];
+    }
+};
+
+export const getTotalCachedCalendarReleasesCount = (): number => {
+    try {
+        const row = db.prepare('SELECT COUNT(*) as cnt FROM calendar_releases_cache').get() as any;
+        return Number(row?.cnt || 0);
+    } catch {
+        return 0;
+    }
+};
+
+export const replaceCachedCalendarReleases = (startDay: string, endDay: string, events: any[]): number => {
+    try {
+        const sDay = String(startDay || '').slice(0, 10);
+        const eDay = String(endDay || '').slice(0, 10);
+        const now = new Date().toISOString();
+
+        const tx = db.transaction((items: any[]) => {
+            db.prepare('DELETE FROM calendar_releases_cache WHERE date_day >= ? AND date_day <= ?').run(sDay, eDay);
+            const insertStmt = db.prepare(`
+                INSERT OR REPLACE INTO calendar_releases_cache (
+                    id, release_date, date_day, instance_id, media_type, payload_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            `);
+            for (const ev of items) {
+                if (!ev?.id || !ev?.releaseDate) continue;
+                const dayKey = String(ev.releaseDate).slice(0, 10);
+                insertStmt.run(
+                    String(ev.id),
+                    String(ev.releaseDate),
+                    dayKey,
+                    ev.instanceId ? String(ev.instanceId) : null,
+                    ev.mediaType ? String(ev.mediaType) : null,
+                    JSON.stringify(ev),
+                    now
+                );
+            }
+        });
+        tx(events || []);
+        return (events || []).length;
+    } catch (e) {
+        console.warn('Error replacing cached calendar releases:', e);
+        return 0;
+    }
+};
+
+export const getCalendarSyncConfig = () => {
+    const enabledRaw = getSetting('calendar_sync_enabled');
+    const enabled = enabledRaw === null ? true : enabledRaw === 'true';
+    const intervalMin = Math.max(1, parseInt(getSetting('calendar_sync_interval_min') || '15', 10) || 15);
+    const lastSync = getSetting('calendar_sync_last_run') || null;
+    const lastDurationMs = parseInt(getSetting('calendar_sync_last_duration_ms') || '0', 10) || 0;
+    const cachedCount = getTotalCachedCalendarReleasesCount();
+    return {
+        enabled,
+        intervalMin,
+        lastSync,
+        lastDurationMs,
+        cachedCount
+    };
+};
+
+export const setCalendarSyncConfig = (cfg: {
+    enabled?: boolean;
+    intervalMin?: number;
+    lastSync?: string;
+    lastDurationMs?: number;
+}) => {
+    if (typeof cfg.enabled === 'boolean') {
+        setSetting('calendar_sync_enabled', cfg.enabled ? 'true' : 'false');
+    }
+    if (typeof cfg.intervalMin === 'number') {
+        setSetting('calendar_sync_interval_min', String(Math.max(1, cfg.intervalMin)));
+    }
+    if (typeof cfg.lastSync === 'string') {
+        setSetting('calendar_sync_last_run', cfg.lastSync);
+    }
+    if (typeof cfg.lastDurationMs === 'number') {
+        setSetting('calendar_sync_last_duration_ms', String(cfg.lastDurationMs));
+    }
+    return getCalendarSyncConfig();
 };
 
 export interface InstantStreamDownloadRecord {

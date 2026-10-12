@@ -16,6 +16,8 @@ import { startSpeedMonitor } from '@/lib/speedMonitor';
 import { performStartupContainerCleanup } from '@/lib/docker';
 import { checkAndRunScheduledEpgSyncs } from '@/lib/iptvEpgSync';
 import { triggerAudiobookQueueWorker, getAudiobookStudioConfig } from '@/lib/audiobookStudio';
+import { runPeriodicCalendarSync } from '@/lib/calendarSync';
+import { getCalendarSyncConfig } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
 
@@ -119,7 +121,7 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
         const runAudiobookStudioCycle = async () => {
             try {
                 const studioCfg = getAudiobookStudioConfig();
-                if (studioCfg.enabled && studioCfg.scheduleMode !== 'manual_only') {
+                if (studioCfg.enabled && !studioCfg.aiPaused && studioCfg.scheduleMode !== 'manual_only') {
                     const hour = new Date().getHours();
                     const canRunNow =
                         studioCfg.scheduleMode === 'continuous_low_cpu' ||
@@ -135,6 +137,22 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
             setTimeout(runAudiobookStudioCycle, 2 * 60 * 1000);
         };
         setTimeout(runAudiobookStudioCycle, 25000); // Start 25s after boot
+
+        // Periodic Release Calendar Sync across Radarr & Sonarr instances for instant page load
+        const runCalendarSyncCycle = async () => {
+            try {
+                const calCfg = getCalendarSyncConfig();
+                if (calCfg.enabled) {
+                    await runPeriodicCalendarSync(false);
+                }
+            } catch (err) {
+                console.error('❌ Release Calendar sync error:', err);
+            }
+            const calCfgNext = getCalendarSyncConfig();
+            const intervalMin = Math.max(1, calCfgNext.intervalMin || 15);
+            setTimeout(runCalendarSyncCycle, intervalMin * 60 * 1000);
+        };
+        setTimeout(runCalendarSyncCycle, 8000); // Start 8s after boot
     };
 
     startScheduler();

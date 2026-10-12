@@ -38,6 +38,9 @@ import {
     executeRenameAudiobookFiles,
     purgeAllFakeSvgArtFromDbAndDisk,
     purgeAllGeneratedAudiobookData,
+    cleanGeneratedAudiobookData,
+    setAiGloballyPaused,
+    isAiGloballyPaused,
     regenerateSingleAudiobookSceneImage,
     getAudiobookTranscriptsDir
 } from '@/lib/audiobookStudio';
@@ -1199,6 +1202,34 @@ export async function POST(request: Request) {
             return NextResponse.json({
                 success: true,
                 ...outcome
+            });
+        }
+
+        if (action === 'set_ai_paused' || action === 'pause_all_ai') {
+            const nextPaused = typeof body.paused === 'boolean' ? body.paused : !isAiGloballyPaused();
+            const savedConfig = setAiGloballyPaused(nextPaused);
+            return NextResponse.json({
+                success: true,
+                aiPaused: nextPaused,
+                config: savedConfig,
+                status: getAudiobookStudioStatus(),
+                books: getAllAudiobooksMeta()
+            });
+        }
+
+        if (action === 'clean_generated_data') {
+            const target = (body.target || 'all') as 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all';
+            const bookKey = body.bookKey ? String(body.bookKey) : undefined;
+            const pauseAiFirst = Boolean(body.pauseAiFirst);
+            const outcome = cleanGeneratedAudiobookData({ target, bookKey, pauseAiFirst });
+            return NextResponse.json({
+                success: true,
+                ...outcome,
+                config: getAudiobookStudioConfig(),
+                status: getAudiobookStudioStatus(),
+                books: getAllAudiobooksMeta(),
+                book: bookKey ? getAudiobookMeta(bookKey) : undefined,
+                chapters: bookKey ? getAudiobookChaptersMeta(bookKey) : undefined
             });
         }
 

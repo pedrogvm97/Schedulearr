@@ -17,7 +17,10 @@ import {
     upsertAudiobookChapterMeta,
     resetAudiobookAssetsInDb,
     purgeAllGeneratedAudiobookDataInDb,
+    cleanGeneratedAudiobookDataInDb,
+    GranularAiCleanupTarget,
     logAiApiUsageEvent,
+    getAiApiUsageTimeSeries,
     recalculateAudiobookTotals,
     AudiobookBookMeta,
     AudiobookChapterMeta,
@@ -113,6 +116,7 @@ export interface BookRealStructure {
 
 export interface AudiobookStudioConfig {
     enabled: boolean;
+    aiPaused?: boolean;
     aiFeaturesEnabled?: boolean;
     transcribeEnabled?: boolean;
     sceningEnabled?: boolean;
@@ -518,8 +522,8 @@ export const recordStudioApiMetric = (params: {
             keyPool: updatedKeys
         });
 
-        const isRateLimited = !params.success && /429|rate[_\s-]*limit|quota|too many requests/i.test(params.errorMessage || '');
-        const inferredProvider = matchedProvider.startsWith('AIza') || /gemini|imagen/i.test(params.providerLabel)
+        const isRateLimited = !params.success && /429|rate[_\s-]*limit|quota|too many requests|RESOURCE_EXHAUSTED/i.test(params.errorMessage || '');
+        const inferredProvider = matchedProvider.startsWith('AIza') || matchedProvider.startsWith('AQ.') || /gemini|imagen/i.test(params.providerLabel)
             ? 'gemini'
             : matchedProvider.startsWith('gsk_') || /groq/i.test(params.providerLabel)
             ? 'groq'
@@ -530,8 +534,19 @@ export const recordStudioApiMetric = (params: {
             : /whisper\.cpp|offline cpu|local/i.test(params.providerLabel)
             ? 'whisper_local'
             : /flux|pollinations|horde|free/i.test(params.providerLabel)
-            ? 'flux_free'
+            ? 'pollinations'
             : matchedProvider || 'free';
+
+        const estimatedTokens =
+            params.task === 'transcription'
+                ? Math.round((params.audioSeconds || 120) * 32) + 250
+                : params.task === 'art_prompt'
+                ? 1850
+                : params.task === 'structure_search'
+                ? 950
+                : params.task === 'image_paint'
+                ? 320
+                : 150;
 
         logAiApiUsageEvent({
             provider: inferredProvider,
@@ -542,14 +557,231 @@ export const recordStudioApiMetric = (params: {
             rate_limited: isRateLimited ? 1 : 0,
             images_count: params.imagesCount !== undefined ? params.imagesCount : (params.task === 'image_paint' && params.success ? 1 : 0),
             audio_seconds: params.audioSeconds !== undefined ? params.audioSeconds : 0,
-            tokens_estimated: params.task === 'art_prompt' || params.task === 'structure_search' ? 450 : 0,
+            tokens_estimated: estimatedTokens,
             book_title: g.__audiobookStudioStatus?.activeBookTitle || undefined,
             chapter_title: g.__audiobookStudioStatus?.activeChapterTitle || undefined,
             error_message: params.errorMessage
         });
+
+        // Automatically detect & learn exact quota limits if a 429 / QuotaFailure occurred
+        if (isRateLimited) {
+            try {
+                const rawQuotas = getSetting('ai_api_quotas_config');
+                const quotas = rawQuotas ? JSON.parse(rawQuotas) : {};
+                const qKey = inferredProvider === 'groq' ? 'openai' : inferredProvider;
+                const curQ = quotas[qKey] || { autoSetLimits: true, rpmLimit: 15, tpmLimit: 250000, rpdLimit: 500 };
+                if (curQ.autoSetLimits !== false) {
+                    const errText = String(params.errorMessage || '');
+                    const series = getAiApiUsageTimeSeries('24h', inferredProvider);
+                    const liveRpm = Math.max(1, series.totals?.currentRpm || series.totals?.maxPeakRpm || 15);
+                    const liveRpd = Math.max(1, series.totals?.totalRequests || 500);
+
+                    if (qKey === 'gemini') {
+                        // Google AI Studio Flash-Lite Free Tier is 15 RPM / 250K TPM / 500 RPD
+                        const isFreeTierMsg = /FreeTier|free_tier|RESOURCE_EXHAUSTED|quota/i.test(errText);
+                        const quotaValMatch = errText.match(/quotaValue["':\s]+(\d+)/i);
+                        const parsedVal = quotaValMatch ? parseInt(quotaValMatch[1], 10) : 0;
+
+                        if (parsedVal > 0 && parsedVal <= 30) {
+                            curQ.rpmLimit = parsedVal;
+                        } else if (isFreeTierMsg || liveRpm <= 25) {
+                            curQ.rpmLimit = 15;
+                            curQ.tpmLimit = 250000;
+                        }
+                        if (parsedVal >= 100 && parsedVal <= 2000) {
+                            curQ.rpdLimit = parsedVal;
+                        } else if (isFreeTierMsg || liveRpd <= 600) {
+                            curQ.rpdLimit = 500;
+                        }
+                        curQ.tierId = 'free_flash_lite';
+                        curQ.lastPingStatus = 'rate_limited';
+                        curQ.detectedRemoteLimit = curQ.rpdLimit;
+                        quotas.gemini = curQ;
+                        setSetting('ai_api_quotas_config', JSON.stringify(quotas));
+                        saveAudiobookStudioConfig({ maxRequestsPerMinute: Math.min(15, curQ.rpmLimit || 15) });
+                    } else if (qKey === 'openai' || qKey === 'pollinations') {
+                        curQ.lastPingStatus = 'rate_limited';
+                        if (liveRpm > 0 && liveRpm < (curQ.rpmLimit || 60)) {
+                            curQ.rpmLimit = Math.max(5, liveRpm);
+                        }
+                        quotas[qKey] = curQ;
+                        setSetting('ai_api_quotas_config', JSON.stringify(quotas));
+                    }
+                }
+            } catch {}
+        }
     } catch (e) {
         console.warn('Error recording studio API metric:', e);
     }
+};
+
+export const isAiGloballyPaused = (): boolean => {
+    if (g.__audiobookAiHalted === true) return true;
+    const cfg = getAudiobookStudioConfig();
+    return Boolean(cfg.aiPaused) || !cfg.enabled || cfg.aiFeaturesEnabled === false;
+};
+
+export const setAiGloballyPaused = (paused: boolean): AudiobookStudioConfig => {
+    g.__audiobookAiHalted = paused;
+    const saved = saveAudiobookStudioConfig({
+        aiPaused: paused,
+        enabled: !paused
+    });
+    if (paused) {
+        g.__audiobookStudioStatus = {
+            ...g.__audiobookStudioStatus,
+            isRunning: false,
+            activeBookKey: null,
+            activeBookTitle: null,
+            activeChapterKey: null,
+            activeChapterTitle: null,
+            activeTranscriptionBookKey: null,
+            activeTranscriptionBookTitle: null,
+            activeSceningBookKey: null,
+            activeImagingBookKey: null,
+            activeTask: null,
+            activeCategory: null,
+            activeResourceLabel: 'Paused',
+            progress: 0,
+            lastLog: 'Paused — All AI tasks halted by user',
+            currentStep: 'Paused — All AI tasks halted by user',
+            updatedAt: new Date().toISOString()
+        };
+    } else {
+        g.__audiobookStudioStatus = {
+            ...g.__audiobookStudioStatus,
+            lastLog: 'Resumed — AI worker ready',
+            currentStep: 'Resumed — AI worker ready',
+            updatedAt: new Date().toISOString()
+        };
+        triggerAudiobookQueueWorker();
+    }
+    return saved;
+};
+
+/**
+ * Granular or full cleanup of generated AI files and SQLite metadata.
+ * Targets:
+ * - 'images': Delete generated scene images only (keeps transcripts & scene windows/prompts)
+ * - 'scenes': Delete scene breakdowns & images (keeps transcripts intact)
+ * - 'transcripts': Delete transcripts (.lrc/.txt) & reset STT progress
+ * - 'voices': Delete generated .m4a voice files
+ * - 'api_history': Clear API usage telemetry logs & reset daily counter
+ * - 'all': Full wipe of all generated data
+ */
+export const cleanGeneratedAudiobookData = (options: {
+    target: GranularAiCleanupTarget;
+    bookKey?: string;
+    pauseAiFirst?: boolean;
+}): {
+    deletedFiles: number;
+    booksUpdated: number;
+    chaptersUpdated: number;
+    eventsCleared: number;
+} => {
+    const { target, bookKey, pauseAiFirst } = options;
+    if (pauseAiFirst) {
+        setAiGloballyPaused(true);
+    }
+
+    if (target === 'all' && !bookKey) {
+        const res = purgeAllGeneratedAudiobookData();
+        const dbApi = cleanGeneratedAudiobookDataInDb({ target: 'api_history' });
+        return {
+            deletedFiles: res.deletedFiles,
+            booksUpdated: res.booksCleared,
+            chaptersUpdated: res.chaptersDeleted,
+            eventsCleared: dbApi.eventsCleared
+        };
+    }
+
+    let deletedFiles = 0;
+    const chapters = bookKey ? getAudiobookChaptersMeta(bookKey) : [];
+    const safeChapterPrefixes = new Set(
+        chapters.map(c => c.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_'))
+    );
+
+    const matchesBookFilter = (filename: string): boolean => {
+        if (!bookKey) return true;
+        for (const pref of safeChapterPrefixes) {
+            if (filename.includes(pref)) return true;
+        }
+        const safeBk = bookKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+        return filename.includes(safeBk);
+    };
+
+    if (target === 'images' || target === 'scenes' || target === 'all') {
+        const artDir = getAudiobookArtDir();
+        try {
+            if (fs.existsSync(artDir)) {
+                for (const f of fs.readdirSync(artDir)) {
+                    if (target !== 'all' && f.startsWith('cover_custom_')) continue;
+                    if (!matchesBookFilter(f)) continue;
+                    try {
+                        const fp = path.join(artDir, f);
+                        if (fs.statSync(fp).isFile()) {
+                            fs.unlinkSync(fp);
+                            deletedFiles++;
+                        }
+                    } catch {}
+                }
+            }
+        } catch {}
+    }
+
+    if (target === 'transcripts' || target === 'all') {
+        const trDir = getAudiobookTranscriptsDir();
+        try {
+            if (fs.existsSync(trDir)) {
+                for (const f of fs.readdirSync(trDir)) {
+                    if (!matchesBookFilter(f)) continue;
+                    try {
+                        const fp = path.join(trDir, f);
+                        if (fs.statSync(fp).isFile()) {
+                            fs.unlinkSync(fp);
+                            deletedFiles++;
+                        }
+                    } catch {}
+                }
+            }
+        } catch {}
+    }
+
+    if (target === 'voices' || target === 'all') {
+        const enhDir = getAudiobookEnhancedDir();
+        try {
+            if (fs.existsSync(enhDir)) {
+                for (const f of fs.readdirSync(enhDir)) {
+                    if (!matchesBookFilter(f)) continue;
+                    try {
+                        const fp = path.join(enhDir, f);
+                        if (fs.statSync(fp).isFile()) {
+                            fs.unlinkSync(fp);
+                            deletedFiles++;
+                        }
+                    } catch {}
+                }
+            }
+        } catch {}
+    }
+
+    if (target === 'api_history') {
+        const cfg = getAudiobookStudioConfig();
+        saveAudiobookStudioConfig({
+            ...cfg,
+            imagesGeneratedToday: 0,
+            apiMetrics: { ...DEFAULT_API_METRICS }
+        });
+    }
+
+    const dbRes = cleanGeneratedAudiobookDataInDb({ target, bookKey });
+
+    return {
+        deletedFiles,
+        booksUpdated: dbRes.booksUpdated,
+        chaptersUpdated: dbRes.chaptersUpdated,
+        eventsCleared: dbRes.eventsCleared
+    };
 };
 
 /**
@@ -2868,6 +3100,11 @@ export const transcribeAudiobookChapter = async (
     } else {
         const startChunkIdx = Math.floor(completedSec / chunkDurationSec);
         for (let chunkIdx = startChunkIdx; chunkIdx < numChunks; chunkIdx++) {
+            if (isAiGloballyPaused()) {
+                g.__audiobookStudioStatus.activeTranscriptionBookKey = null;
+                g.__audiobookStudioStatus.activeTranscriptionBookTitle = null;
+                return { syncedLyrics: allLrcLines.join('\n'), plainTranscript: allPlainParts.join(' ') };
+            }
             const startOffsetSec = chunkIdx * chunkDurationSec;
             const currentChunkLenSec = Math.min(chunkDurationSec, totalToTranscribeSec - startOffsetSec);
             if (currentChunkLenSec <= 2) {
@@ -5456,6 +5693,9 @@ export const runSingleSceningOrImagingStep = async (
     forceChapterKey?: string,
     forceIgnoreQuota?: boolean
 ): Promise<{ didWork: boolean; blockedByQuotaCount: number; failedCount: number; lastError: string }> => {
+    if (isAiGloballyPaused()) {
+        return { didWork: false, blockedByQuotaCount: 0, failedCount: 0, lastError: '' };
+    }
     const config = getAudiobookStudioConfig();
     if (config.aiFeaturesEnabled === false && !forceBookKey && !forceChapterKey) {
         return { didWork: false, blockedByQuotaCount: 0, failedCount: 0, lastError: '' };
@@ -5478,6 +5718,7 @@ export const runSingleSceningOrImagingStep = async (
     let lastError = '';
 
     for (const book of candidateBooks) {
+        if (isAiGloballyPaused()) break;
         const bookSceningOn = globalSceningOn && (book.scening_enabled !== false);
         const bookImagingOn = bookSceningOn && globalImagingOn && (book.illustrate_enabled !== false);
         if (!bookSceningOn) continue;
@@ -5488,6 +5729,7 @@ export const runSingleSceningOrImagingStep = async (
             : chapters;
 
         for (const chapter of targetChapters) {
+            if (isAiGloballyPaused()) break;
             const latestChapter = getAudiobookChapterMeta(chapter.chapter_key, book.book_key, chapter.chapter_index) || chapter;
             const hasCompleteTranscript = Boolean(
                 latestChapter.transcription_status === 'completed' &&
@@ -5585,10 +5827,11 @@ export const triggerIncrementalSceningAndImaging = (
     forceIgnoreQuota?: boolean
 ) => {
     setTimeout(async () => {
-        if (g.__audiobookSceneArtLock) return;
+        if (g.__audiobookSceneArtLock || isAiGloballyPaused()) return;
         g.__audiobookSceneArtLock = true;
         try {
             for (let pass = 0; pass < 12; pass++) {
+                if (isAiGloballyPaused()) break;
                 const cfg = getAudiobookStudioConfig();
                 if ((!cfg.enabled || cfg.aiFeaturesEnabled === false) && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) break;
                 const res = await runSingleSceningOrImagingStep(forceBookKey, forceChapterKey, forceIgnoreQuota);
@@ -5619,7 +5862,7 @@ export const processAudiobookPriorityQueueStep = async (
     forceIgnoreQuota?: boolean
 ): Promise<boolean> => {
     purgeAllFakeSvgArtFromDbAndDisk();
-    if (g.__audiobookStudioLock) {
+    if (g.__audiobookStudioLock || isAiGloballyPaused()) {
         return false;
     }
     g.__audiobookStudioLock = true;
@@ -5823,13 +6066,14 @@ export const triggerAudiobookQueueWorker = (
             }
         }
 
-        if (g.__audiobookWorkerLoopRunning) {
+        if (g.__audiobookWorkerLoopRunning || isAiGloballyPaused()) {
             return;
         }
         g.__audiobookWorkerLoopRunning = true;
         try {
             // Process up to 35 steps sequentially with a 1.2s breather between steps for low-power Intel CPU
             for (let step = 0; step < 35; step++) {
+                if (isAiGloballyPaused()) break;
                 const cfg = getAudiobookStudioConfig();
                 if (!cfg.enabled && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) break;
                 const didWork = await processAudiobookPriorityQueueStep(forceBookKey, forceChapterKey, forceIgnoreQuota);

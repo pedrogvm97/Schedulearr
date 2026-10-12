@@ -14,7 +14,10 @@ import {
     getStudioQueueHistory,
     triggerAudiobookQueueWorker,
     resetAndRedoAudiobookAssets,
-    purgeAllFakeSvgArtFromDbAndDisk
+    purgeAllFakeSvgArtFromDbAndDisk,
+    cleanGeneratedAudiobookData,
+    setAiGloballyPaused,
+    isAiGloballyPaused
 } from '@/lib/audiobookStudio';
 import {
     getDvrRecordings,
@@ -34,12 +37,14 @@ import {
     getSystemLogs,
     getTheaterLibraries,
     updateTheaterLibrary,
-    getIptvEpgCountForLibrary
+    getIptvEpgCountForLibrary,
+    setCalendarSyncConfig
 } from '@/lib/db';
 import { getActiveStreamHubsSummary } from '@/lib/iptvStreamHub';
 import { cancelRecordingProcess } from '@/lib/iptvDvrScheduler';
 import { getNextSchedulerRun, runBatchSearch } from '@/lib/scheduler';
 import { runAutoCleanup, runSmartCleanup } from '@/lib/autoCleanup';
+import { getCalendarSyncLiveStatus, runPeriodicCalendarSync } from '@/lib/calendarSync';
 import musicDownloadQueue from '@/lib/musicDownloadQueue';
 
 export const dynamic = 'force-dynamic';
@@ -260,7 +265,8 @@ export async function GET() {
             },
             audiobookStudio: {
                 config: {
-                    enabled: studioConfig.enabled,
+                    enabled: studioConfig.enabled && !isAiGloballyPaused(),
+                    aiPaused: isAiGloballyPaused(),
                     scheduleMode: studioConfig.scheduleMode,
                     sttEngine: studioConfig.sttEngine,
                     artProvider: studioConfig.artProvider,
@@ -327,6 +333,7 @@ export async function GET() {
                 diskThresholdPercent,
                 qbitCleanupIntervalMin
             },
+            calendarSync: getCalendarSyncLiveStatus(),
             transfers: {
                 active: activeTransfers,
                 recent: recentTransfers
@@ -345,10 +352,7 @@ export async function POST(request: Request) {
         const { action } = body;
 
         if (action === 'trigger_audiobook_worker') {
-            const current = getAudiobookStudioConfig();
-            if (!current.enabled) {
-                saveAudiobookStudioConfig({ ...current, enabled: true });
-            }
+            setAiGloballyPaused(false);
             triggerAudiobookQueueWorker(body.bookKey || undefined, body.chapterKey || undefined, true);
             return NextResponse.json({
                 ok: true,
@@ -356,17 +360,54 @@ export async function POST(request: Request) {
             });
         }
 
-        if (action === 'toggle_audiobook_worker') {
-            const current = getAudiobookStudioConfig();
-            const nextEnabled = typeof body.enabled === 'boolean' ? body.enabled : !current.enabled;
-            const saved = saveAudiobookStudioConfig({ ...current, enabled: nextEnabled });
-            if (nextEnabled) {
-                triggerAudiobookQueueWorker();
+        if (action === 'toggle_audiobook_worker' || action === 'set_ai_paused') {
+            const currentlyPaused = isAiGloballyPaused();
+            const nextPaused =
+                typeof body.paused === 'boolean'
+                    ? body.paused
+                    : typeof body.enabled === 'boolean'
+                    ? !body.enabled
+                    : !currentlyPaused;
+            const saved = setAiGloballyPaused(nextPaused);
+            return NextResponse.json({
+                ok: true,
+                enabled: saved.enabled && !nextPaused,
+                aiPaused: nextPaused,
+                message: nextPaused ? 'All AI tasks paused.' : 'AI worker resumed.'
+            });
+        }
+
+        if (action === 'clean_generated_data') {
+            const target = (body.target || 'all') as 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all';
+            const bookKey = body.bookKey ? String(body.bookKey) : undefined;
+            const pauseAiFirst = Boolean(body.pauseAiFirst);
+            const res = cleanGeneratedAudiobookData({ target, bookKey, pauseAiFirst });
+            return NextResponse.json({
+                ok: true,
+                ...res,
+                message: `Cleaned ${target}: ${res.deletedFiles} file(s) deleted, ${res.chaptersUpdated} chapter(s) reset.`
+            });
+        }
+
+        if (action === 'update_calendar_sync' || action === 'trigger_calendar_sync') {
+            if (typeof body.enabled === 'boolean' || typeof body.intervalMin === 'number') {
+                setCalendarSyncConfig({
+                    enabled: body.enabled,
+                    intervalMin: body.intervalMin
+                });
+            }
+            if (action === 'trigger_calendar_sync' || body.runNow) {
+                runPeriodicCalendarSync(true).catch(() => {});
+                return NextResponse.json({
+                    ok: true,
+                    calendarSync: getCalendarSyncLiveStatus(),
+                    message: 'Release calendar sync started across instances.'
+                });
             }
             return NextResponse.json({
                 ok: true,
-                enabled: saved.enabled,
-                message: saved.enabled ? 'Worker enabled.' : 'Worker paused.'
+                calendarSync: getCalendarSyncLiveStatus(),
+                message: 'Release calendar sync schedule updated.'
             });
         }
 

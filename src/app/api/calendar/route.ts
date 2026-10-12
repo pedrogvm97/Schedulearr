@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
 import {
-    getInstances,
     getSearchHistory,
     getPlaybackHistory,
     getRecentAudiobookActivity,
-    getDvrRecordings
+    getDvrRecordings,
+    getCachedCalendarReleases,
+    getTotalCachedCalendarReleasesCount,
+    getCalendarSyncConfig
 } from '@/lib/db';
-import { getCalendar as getRadarrCalendar } from '@/lib/radarr';
-import { getCalendar as getSonarrCalendar } from '@/lib/sonarr';
+import { fetchAndCacheCalendarReleasesRange, runPeriodicCalendarSync } from '@/lib/calendarSync';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,122 +18,35 @@ export async function GET(request: Request) {
         const start = searchParams.get('start');
         const end = searchParams.get('end');
         const unmonitored = searchParams.get('unmonitored') !== 'false'; // default to true
+        const forceRefresh = searchParams.get('refresh') === 'true';
 
         if (!start || !end) {
             return NextResponse.json({ error: 'start and end dates are required (YYYY-MM-DD)' }, { status: 400 });
         }
 
-        const instances = getInstances(undefined, true);
-        const radarrInstances = instances.filter(i => i.type === 'radarr');
-        const sonarrInstances = instances.filter(i => i.type === 'sonarr');
+        let releaseEvents: any[] = [];
+        let cacheStatus = 'HIT';
 
-        let events: any[] = [];
+        if (!forceRefresh) {
+            const cached = getCachedCalendarReleases(start, end);
+            if (cached.length > 0 || getTotalCachedCalendarReleasesCount() > 0) {
+                releaseEvents = cached;
+                cacheStatus = 'HIT';
+            } else {
+                // First ever load with empty cache: fetch live and populate cache
+                const synced = await fetchAndCacheCalendarReleasesRange(start, end, unmonitored);
+                releaseEvents = synced.events;
+                cacheStatus = 'MISS_POPULATED';
+                // Also kick off full 210-day window sync in background
+                runPeriodicCalendarSync(true).catch(() => {});
+            }
+        } else {
+            const synced = await fetchAndCacheCalendarReleasesRange(start, end, unmonitored);
+            releaseEvents = synced.events;
+            cacheStatus = 'REFRESHED';
+        }
 
-        await Promise.all([
-            ...radarrInstances.map(async (instance) => {
-                const data = await getRadarrCalendar(instance.url, instance.api_key, start, end, unmonitored);
-                (Array.isArray(data) ? data : []).forEach((movie: any) => {
-                    const poster = movie.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
-                                   movie.images?.find((img: any) => img.coverType === 'poster')?.url || 
-                                   movie.remotePoster || '';
-
-                    const sizeOnDisk = movie.sizeOnDisk || movie.movieFile?.size || 0;
-                    const addEvent = (dateStr: string | undefined, type: 'cinemas' | 'physical' | 'digital') => {
-                        if (dateStr) {
-                            events.push({
-                                id: `${instance.id}-radarr-${movie.id}-${type}`,
-                                eventCategory: 'release',
-                                instanceId: instance.id,
-                                instanceName: instance.name,
-                                instanceColor: instance.color,
-                                type: 'radarr',
-                                mediaType: 'movie',
-                                title: movie.title,
-                                releaseDate: dateStr,
-                                releaseType: type,
-                                monitored: movie.monitored,
-                                hasFile: movie.hasFile,
-                                overview: movie.overview,
-                                posterUrl: poster,
-                                year: movie.year,
-                                rating: movie.ratings?.value || movie.ratings?.tmdb?.value,
-                                genres: movie.genres || [],
-                                mediaItem: {
-                                    ...movie,
-                                    id: movie.id,
-                                    sizeOnDisk,
-                                    type: 'movie',
-                                    mediaType: 'movie',
-                                    remotePoster: poster
-                                }
-                            });
-                        }
-                    };
-                    addEvent(movie.inCinemas, 'cinemas');
-                    addEvent(movie.physicalRelease, 'physical');
-                    addEvent(movie.digitalRelease, 'digital');
-                });
-            }),
-            ...sonarrInstances.map(async (instance) => {
-                const data = await getSonarrCalendar(instance.url, instance.api_key, start, end, unmonitored);
-                (Array.isArray(data) ? data : []).forEach((ep: any) => {
-                    const series = ep.series || {};
-                    const seriesId = ep.seriesId || series.id;
-                    const seriesTitle = series.title || ep.seriesTitle || 'Unknown Series';
-                    const seriesPoster = series.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
-                                         series.images?.find((img: any) => img.coverType === 'poster')?.url || 
-                                         series.remotePoster ||
-                                         ep.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
-                                         ep.images?.find((img: any) => img.coverType === 'poster')?.url || '';
-                    const sizeOnDisk = series.statistics?.sizeOnDisk || ep.episodeFile?.size || 0;
-
-                    events.push({
-                        id: `${instance.id}-sonarr-${ep.id}`,
-                        eventCategory: 'release',
-                        instanceId: instance.id,
-                        instanceName: instance.name,
-                        instanceColor: instance.color,
-                        type: 'sonarr',
-                        mediaType: 'series',
-                        seriesTitle,
-                        episodeTitle: ep.title,
-                        seasonNumber: ep.seasonNumber,
-                        episodeNumber: ep.episodeNumber,
-                        title: `${seriesTitle} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`,
-                        fullTitle: `${seriesTitle} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')} - ${ep.title}`,
-                        releaseDate: ep.airDateUtc,
-                        releaseType: 'tv',
-                        monitored: ep.monitored,
-                        hasFile: ep.hasFile,
-                        overview: ep.overview || series.overview,
-                        posterUrl: seriesPoster,
-                        rating: series.ratings?.value || ep.ratings?.value,
-                        genres: series.genres || ep.genres || [],
-                        mediaItem: {
-                            ...series,
-                            ...ep,
-                            id: seriesId,
-                            seriesId: seriesId,
-                            title: seriesTitle,
-                            year: series.year || ep.year,
-                            tvdbId: series.tvdbId || ep.tvdbId,
-                            tmdbId: series.tmdbId || ep.tmdbId,
-                            imdbId: series.imdbId || ep.imdbId,
-                            overview: series.overview || ep.overview,
-                            ratings: series.ratings || ep.ratings,
-                            genres: series.genres || ep.genres || [],
-                            seasons: series.seasons || [],
-                            sizeOnDisk,
-                            qualityProfileId: series.qualityProfileId || ep.qualityProfileId,
-                            remotePoster: seriesPoster,
-                            images: series.images || ep.images || [],
-                            type: 'series',
-                            mediaType: 'series'
-                        }
-                    });
-                });
-            })
-        ]);
+        const events: any[] = [...releaseEvents];
 
         // 2. Include Actual Downloads / Snatches / Automated Batches
         try {
@@ -142,10 +56,13 @@ export async function GET(request: Request) {
                 const episodes = Array.isArray(h.episodes_searched) ? h.episodes_searched : [];
                 const allItems = [...movies, ...episodes];
                 if (allItems.length === 0 && !h.reason) continue;
-                const dateIso = h.timestamp ? new Date(h.timestamp.replace(' ', 'T') + (h.timestamp.includes('Z') ? '' : 'Z')).toISOString() : new Date().toISOString();
-                const summaryTitle = allItems.length > 0
-                    ? `Downloaded / Snatched: ${allItems.slice(0, 3).join(', ')}${allItems.length > 3 ? ` (+${allItems.length - 3} more)` : ''}`
-                    : (h.reason || `Batch Activity (${h.profile})`);
+                const dateIso = h.timestamp
+                    ? new Date(h.timestamp.replace(' ', 'T') + (h.timestamp.includes('Z') ? '' : 'Z')).toISOString()
+                    : new Date().toISOString();
+                const summaryTitle =
+                    allItems.length > 0
+                        ? `Downloaded / Snatched: ${allItems.slice(0, 3).join(', ')}${allItems.length > 3 ? ` (+${allItems.length - 3} more)` : ''}`
+                        : h.reason || `Batch Activity (${h.profile})`;
 
                 events.push({
                     id: `dl-${h.id}`,
@@ -268,10 +185,15 @@ export async function GET(request: Request) {
 
         filteredEvents.sort((a, b) => new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime());
 
-        return NextResponse.json(filteredEvents);
+        const syncCfg = getCalendarSyncConfig();
+        return NextResponse.json(filteredEvents, {
+            headers: {
+                'X-Calendar-Cache': cacheStatus,
+                'X-Calendar-Last-Sync': syncCfg.lastSync || ''
+            }
+        });
     } catch (error) {
         console.error('API /calendar error:', error);
         return NextResponse.json({ error: 'Failed to fetch calendar' }, { status: 500 });
     }
 }
-

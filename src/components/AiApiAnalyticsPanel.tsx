@@ -3,16 +3,156 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Activity, RefreshCw, Image as ImageIcon, Headphones,
-    Sliders, CheckCircle2, AlertTriangle, Zap, Save, Clock, Server
+    Sliders, CheckCircle2, AlertTriangle, Zap, Save, Clock, Server,
+    Pause, Play, Trash2, Sparkles, FileText, Mic, Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+function formatCompactNumber(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}K`;
+    return String(Math.round(n));
+}
+
+function PeakLimitChart({
+    title,
+    subtitle,
+    limit,
+    currentValue,
+    unitSuffix = '',
+    buckets,
+    valueSelector
+}: {
+    title: string;
+    subtitle: string;
+    limit: number;
+    currentValue?: number;
+    unitSuffix?: string;
+    buckets: any[];
+    valueSelector: (b: any) => number;
+}) {
+    const safeLimit = Math.max(1, Number(limit || 1));
+    const values = buckets.map(b => Math.max(0, Number(valueSelector(b) || 0)));
+    const maxDataVal = Math.max(0, ...values, Number(currentValue || 0));
+    // Y-axis ceiling gives headroom above the red Limit line just like Google AI Studio
+    const yMax = Math.max(safeLimit * 1.18, maxDataVal * 1.12, 1);
+    const limitPctFromBottom = Math.min(92, Math.max(8, (safeLimit / yMax) * 100));
+    const midVal = Math.round(safeLimit / 2);
+
+    const firstLabel = buckets.length > 0 ? (buckets[0].bucket.split(' ')[1] || buckets[0].bucket.slice(5)) : 'Start';
+    const lastLabel = buckets.length > 0 ? (buckets[buckets.length - 1].bucket.split(' ')[1] || buckets[buckets.length - 1].bucket.slice(5)) : 'Now';
+
+    return (
+        <div className="p-6 rounded-3xl bg-zinc-900/95 border border-zinc-800 space-y-4 shadow-2xl flex flex-col justify-between">
+            <div className="flex items-start justify-between gap-3">
+                <div>
+                    <h3 className="text-lg sm:text-xl font-black text-white leading-snug">{title}</h3>
+                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{subtitle}</span>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                    <span
+                        title={`Configured or auto-detected ceiling: ${safeLimit.toLocaleString()}${unitSuffix}`}
+                        className="px-3 py-1 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 font-mono text-xs sm:text-sm font-black"
+                    >
+                        Limit: {formatCompactNumber(safeLimit)}{unitSuffix}
+                    </span>
+                    <span className="text-xs font-mono font-bold text-sky-400">
+                        Peak: {formatCompactNumber(maxDataVal)}{unitSuffix}
+                    </span>
+                </div>
+            </div>
+
+            {/* Chart Canvas with Google AI Studio Red Dashed Limit Line */}
+            <div className="relative h-60 rounded-2xl bg-zinc-950 border border-zinc-800/90 pt-6 pb-8 pl-14 pr-4 overflow-hidden select-none">
+                {/* Horizontal grid lines */}
+                <div className="absolute inset-x-14 right-4 bottom-8 top-6 flex flex-col justify-between pointer-events-none">
+                    <div className="border-b border-zinc-800/50 w-full" />
+                    <div className="border-b border-zinc-800/50 w-full" />
+                    <div className="border-b border-zinc-800/80 w-full" />
+                </div>
+
+                {/* Y-Axis Labels */}
+                <div
+                    className="absolute left-2 text-[11px] font-mono font-black text-red-400 -translate-y-1/2 pointer-events-none"
+                    style={{ bottom: `calc(2rem + (100% - 3.5rem) * ${limitPctFromBottom / 100})` }}
+                >
+                    {formatCompactNumber(safeLimit)}
+                </div>
+                <div
+                    className="absolute left-2 text-[11px] font-mono font-bold text-zinc-500 -translate-y-1/2 pointer-events-none"
+                    style={{ bottom: `calc(2rem + (100% - 3.5rem) * ${(limitPctFromBottom / 2) / 100})` }}
+                >
+                    {formatCompactNumber(midVal)}
+                </div>
+                <div className="absolute left-2 bottom-8 text-[11px] font-mono font-bold text-zinc-500 translate-y-1/2 pointer-events-none">
+                    0
+                </div>
+
+                {/* RED DASHED LIMIT LINE + "Limit" BADGE */}
+                <div
+                    className="absolute left-14 right-3 border-t-2 border-dashed border-red-500/90 z-20 pointer-events-none flex items-center"
+                    style={{ bottom: `calc(2rem + (100% - 3.5rem) * ${limitPctFromBottom / 100})` }}
+                >
+                    <span className="-mt-6 ml-1 px-2 py-0.5 rounded bg-zinc-950/90 border border-red-500/40 text-[11px] font-black text-red-400 tracking-wide shadow">
+                        Limit
+                    </span>
+                </div>
+
+                {/* Bars / Spikes */}
+                <div className="relative z-10 w-full h-full flex items-end gap-1.5">
+                    {buckets.length === 0 ? (
+                        <div className="w-full h-full flex items-center justify-center text-zinc-600 text-sm font-bold">
+                            No requests recorded in this window
+                        </div>
+                    ) : (
+                        buckets.map((b, idx) => {
+                            const val = Math.max(0, Number(valueSelector(b) || 0));
+                            const heightPct = val <= 0 ? 2 : Math.min(100, Math.max(4, (val / yMax) * 100));
+                            const isOverLimit = val >= safeLimit;
+                            return (
+                                <div
+                                    key={b.bucket || idx}
+                                    title={`${b.bucket} — Peak: ${val.toLocaleString()}${unitSuffix} (Limit: ${safeLimit.toLocaleString()}${unitSuffix})`}
+                                    className="flex-1 min-w-[6px] h-full flex flex-col justify-end items-center group cursor-pointer"
+                                >
+                                    <div
+                                        className={`w-full max-w-[18px] rounded-t-md transition-all duration-300 ${
+                                            val === 0
+                                                ? 'bg-zinc-800/50'
+                                                : isOverLimit
+                                                ? 'bg-gradient-to-t from-red-600 to-amber-400 shadow-[0_0_10px_rgba(239,68,68,0.5)]'
+                                                : 'bg-gradient-to-t from-blue-600 to-sky-400 group-hover:brightness-125'
+                                        }`}
+                                        style={{ height: `${heightPct}%` }}
+                                    />
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+
+                {/* X-Axis Start / End Timestamps */}
+                <div className="absolute left-14 right-4 bottom-1.5 flex items-center justify-between text-[11px] font-mono font-bold text-zinc-500 pointer-events-none">
+                    <span>{firstLabel}</span>
+                    <span>{lastLabel}</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export function AiApiAnalyticsPanel() {
     const [range, setRange] = useState<'24h' | '7d' | '30d' | 'all'>('24h');
+    const [selectedPeakProviderId, setSelectedPeakProviderId] = useState<string>('google_gemini');
     const [loading, setLoading] = useState(true);
     const [pinging, setPinging] = useState(false);
+    const [detectingLimits, setDetectingLimits] = useState(false);
+    const [togglingPause, setTogglingPause] = useState(false);
+    const [cleaningTarget, setCleaningTarget] = useState<string | null>(null);
+
     const [data, setData] = useState<{
         range: string;
+        aiPaused?: boolean;
         providers: any[];
         buckets: Array<{
             bucket: string;
@@ -22,6 +162,19 @@ export function AiApiAnalyticsPanel() {
             audioHours: number;
             tokensUsed: number;
             errors: number;
+            peakRpm?: number;
+            peakTpm?: number;
+            peakRpd?: number;
+            byProvider?: Record<string, {
+                requests: number;
+                tokensUsed: number;
+                imagesGenerated: number;
+                audioSeconds: number;
+                errors: number;
+                peakRpm: number;
+                peakTpm: number;
+                peakRpd: number;
+            }>;
         }>;
         totals: {
             totalRequests: number;
@@ -35,10 +188,11 @@ export function AiApiAnalyticsPanel() {
     } | null>(null);
 
     const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
-    const [draftTierId, setDraftTierId] = useState<string>('free');
+    const [draftTierId, setDraftTierId] = useState<string>('free_flash_lite');
     const [draftAutoSet, setDraftAutoSet] = useState<boolean>(true);
     const [draftRpm, setDraftRpm] = useState<number>(15);
-    const [draftRpd, setDraftRpd] = useState<number>(1500);
+    const [draftTpm, setDraftTpm] = useState<number>(250000);
+    const [draftRpd, setDraftRpd] = useState<number>(500);
     const [draftDailyImages, setDraftDailyImages] = useState<number>(500);
     const [draftDailyAudioHours, setDraftDailyAudioHours] = useState<number>(12);
 
@@ -66,16 +220,94 @@ export function AiApiAnalyticsPanel() {
         return () => clearInterval(timer);
     }, [fetchAnalytics]);
 
+    const handleToggleAiPause = async () => {
+        const nextPaused = !Boolean(data?.aiPaused);
+        setTogglingPause(true);
+        try {
+            const res = await fetch('/api/analytics/ai-usage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'set_ai_paused', paused: nextPaused })
+            });
+            if (res.ok) {
+                toast.success(nextPaused ? 'All AI tasks paused — zero API hits will occur' : 'AI tasks resumed');
+                fetchAnalytics(false);
+            } else {
+                toast.error('Failed to toggle AI pause state');
+            }
+        } catch {
+            toast.error('Error toggling AI pause state');
+        } finally {
+            setTogglingPause(false);
+        }
+    };
+
+    const handleAutoDetectLimits = async () => {
+        setDetectingLimits(true);
+        try {
+            const res = await fetch('/api/analytics/ai-usage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'auto_detect_limits' })
+            });
+            if (res.ok) {
+                const json = await res.json();
+                setData(json);
+                toast.success('Auto-detected RPM, TPM & RPD limits from active models, response headers & quota telemetry');
+            } else {
+                toast.error('Failed to auto-detect provider limits');
+            }
+        } catch {
+            toast.error('Error auto-detecting provider limits');
+        } finally {
+            setDetectingLimits(false);
+        }
+    };
+
+    const handleCleanup = async (
+        target: 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all',
+        label: string
+    ) => {
+        if (!window.confirm(`Clean ${label}? This will permanently remove the selected generated data.`)) return;
+        setCleaningTarget(target);
+        try {
+            const res = await fetch('/api/analytics/ai-usage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'clean_generated_data',
+                    target,
+                    pauseAiFirst: target === 'all'
+                })
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const r = json.result || {};
+                toast.success(
+                    `Cleaned ${label}: ${r.deletedFilesCount || 0} files deleted, ${r.booksAffected || 0} books updated`
+                );
+                fetchAnalytics(false);
+            } else {
+                toast.error(`Failed to clean ${label}`);
+            }
+        } catch {
+            toast.error(`Error cleaning ${label}`);
+        } finally {
+            setCleaningTarget(null);
+        }
+    };
+
     const handleStartEditProvider = (p: any) => {
         if (editingProviderId === p.id) {
             setEditingProviderId(null);
             return;
         }
         setEditingProviderId(p.id);
-        setDraftTierId(p.tierId || 'free');
+        setDraftTierId(p.tierId || 'free_flash_lite');
         setDraftAutoSet(Boolean(p.autoSetLimits));
         setDraftRpm(Number(p.rpmLimit || 15));
-        setDraftRpd(Number(p.rpdLimit || 1500));
+        setDraftTpm(Number(p.tpmLimit || 250000));
+        setDraftRpd(Number(p.rpdLimit || 500));
         setDraftDailyImages(Number(p.dailyImagesLimit || 0));
         setDraftDailyAudioHours(Number(p.dailyAudioHoursLimit || 0));
     };
@@ -85,6 +317,7 @@ export function AiApiAnalyticsPanel() {
         const preset = (p.availableTiers || []).find((t: any) => t.id === newTierId);
         if (preset && draftAutoSet) {
             setDraftRpm(preset.rpmLimit);
+            setDraftTpm(preset.tpmLimit || 250000);
             setDraftRpd(preset.rpdLimit);
             setDraftDailyImages(preset.dailyImagesLimit);
             setDraftDailyAudioHours(preset.dailyAudioHoursLimit);
@@ -102,6 +335,7 @@ export function AiApiAnalyticsPanel() {
                     tierId: draftTierId,
                     autoSetLimits: draftAutoSet,
                     rpmLimit: draftRpm,
+                    tpmLimit: draftTpm,
                     rpdLimit: draftRpd,
                     dailyImagesLimit: draftDailyImages,
                     dailyAudioHoursLimit: draftDailyAudioHours
@@ -123,9 +357,23 @@ export function AiApiAnalyticsPanel() {
     const maxImagesBucket = Math.max(1, ...buckets.map(b => b.imagesGenerated || 0));
     const maxAudioHoursBucket = Math.max(0.1, ...buckets.map(b => b.audioHours || 0));
 
+    const providers = data?.providers || [];
+    const selectedProvider = providers.find((p: any) => p.id === selectedPeakProviderId) || providers[0] || {
+        id: 'google_gemini',
+        name: 'Google Gemini (Flash Lite & Imagen)',
+        rpmLimit: 15,
+        tpmLimit: 250000,
+        rpdLimit: 500,
+        currentRpm: 0,
+        currentTpm: 0,
+        requestsToday: 0
+    };
+
+    const isAiPaused = Boolean(data?.aiPaused);
+
     return (
         <div className="space-y-8">
-            {/* ── TOP BAR: TIMEFRAME SELECTOR & LIVE PROVIDER PING ── */}
+            {/* ── TOP BAR: TIMEFRAME SELECTOR, PAUSE AI, AUTO-DETECT LIMITS & PING ── */}
             <div className="p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex flex-wrap items-center justify-between gap-4 shadow-2xl">
                 <div className="flex flex-wrap items-center gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
                     {(
@@ -151,16 +399,190 @@ export function AiApiAnalyticsPanel() {
                     ))}
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    {/* Global Pause / Resume AI Button */}
+                    <button
+                        onClick={handleToggleAiPause}
+                        disabled={togglingPause}
+                        title={
+                            isAiPaused
+                                ? 'AI is currently paused. Click to resume background AI transcription, scene detection, and artwork generation.'
+                                : 'Immediately halt all AI features (transcription, scening, artwork generation) to prevent any API hits or quota usage.'
+                        }
+                        className={`px-5 py-3 rounded-2xl font-black text-sm sm:text-base uppercase tracking-wider flex items-center gap-2.5 shadow-lg cursor-pointer transition-all disabled:opacity-50 ${
+                            isAiPaused
+                                ? 'bg-amber-500 hover:bg-amber-400 text-black ring-2 ring-amber-300/60'
+                                : 'bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40'
+                        }`}
+                    >
+                        {isAiPaused ? <Play size={20} /> : <Pause size={20} />}
+                        <span>{isAiPaused ? 'Resume AI' : 'Pause AI'}</span>
+                    </button>
+
+                    {/* Auto-Detect Limits Button */}
+                    <button
+                        onClick={handleAutoDetectLimits}
+                        disabled={detectingLimits}
+                        title="Automatically detect RPM, TPM, and RPD limits from active model presets (e.g. Gemini Flash Lite 15 RPM / 250K TPM / 500 RPD), live HTTP rate-limit headers, and 429 QuotaFailure responses"
+                        className="px-5 py-3 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-black font-black text-sm sm:text-base uppercase tracking-wider flex items-center gap-2.5 shadow-lg cursor-pointer disabled:opacity-50"
+                    >
+                        <Sparkles size={20} className={detectingLimits ? 'animate-spin' : ''} />
+                        <span>Auto-Detect Limits</span>
+                    </button>
+
+                    {/* Live Ping Button */}
                     <button
                         onClick={() => fetchAnalytics(true)}
                         disabled={pinging}
-                        title="Query all API providers right now to check live rate limits and usage"
+                        title="Query all API providers right now to check live rate limits and latency"
                         className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm sm:text-base uppercase tracking-wider flex items-center gap-2.5 shadow-lg cursor-pointer disabled:opacity-50"
                     >
                         <RefreshCw size={20} className={pinging ? 'animate-spin' : ''} />
-                        <span>Ping Providers</span>
+                        <span>Ping</span>
                     </button>
+                </div>
+            </div>
+
+            {/* ── GRANULAR & FULL CLEANUP BAR ── */}
+            <div className="p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex flex-wrap items-center justify-between gap-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-400">
+                        <Trash2 size={22} />
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-black text-white">Cleanup</h3>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                        onClick={() => handleCleanup('images', 'Generated Images Only')}
+                        disabled={cleaningTarget !== null}
+                        title="Delete all generated scene images across audiobooks while keeping transcripts and scene timestamps/prompts intact"
+                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                        <ImageIcon size={18} />
+                        <span>Images</span>
+                    </button>
+
+                    <button
+                        onClick={() => handleCleanup('scenes', 'Scenes & Images')}
+                        disabled={cleaningTarget !== null}
+                        title="Delete all generated scenes and artwork across audiobooks while keeping Speech-to-Text transcripts intact"
+                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                        <Layers size={18} />
+                        <span>Scenes</span>
+                    </button>
+
+                    <button
+                        onClick={() => handleCleanup('transcripts', 'Transcripts Only')}
+                        disabled={cleaningTarget !== null}
+                        title="Delete all generated Speech-to-Text transcripts (.lrc / .txt) across audiobooks"
+                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                        <FileText size={18} />
+                        <span>Transcripts</span>
+                    </button>
+
+                    <button
+                        onClick={() => handleCleanup('voices', 'Voice Exports')}
+                        disabled={cleaningTarget !== null}
+                        title="Delete all generated voice preset audio files (.m4a)"
+                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                        <Mic size={18} />
+                        <span>Voices</span>
+                    </button>
+
+                    <button
+                        onClick={() => handleCleanup('api_history', 'API Usage Log')}
+                        disabled={cleaningTarget !== null}
+                        title="Clear recorded API request & quota telemetry history"
+                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                        <Activity size={18} />
+                        <span>API Log</span>
+                    </button>
+
+                    <button
+                        onClick={() => handleCleanup('all', 'Everything (Pause AI + Full Reset)')}
+                        disabled={cleaningTarget !== null}
+                        title="Pause AI and wipe all generated images, scenes, transcripts, voice exports, and queue items"
+                        className="px-5 py-2.5 rounded-2xl bg-red-500 hover:bg-red-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                    >
+                        <Trash2 size={18} />
+                        <span>Clean All</span>
+                    </button>
+                </div>
+            </div>
+
+            {/* ── GOOGLE AI STUDIO STYLE: PEAK USAGE TRENDS (RPM, TPM, RPD WITH RED DASHED LIMIT LINES) ── */}
+            <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-4 px-1">
+                    <div className="flex items-center gap-3">
+                        <Activity size={26} className="text-sky-400" />
+                        <h2 className="text-xl sm:text-2xl font-black text-white">Peak usage trends</h2>
+                        {selectedProvider?.detectedModel && (
+                            <span className="px-3 py-1 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-200 font-mono text-xs sm:text-sm font-black">
+                                {selectedProvider.detectedModel}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <select
+                            value={selectedPeakProviderId}
+                            onChange={e => setSelectedPeakProviderId(e.target.value)}
+                            title="Select API provider / model to inspect RPM, TPM, and RPD peak usage against its Limit line"
+                            className="px-4 py-2.5 rounded-2xl bg-zinc-900 border border-zinc-700 text-white font-black text-sm sm:text-base cursor-pointer"
+                        >
+                            {providers.map((p: any) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.name} ({p.rpmLimit} RPM / {formatCompactNumber(p.tpmLimit || 250000)} TPM / {p.rpdLimit} RPD)
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    {/* 1. Peak requests per minute (RPM) */}
+                    <PeakLimitChart
+                        title="Peak requests per minute (RPM)"
+                        subtitle={selectedProvider.name}
+                        limit={Number(selectedProvider.rpmLimit || 15)}
+                        currentValue={Number(selectedProvider.currentRpm || 0)}
+                        buckets={buckets}
+                        valueSelector={b =>
+                            b.byProvider?.[selectedProvider.id]?.peakRpm ??
+                            (selectedProvider.id === 'google_gemini' ? b.peakRpm || 0 : 0)
+                        }
+                    />
+
+                    {/* 2. Peak input tokens per minute (TPM) */}
+                    <PeakLimitChart
+                        title="Peak input tokens per minute (TPM)"
+                        subtitle={selectedProvider.name}
+                        limit={Number(selectedProvider.tpmLimit || 250000)}
+                        currentValue={Number(selectedProvider.currentTpm || 0)}
+                        buckets={buckets}
+                        valueSelector={b =>
+                            b.byProvider?.[selectedProvider.id]?.peakTpm ??
+                            (selectedProvider.id === 'google_gemini' ? b.peakTpm || 0 : 0)
+                        }
+                    />
+
+                    {/* 3. Peak requests per day (RPD) */}
+                    <PeakLimitChart
+                        title="Peak requests per day (RPD)"
+                        subtitle={selectedProvider.name}
+                        limit={Number(selectedProvider.rpdLimit || 500)}
+                        currentValue={Number(selectedProvider.requestsToday || 0)}
+                        buckets={buckets}
+                        valueSelector={b =>
+                            b.byProvider?.[selectedProvider.id]?.peakRpd ??
+                            (selectedProvider.id === 'google_gemini' ? b.peakRpd || 0 : 0)
+                        }
+                    />
                 </div>
             </div>
 
@@ -251,7 +673,7 @@ export function AiApiAnalyticsPanel() {
                                             className="w-full rounded-t-xl bg-gradient-to-t from-purple-700 via-purple-500 to-fuchsia-400 transition-all duration-500 group-hover:brightness-125"
                                             style={{ height: `${val === 0 ? 4 : pct}%` }}
                                         />
-                                        <span className="text-[10px] font-mono font-bold text-zinc-500 truncate max-w-[48px]">
+                                        <span className="text-xs font-mono font-bold text-zinc-500 truncate max-w-[48px]">
                                             {label}
                                         </span>
                                     </div>
@@ -303,7 +725,7 @@ export function AiApiAnalyticsPanel() {
                                             className="w-full rounded-t-xl bg-gradient-to-t from-amber-700 via-amber-500 to-yellow-400 transition-all duration-500 group-hover:brightness-125"
                                             style={{ height: `${val === 0 ? 4 : pct}%` }}
                                         />
-                                        <span className="text-[10px] font-mono font-bold text-zinc-500 truncate max-w-[48px]">
+                                        <span className="text-xs font-mono font-bold text-zinc-500 truncate max-w-[48px]">
                                             {label}
                                         </span>
                                     </div>
@@ -360,7 +782,8 @@ export function AiApiAnalyticsPanel() {
                                         </div>
                                         <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-zinc-400">
                                             <span>RPM Limit: <strong className="text-white font-mono">{p.rpmLimit}/min</strong></span>
-                                            <span>Daily Quota: <strong className="text-white font-mono">{p.rpdLimit}/day</strong></span>
+                                            <span>TPM Limit: <strong className="text-white font-mono">{formatCompactNumber(p.tpmLimit || 250000)}/min</strong></span>
+                                            <span>Daily Quota (RPD): <strong className="text-white font-mono">{p.rpdLimit}/day</strong></span>
                                             {p.lastPingLatencyMs != null && (
                                                 <span className="flex items-center gap-1">
                                                     <Clock size={12} className="text-emerald-400" />
@@ -377,7 +800,7 @@ export function AiApiAnalyticsPanel() {
 
                                     <button
                                         onClick={() => handleStartEditProvider(p)}
-                                        title="Configure subscription tier or set manual quota limits for this API"
+                                        title="Configure subscription tier or set manual RPM, TPM & RPD quota limits for this API"
                                         className={`px-4 py-2.5 rounded-2xl border font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all ${
                                             isEditing
                                                 ? 'bg-indigo-500 text-black border-indigo-400'
@@ -394,7 +817,7 @@ export function AiApiAnalyticsPanel() {
                                     {/* Bar 1: Daily Requests Push */}
                                     <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-2">
                                         <div className="flex items-center justify-between text-xs font-black">
-                                            <span className="text-sky-300 uppercase tracking-wider">Daily Requests Load</span>
+                                            <span className="text-sky-300 uppercase tracking-wider">Daily Requests Load (RPD)</span>
                                             <span className="font-mono text-white">
                                                 {p.requestsToday} / {p.rpdLimit} ({reqPct}%)
                                             </span>
@@ -457,7 +880,7 @@ export function AiApiAnalyticsPanel() {
                                                 >
                                                     {(p.availableTiers || []).map((t: any) => (
                                                         <option key={t.id} value={t.id}>
-                                                            {t.label} ({t.rpmLimit} RPM / {t.rpdLimit} RPD)
+                                                            {t.label} ({t.rpmLimit} RPM / {formatCompactNumber(t.tpmLimit || 250000)} TPM / {t.rpdLimit} RPD)
                                                         </option>
                                                     ))}
                                                     <option value="custom">Custom Manual Override</option>
@@ -476,6 +899,7 @@ export function AiApiAnalyticsPanel() {
                                                             const preset = (p.availableTiers || []).find((t: any) => t.id === draftTierId);
                                                             if (preset) {
                                                                 setDraftRpm(preset.rpmLimit);
+                                                                setDraftTpm(preset.tpmLimit || 250000);
                                                                 setDraftRpd(preset.rpdLimit);
                                                                 setDraftDailyImages(preset.dailyImagesLimit);
                                                                 setDraftDailyAudioHours(preset.dailyAudioHoursLimit);
@@ -504,7 +928,7 @@ export function AiApiAnalyticsPanel() {
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
+                                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 pt-2">
                                             <div>
                                                 <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">
                                                     Requests / Min (RPM)
@@ -515,6 +939,20 @@ export function AiApiAnalyticsPanel() {
                                                     onChange={e => {
                                                         setDraftAutoSet(false);
                                                         setDraftRpm(Number(e.target.value));
+                                                    }}
+                                                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-base font-mono font-bold text-white"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">
+                                                    Tokens / Min (TPM)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={draftTpm}
+                                                    onChange={e => {
+                                                        setDraftAutoSet(false);
+                                                        setDraftTpm(Number(e.target.value));
                                                     }}
                                                     className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-base font-mono font-bold text-white"
                                                 />
@@ -549,7 +987,7 @@ export function AiApiAnalyticsPanel() {
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">
-                                                    Daily Audio Hours Limit
+                                                    Daily Audio Hours
                                                 </label>
                                                 <input
                                                     type="number"

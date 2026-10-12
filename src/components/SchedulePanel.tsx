@@ -440,10 +440,24 @@ export function SchedulePanel() {
         return d;
     });
 
-    const [events, setEvents] = useState<CalendarEvent[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [events, setEvents] = useState<CalendarEvent[]>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const raw = window.localStorage.getItem('schedulearr_calendar_cache_v1');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                }
+            } catch {}
+        }
+        return [];
+    });
+    const [loading, setLoading] = useState<boolean>(false);
+    const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+    const [lastSyncIso, setLastSyncIso] = useState<string | null>(null);
     const [loadingEarlier, setLoadingEarlier] = useState(false);
     const [loadingFuture, setLoadingFuture] = useState(false);
+    const hasTriggeredInitialRefreshRef = useRef(false);
 
     // Filters and Display Modes
     const [selectedInstanceIds, setSelectedInstanceIds] = useState<Set<string>>(new Set());
@@ -539,11 +553,50 @@ export function SchedulePanel() {
         });
     }, []);
 
-    // Fetch Calendar Events for active date range
+    const applyIncomingEvents = useCallback((data: CalendarEvent[], isEarlier = false, isFuture = false) => {
+        if (!Array.isArray(data)) return;
+        setEvents(prev => {
+            const map = new Map<string, CalendarEvent>();
+            if (isEarlier || isFuture) {
+                prev.forEach(e => map.set(e.id, e));
+            }
+            data.forEach(e => map.set(e.id, e));
+            const next = Array.from(map.values()).sort(
+                (a, b) => new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime()
+            );
+            if (!isEarlier && !isFuture && typeof window !== 'undefined' && next.length > 0) {
+                try {
+                    window.localStorage.setItem('schedulearr_calendar_cache_v1', JSON.stringify(next.slice(0, 600)));
+                } catch {}
+            }
+            return next;
+        });
+    }, []);
+
+    const refreshLiveReleasesInBackground = useCallback(async (start: Date, end: Date, isEarlier = false, isFuture = false) => {
+        setIsRefreshing(true);
+        try {
+            const startStr = formatDateKey(start);
+            const endStr = formatDateKey(end);
+            const res = await fetch(`/api/calendar?start=${startStr}&end=${endStr}&refresh=true`);
+            if (res.ok) {
+                const syncHeader = res.headers.get('X-Calendar-Last-Sync');
+                if (syncHeader) setLastSyncIso(syncHeader);
+                const freshData: CalendarEvent[] = await res.json();
+                applyIncomingEvents(freshData, isEarlier, isFuture);
+            }
+        } catch (e) {
+            console.error('Background calendar refresh failed', e);
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [applyIncomingEvents]);
+
+    // Fetch Calendar Events for active date range (Instant SQLite cache load -> Background live update)
     const fetchCalendarRange = useCallback(async (start: Date, end: Date, isEarlier = false, isFuture = false) => {
         if (isEarlier) setLoadingEarlier(true);
         else if (isFuture) setLoadingFuture(true);
-        else setLoading(true);
+        else setLoading(prev => (events.length === 0 ? true : prev));
 
         try {
             const startStr = formatDateKey(start);
@@ -551,17 +604,16 @@ export function SchedulePanel() {
 
             const res = await fetch(`/api/calendar?start=${startStr}&end=${endStr}`);
             if (res.ok) {
+                const syncHeader = res.headers.get('X-Calendar-Last-Sync');
+                if (syncHeader) setLastSyncIso(syncHeader);
+                const cacheStatus = res.headers.get('X-Calendar-Cache');
                 const data: CalendarEvent[] = await res.json();
-                if (Array.isArray(data)) {
-                    setEvents(prev => {
-                        // Deduplicate events by id
-                        const map = new Map<string, CalendarEvent>();
-                        if (isEarlier || isFuture) {
-                            prev.forEach(e => map.set(e.id, e));
-                        }
-                        data.forEach(e => map.set(e.id, e));
-                        return Array.from(map.values()).sort((a, b) => new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime());
-                    });
+                applyIncomingEvents(data, isEarlier, isFuture);
+
+                // Trigger background live refresh across instances once cached data is displayed
+                if (cacheStatus === 'HIT' && !hasTriggeredInitialRefreshRef.current) {
+                    hasTriggeredInitialRefreshRef.current = true;
+                    refreshLiveReleasesInBackground(start, end, isEarlier, isFuture);
                 }
             }
         } catch (e) {
@@ -571,12 +623,12 @@ export function SchedulePanel() {
             setLoadingEarlier(false);
             setLoadingFuture(false);
         }
-    }, []);
+    }, [events.length, applyIncomingEvents, refreshLiveReleasesInBackground]);
 
     // Initial load and range change
     useEffect(() => {
         fetchCalendarRange(startDate, endDate);
-    }, [startDate, endDate, fetchCalendarRange]);
+    }, [startDate, endDate]);
 
     // Time Navigation Actions
     const handleShiftTime = (days: number) => {
@@ -1094,6 +1146,24 @@ export function SchedulePanel() {
                         <span className="ml-2 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-black border border-emerald-500/25">
                             {filteredEvents.length} {filteredEvents.length === 1 ? 'item' : 'items'}
                         </span>
+                        <button
+                            type="button"
+                            onClick={() => refreshLiveReleasesInBackground(startDate, endDate)}
+                            disabled={isRefreshing}
+                            title={
+                                isRefreshing
+                                    ? 'Refreshing releases across instances in background...'
+                                    : `Cached releases loaded instantly${lastSyncIso ? ` (Last synced: ${new Date(lastSyncIso).toLocaleTimeString()})` : ''}. Click to refresh now.`
+                            }
+                            className={`ml-1 px-2.5 py-1 rounded-xl text-xs font-black flex items-center gap-1.5 border transition-all cursor-pointer ${
+                                isRefreshing
+                                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                                    : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700'
+                            }`}
+                        >
+                            <RefreshCw size={13} className={isRefreshing ? 'animate-spin text-sky-400' : 'text-emerald-400'} />
+                            <span>{isRefreshing ? 'Syncing' : 'Sync'}</span>
+                        </button>
                     </div>
 
                     {/* View Switcher */}

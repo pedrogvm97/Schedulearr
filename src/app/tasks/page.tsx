@@ -29,7 +29,10 @@ import {
     Brain,
     Globe,
     Gauge,
-    Wand2
+    Wand2,
+    Calendar,
+    FileText,
+    Layers
 } from 'lucide-react';
 
 export default function TasksPage() {
@@ -86,6 +89,18 @@ export default function TasksPage() {
         }
     };
 
+    const handleCleanup = async (
+        target: 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all',
+        label: string
+    ) => {
+        if (!window.confirm(`Clean ${label}?`)) return;
+        await runAction(`clean_${target}`, {
+            action: 'clean_generated_data',
+            target,
+            pauseAiFirst: target === 'all'
+        });
+    };
+
     const studio = data?.audiobookStudio;
     const studioCfg = studio?.config || {};
     const studioStatus = studio?.status || {};
@@ -104,6 +119,7 @@ export default function TasksPage() {
     const queuedBooks: any[] = studio?.queuedBooks || [];
     const availableBooks: any[] = studio?.availableBooks || [];
     const arrScheduler = data?.arrScheduler || {};
+    const calendarSync = data?.calendarSync || { enabled: true, intervalMin: 15, cachedCount: 0, isRunning: false };
     const liveStreams: any[] = data?.liveStreams || [];
     const epgSyncs: any[] = data?.epgSyncs || [];
     const epgSchedules: any[] = data?.epgSchedules || [];
@@ -157,12 +173,29 @@ export default function TasksPage() {
                     </span>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                     {toast && (
                         <div className="px-3.5 py-2 rounded-xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-200 text-sm font-bold">
                             {toast}
                         </div>
                     )}
+                    <button
+                        onClick={() => runAction('toggle_ai_pause', { action: 'set_ai_paused', paused: !studioCfg.aiPaused })}
+                        disabled={busyKey === 'toggle_ai_pause'}
+                        title={
+                            studioCfg.aiPaused
+                                ? 'AI features are globally paused. Click to resume AI transcription, scening, and image generation.'
+                                : 'Immediately halt all AI features (transcription, scening, image generation) to prevent API calls.'
+                        }
+                        className={`px-4 py-2.5 rounded-xl text-base font-black flex items-center gap-2 whitespace-nowrap cursor-pointer transition-all disabled:opacity-50 ${
+                            studioCfg.aiPaused
+                                ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg'
+                                : 'bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200'
+                        }`}
+                    >
+                        {studioCfg.aiPaused ? <Play className="w-5 h-5 fill-current" /> : <Pause className="w-5 h-5" />}
+                        <span>{studioCfg.aiPaused ? 'Resume AI' : 'Pause AI'}</span>
+                    </button>
                     <button
                         onClick={fetchTasks}
                         title="Refresh live status"
@@ -327,8 +360,12 @@ export default function TasksPage() {
                     <div className="flex items-center gap-3 flex-wrap">
                         <Sparkles className="w-6 h-6 text-amber-400 shrink-0" />
                         <h2 className="text-xl font-black text-white">Audiobook Sequential Pipeline</h2>
-                        {studioStatus.isRunning ? (
-                            <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                        {studioCfg.aiPaused ? (
+                            <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                AI PAUSED
+                            </span>
+                        ) : studioStatus.isRunning ? (
+                            <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse">
                                 {studioStatus.activeTask || 'RUNNING'}
                             </span>
                         ) : !studioCfg.enabled ? (
@@ -380,15 +417,6 @@ export default function TasksPage() {
                             {studioCfg.enabled ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                             {studioCfg.enabled ? 'Pause' : 'Resume'}
                         </button>
-                        <button
-                            onClick={() => runAction('purge_svg', { action: 'purge_fake_svg' })}
-                            disabled={busyKey === 'purge_svg'}
-                            title="Purge any legacy placeholder SVG files"
-                            className="px-4 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-200 font-bold text-base flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
-                        >
-                            <Trash2 className="w-5 h-5" />
-                            Purge
-                        </button>
                         <Link
                             href="/discover?tab=audiobooks"
                             title="Open Audiobooks in Media tab"
@@ -397,6 +425,70 @@ export default function TasksPage() {
                             <BookOpen className="w-5 h-5" />
                             Media
                         </Link>
+                    </div>
+                </div>
+
+                {/* Granular & Full Cleanup Row */}
+                <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-sm font-black uppercase tracking-wider text-gray-300 flex items-center gap-2">
+                        <Trash2 className="w-4 h-4 text-rose-400" />
+                        <span>Cleanup</span>
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            onClick={() => handleCleanup('images', 'Generated Images Only')}
+                            disabled={busyKey !== null}
+                            title="Delete generated scene images while keeping transcripts and detected scene prompts intact"
+                            className="px-3.5 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                            <ImageIcon className="w-4 h-4" />
+                            <span>Images</span>
+                        </button>
+                        <button
+                            onClick={() => handleCleanup('scenes', 'Scenes & Images')}
+                            disabled={busyKey !== null}
+                            title="Delete generated scenes and images while keeping Speech-to-Text transcripts intact"
+                            className="px-3.5 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                            <Layers className="w-4 h-4" />
+                            <span>Scenes</span>
+                        </button>
+                        <button
+                            onClick={() => handleCleanup('transcripts', 'Transcripts Only')}
+                            disabled={busyKey !== null}
+                            title="Delete generated Speech-to-Text transcripts (.lrc / .txt)"
+                            className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                            <FileText className="w-4 h-4" />
+                            <span>Transcripts</span>
+                        </button>
+                        <button
+                            onClick={() => handleCleanup('voices', 'Voice Exports')}
+                            disabled={busyKey !== null}
+                            title="Delete generated voice preset exports (.m4a)"
+                            className="px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                            <Volume2 className="w-4 h-4" />
+                            <span>Voices</span>
+                        </button>
+                        <button
+                            onClick={() => handleCleanup('api_history', 'API Usage Log')}
+                            disabled={busyKey !== null}
+                            title="Clear API request and quota telemetry history"
+                            className="px-3.5 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                            <Activity className="w-4 h-4" />
+                            <span>API Log</span>
+                        </button>
+                        <button
+                            onClick={() => handleCleanup('all', 'Everything (Pause AI + Full Reset)')}
+                            disabled={busyKey !== null}
+                            title="Pause AI and wipe all generated images, scenes, transcripts, and voice exports"
+                            className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer shadow-lg disabled:opacity-50"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            <span>Clean All</span>
+                        </button>
                     </div>
                 </div>
 
@@ -942,8 +1034,8 @@ export default function TasksPage() {
                 )}
             </section>
 
-            {/* 3. SERVER SCHEDULERS: ARR BATCH SEARCH & DISK / TORRENT GUARD */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* 3. SERVER SCHEDULERS: ARR BATCH SEARCH, RELEASE CALENDAR CACHE SYNC & DISK / TORRENT GUARD */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 {/* Arr Batch Search Scheduler */}
                 <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1013,6 +1105,77 @@ export default function TasksPage() {
                                     <option key={b} value={b}>{b} items</option>
                                 ))}
                             </select>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Release Calendar Cache Sync Scheduler */}
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <Calendar className="w-6 h-6 text-sky-400 shrink-0" />
+                            <h2 className="text-xl font-black text-white">Release Calendar Cache</h2>
+                            <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
+                                calendarSync.isRunning
+                                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 animate-pulse'
+                                    : calendarSync.enabled
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            }`}>
+                                {calendarSync.isRunning ? 'Syncing' : calendarSync.enabled ? 'Enabled' : 'Paused'}
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                onClick={() => runAction('cal_run', { action: 'update_calendar_sync', runNow: true })}
+                                disabled={busyKey === 'cal_run' || calendarSync.isRunning}
+                                title="Sync Radarr & Sonarr release calendar into SQLite cache right now for instant Schedule page load"
+                                className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-50"
+                            >
+                                <RefreshCw className={`w-4 h-4 ${calendarSync.isRunning ? 'animate-spin' : ''}`} />
+                                Sync
+                            </button>
+                            <button
+                                onClick={() => runAction('cal_toggle', { action: 'update_calendar_sync', enabled: !calendarSync.enabled })}
+                                disabled={busyKey === 'cal_toggle'}
+                                title={calendarSync.enabled ? 'Pause periodic release calendar sync' : 'Enable periodic release calendar sync'}
+                                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                            >
+                                {calendarSync.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                {calendarSync.enabled ? 'Pause' : 'Resume'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                            <span className="text-xs font-black uppercase text-gray-400">Cached Items</span>
+                            <div className="text-lg font-black text-sky-300 font-mono">
+                                {calendarSync.cachedCount ?? 0}
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                            <span className="text-xs font-black uppercase text-gray-400">Sync Interval</span>
+                            <select
+                                value={calendarSync.intervalMin || 15}
+                                onChange={(e) => runAction('cal_int', { action: 'update_calendar_sync', intervalMin: Number(e.target.value) })}
+                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
+                            >
+                                {[5, 10, 15, 30, 60, 120].map(m => (
+                                    <option key={m} value={m}>Every {m}m</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                            <span className="text-xs font-black uppercase text-gray-400">Last Sync</span>
+                            <div className="text-base font-black text-white truncate">
+                                {calendarSync.lastSyncAt
+                                    ? new Date(calendarSync.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                    : 'Pending'}
+                            </div>
                         </div>
                     </div>
                 </section>

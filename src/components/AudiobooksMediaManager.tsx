@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     BookOpen, Sparkles, Sliders, FolderPlus, Edit3, Trash2, Check,
-    RefreshCw, Play, Zap, FileText, Image as ImageIcon, Mic2,
+    RefreshCw, Play, Pause, Zap, FileText, Image as ImageIcon, Mic2,
     Search, User, Layers, Wrench, X, Plus, Headphones, ChevronDown, ChevronUp, Wand2, ArrowUp, Save
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -2043,6 +2043,64 @@ export function AudiobooksMediaManager() {
         }
     };
 
+    const handleToggleAiPaused = async () => {
+        const nextPaused = !Boolean(studioConfig?.aiPaused);
+        setSavingConfig(true);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'set_ai_paused',
+                    paused: nextPaused
+                })
+            });
+            if (res.ok) {
+                toast.success(nextPaused ? 'Paused all AI tasks' : 'Resumed AI tasks');
+                fetchAll();
+            } else {
+                toast.error('Failed to update AI pause state');
+            }
+        } catch {
+            toast.error('Error updating AI pause state');
+        } finally {
+            setSavingConfig(false);
+        }
+    };
+
+    const handleCleanGeneratedData = async (
+        target: 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all',
+        label: string,
+        bookKey?: string
+    ) => {
+        if (!window.confirm(`Clean ${label}?`)) return;
+        setSavingConfig(true);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'clean_generated_data',
+                    target,
+                    bookKey,
+                    pauseAiFirst: target === 'all' && !bookKey
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const r = data.result || {};
+                toast.success(`Cleaned ${label} (${r.deletedFilesCount || 0} files deleted)`);
+                fetchAll();
+            } else {
+                toast.error(`Failed to clean ${label}`);
+            }
+        } catch {
+            toast.error(`Error cleaning ${label}`);
+        } finally {
+            setSavingConfig(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             {/* ── Top Bar: Simple Big Symbols + Single-Word Labels ── */}
@@ -2131,13 +2189,30 @@ export function AudiobooksMediaManager() {
                     </button>
                 </div>
 
-                <div className="flex items-center gap-3">
-                    {workerState?.isRunning && (
+                <div className="flex items-center gap-3 flex-wrap">
+                    {workerState?.isRunning && !studioConfig?.aiPaused && (
                         <div className="px-4 py-2.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-sm font-black flex items-center gap-2 animate-pulse">
                             <RefreshCw size={16} className="animate-spin" />
                             <span>{workerState.currentStep || workerState.activeBookTitle || 'Working...'}</span>
                         </div>
                     )}
+                    <button
+                        onClick={handleToggleAiPaused}
+                        disabled={savingConfig}
+                        title={
+                            studioConfig?.aiPaused
+                                ? 'AI is paused. Click to resume background AI tasks.'
+                                : 'Immediately pause all AI tasks (transcription, scening, and image generation) to prevent API calls.'
+                        }
+                        className={`px-5 py-3 rounded-2xl text-sm font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all disabled:opacity-50 ${
+                            studioConfig?.aiPaused
+                                ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg'
+                                : 'bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40'
+                        }`}
+                    >
+                        {studioConfig?.aiPaused ? <Play size={18} /> : <Pause size={18} />}
+                        <span>{studioConfig?.aiPaused ? 'Resume AI' : 'Pause AI'}</span>
+                    </button>
                     <button
                         onClick={() => fetchAll(true)}
                         disabled={rescanning}
@@ -3464,6 +3539,61 @@ export function AudiobooksMediaManager() {
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* ── GRANULAR & FULL CLEANUP BAR ── */}
+                                <div className="p-6 rounded-3xl bg-zinc-900/75 border-2 border-zinc-800 flex flex-wrap items-center justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <Trash2 size={22} className="text-red-400" />
+                                        <h4 className="text-xl font-black text-white uppercase tracking-wider">Cleanup</h4>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2.5">
+                                        <button
+                                            onClick={() => handleCleanGeneratedData('images', 'Generated Images Only')}
+                                            disabled={savingConfig}
+                                            title="Delete all generated scene images while keeping transcripts and detected scene prompts intact"
+                                            className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                                        >
+                                            <ImageIcon size={18} />
+                                            <span>Images</span>
+                                        </button>
+                                        <button
+                                            onClick={() => handleCleanGeneratedData('scenes', 'Scenes & Images')}
+                                            disabled={savingConfig}
+                                            title="Delete all generated scenes and images while keeping Speech-to-Text transcripts intact"
+                                            className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                                        >
+                                            <Layers size={18} />
+                                            <span>Scenes</span>
+                                        </button>
+                                        <button
+                                            onClick={() => handleCleanGeneratedData('transcripts', 'Transcripts Only')}
+                                            disabled={savingConfig}
+                                            title="Delete all generated Speech-to-Text transcripts (.lrc / .txt)"
+                                            className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                                        >
+                                            <FileText size={18} />
+                                            <span>Transcripts</span>
+                                        </button>
+                                        <button
+                                            onClick={() => handleCleanGeneratedData('voices', 'Voice Exports')}
+                                            disabled={savingConfig}
+                                            title="Delete all generated voice preset audio files (.m4a)"
+                                            className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                                        >
+                                            <Mic2 size={18} />
+                                            <span>Voices</span>
+                                        </button>
+                                        <button
+                                            onClick={() => handleCleanGeneratedData('all', 'Everything (Pause AI + Full Reset)')}
+                                            disabled={savingConfig}
+                                            title="Pause AI and wipe all generated images, scenes, transcripts, and voice exports across all books"
+                                            className="px-5 py-2.5 rounded-2xl bg-red-500 hover:bg-red-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                                        >
+                                            <Trash2 size={18} />
+                                            <span>Clean All</span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         );
                     })()}
@@ -3557,6 +3687,61 @@ export function AudiobooksMediaManager() {
                                 className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider cursor-pointer"
                             >
                                 Save Key
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Granular & Full Cleanup */}
+                    <div className="space-y-3 pt-4 border-t border-zinc-800">
+                        <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            <Trash2 size={18} className="text-red-400" />
+                            <span>Cleanup</span>
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-2.5">
+                            <button
+                                onClick={() => handleCleanGeneratedData('images', 'Generated Images Only')}
+                                disabled={savingConfig}
+                                title="Delete all generated scene images while keeping transcripts and detected scene prompts intact"
+                                className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                                <ImageIcon size={18} />
+                                <span>Images</span>
+                            </button>
+                            <button
+                                onClick={() => handleCleanGeneratedData('scenes', 'Scenes & Images')}
+                                disabled={savingConfig}
+                                title="Delete all generated scenes and images while keeping Speech-to-Text transcripts intact"
+                                className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                                <Layers size={18} />
+                                <span>Scenes</span>
+                            </button>
+                            <button
+                                onClick={() => handleCleanGeneratedData('transcripts', 'Transcripts Only')}
+                                disabled={savingConfig}
+                                title="Delete all generated Speech-to-Text transcripts (.lrc / .txt)"
+                                className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                                <FileText size={18} />
+                                <span>Transcripts</span>
+                            </button>
+                            <button
+                                onClick={() => handleCleanGeneratedData('voices', 'Voice Exports')}
+                                disabled={savingConfig}
+                                title="Delete all generated voice preset audio files (.m4a)"
+                                className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                                <Mic2 size={18} />
+                                <span>Voices</span>
+                            </button>
+                            <button
+                                onClick={() => handleCleanGeneratedData('all', 'Everything (Pause AI + Full Reset)')}
+                                disabled={savingConfig}
+                                title="Pause AI and wipe all generated images, scenes, transcripts, and voice exports across all books"
+                                className="px-5 py-2.5 rounded-2xl bg-red-500 hover:bg-red-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                            >
+                                <Trash2 size={18} />
+                                <span>Clean All</span>
                             </button>
                         </div>
                     </div>
@@ -4246,6 +4431,61 @@ export function AudiobooksMediaManager() {
                                                 <Save size={18} />
                                                 <span>Save</span>
                                             </button>
+                                        </div>
+
+                                        {/* Per-book Granular Cleanup Row */}
+                                        <div className="pt-3 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
+                                            <span className="text-xs sm:text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                                                <Trash2 size={16} className="text-red-400" />
+                                                <span>Book Cleanup</span>
+                                            </span>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <button
+                                                    onClick={() => handleCleanGeneratedData('images', `Images for "${currentModalBook.title}"`, currentModalBook.bookKey)}
+                                                    disabled={savingConfig}
+                                                    title="Delete generated scene images for this book only (keeps transcripts and detected scene prompts intact)"
+                                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                >
+                                                    <ImageIcon size={15} />
+                                                    <span>Images</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleCleanGeneratedData('scenes', `Scenes & Images for "${currentModalBook.title}"`, currentModalBook.bookKey)}
+                                                    disabled={savingConfig}
+                                                    title="Delete generated scenes and images for this book only (keeps transcripts intact)"
+                                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                >
+                                                    <Layers size={15} />
+                                                    <span>Scenes</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleCleanGeneratedData('transcripts', `Transcripts for "${currentModalBook.title}"`, currentModalBook.bookKey)}
+                                                    disabled={savingConfig}
+                                                    title="Delete Speech-to-Text transcripts for this book only"
+                                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                >
+                                                    <FileText size={15} />
+                                                    <span>Transcripts</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleCleanGeneratedData('voices', `Voice Exports for "${currentModalBook.title}"`, currentModalBook.bookKey)}
+                                                    disabled={savingConfig}
+                                                    title="Delete generated voice preset exports for this book only"
+                                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                >
+                                                    <Mic2 size={15} />
+                                                    <span>Voices</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleCleanGeneratedData('all', `All AI Assets for "${currentModalBook.title}"`, currentModalBook.bookKey)}
+                                                    disabled={savingConfig}
+                                                    title="Delete all generated images, scenes, transcripts, and voice exports for this book"
+                                                    className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-black border border-red-500/40 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                >
+                                                    <Trash2 size={15} />
+                                                    <span>Clean Book</span>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
 
