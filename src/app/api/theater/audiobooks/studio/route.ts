@@ -37,6 +37,7 @@ import {
     previewRenameAudiobookFiles,
     executeRenameAudiobookFiles,
     purgeAllFakeSvgArtFromDbAndDisk,
+    purgeAllGeneratedAudiobookData,
     regenerateSingleAudiobookSceneImage,
     getAudiobookTranscriptsDir
 } from '@/lib/audiobookStudio';
@@ -58,14 +59,17 @@ export async function GET(request: Request) {
         const queueHistory = getStudioQueueHistory();
 
         if (chapterKey) {
-            const chapter = getAudiobookChapterMeta(chapterKey);
-            const book = chapter ? getAudiobookMeta(chapter.book_key) : null;
+            const chapter = getAudiobookChapterMeta(chapterKey, bookKey || undefined);
+            const book = chapter ? getAudiobookMeta(chapter.book_key) : (bookKey ? getAudiobookMeta(bookKey) : null);
+            const chapters = book ? getAudiobookChaptersMeta(book.book_key) : (bookKey ? getAudiobookChaptersMeta(bookKey) : []);
             return NextResponse.json({
                 success: true,
                 config,
                 status,
                 book,
                 chapter,
+                chapters,
+                books,
                 collectionsState,
                 queueBreakdown,
                 queueHistory
@@ -230,6 +234,17 @@ export async function POST(request: Request) {
             });
         }
 
+        if (action === 'purge_all_generated_data') {
+            const result = purgeAllGeneratedAudiobookData();
+            return NextResponse.json({
+                success: true,
+                ...result,
+                books: getAllAudiobooksMeta(),
+                status: getAudiobookStudioStatus(),
+                queueBreakdown: getQueueBreakdownAndHistory()
+            });
+        }
+
         if (action === 'queue_whole_book') {
             const { bookKey } = body;
             if (!bookKey) {
@@ -239,6 +254,7 @@ export async function POST(request: Request) {
                 book_key: bookKey,
                 queue_enabled: true,
                 transcribe_enabled: true,
+                scening_enabled: true,
                 illustrate_enabled: true,
                 status: 'queued'
             });
@@ -264,7 +280,7 @@ export async function POST(request: Request) {
         if (action === 'save_config') {
             const updated = saveAudiobookStudioConfig(body.config || {});
             console.log(`📚 [AudiobookStudio] Updated Studio Config (Provider: ${updated.artProvider}, Daily Quota: ${updated.dailyImageQuota}, STT: ${updated.sttEngine})`);
-            if (updated.enabled) {
+            if (updated.enabled && updated.aiFeaturesEnabled !== false) {
                 triggerAudiobookQueueWorker();
             }
             return NextResponse.json({
@@ -288,9 +304,11 @@ export async function POST(request: Request) {
                 enhancePreset,
                 enhanceAudioEnabled,
                 transcribeEnabled,
+                sceningEnabled,
                 illustrateEnabled,
                 dynamicPromptEnabled,
                 customPrompt,
+                summary,
                 queueEnabled,
                 isQueued
             } = body;
@@ -298,6 +316,15 @@ export async function POST(request: Request) {
                 return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
             }
             const existing = getAudiobookMeta(bookKey);
+            const nextScening = sceningEnabled !== undefined ? Boolean(sceningEnabled) : (existing?.scening_enabled ?? true);
+            let nextIllustrate = illustrateEnabled !== undefined ? Boolean(illustrateEnabled) : (existing?.illustrate_enabled ?? true);
+            // Dependency rule: cannot turn off scening without turning off imaging; enabling imaging enables scening
+            const resolvedScening = illustrateEnabled === true ? true : nextScening;
+            if (!resolvedScening) {
+                nextIllustrate = false;
+            }
+
+            const nextQueueEnabled = queueEnabled !== undefined ? Boolean(queueEnabled) : (isQueued !== undefined ? Boolean(isQueued) : existing?.queue_enabled);
             const updatedBook = upsertAudiobookMeta({
                 book_key: bookKey,
                 title: title ?? existing?.title ?? 'Untitled Book',
@@ -310,10 +337,12 @@ export async function POST(request: Request) {
                 enhance_preset: enhancePreset !== undefined ? String(enhancePreset) : existing?.enhance_preset,
                 enhance_audio_enabled: enhanceAudioEnabled !== undefined ? Boolean(enhanceAudioEnabled) : existing?.enhance_audio_enabled,
                 transcribe_enabled: transcribeEnabled !== undefined ? Boolean(transcribeEnabled) : existing?.transcribe_enabled,
-                illustrate_enabled: illustrateEnabled !== undefined ? Boolean(illustrateEnabled) : existing?.illustrate_enabled,
+                scening_enabled: resolvedScening,
+                illustrate_enabled: nextIllustrate,
                 dynamic_prompt_enabled: dynamicPromptEnabled !== undefined ? Boolean(dynamicPromptEnabled) : existing?.dynamic_prompt_enabled,
                 custom_prompt: customPrompt !== undefined ? String(customPrompt) : existing?.custom_prompt,
-                queue_enabled: queueEnabled !== undefined ? Boolean(queueEnabled) : (isQueued !== undefined ? Boolean(isQueued) : existing?.queue_enabled)
+                summary: summary !== undefined ? String(summary) : existing?.summary,
+                queue_enabled: nextQueueEnabled
             });
 
             if (voicePreset !== undefined) {
@@ -325,6 +354,10 @@ export async function POST(request: Request) {
                         voice_preset: String(voicePreset)
                     });
                 }
+            }
+
+            if (nextQueueEnabled) {
+                triggerAudiobookQueueWorker(bookKey);
             }
 
             return NextResponse.json({
@@ -350,6 +383,7 @@ export async function POST(request: Request) {
                 queueEnabled,
                 isQueued,
                 transcribeEnabled,
+                sceningEnabled,
                 illustrateEnabled,
                 enhanceAudioEnabled,
                 voicePreset,
@@ -359,6 +393,8 @@ export async function POST(request: Request) {
                 artFocus,
                 dynamicPromptEnabled,
                 customPrompt,
+                summary,
+                synopsis,
                 genre,
                 publishedYear,
                 readingStatus,
@@ -378,6 +414,9 @@ export async function POST(request: Request) {
             const allBooks = getAllAudiobooksMeta();
             const maxPriority = allBooks.reduce((m, b) => Math.max(m, b.queue_priority || 0), 0);
 
+            const resolvedScening = sceningEnabled !== undefined ? Boolean(sceningEnabled) : (existingBook?.scening_enabled ?? true);
+            const resolvedIllustrate = !resolvedScening ? false : (illustrateEnabled !== undefined ? Boolean(illustrateEnabled) : (existingBook?.illustrate_enabled ?? true));
+
             const bookMeta = upsertAudiobookMeta({
                 book_key: existingBook?.book_key || bookKey,
                 title: title || existingBook?.title || 'Untitled Book',
@@ -392,7 +431,8 @@ export async function POST(request: Request) {
                 queue_priority: existingBook ? existingBook.queue_priority : maxPriority + 1,
                 queue_enabled: effectiveQueueEnabled !== undefined ? effectiveQueueEnabled : (existingBook?.queue_enabled ?? false),
                 transcribe_enabled: transcribeEnabled !== undefined ? Boolean(transcribeEnabled) : (existingBook?.transcribe_enabled ?? true),
-                illustrate_enabled: illustrateEnabled !== undefined ? Boolean(illustrateEnabled) : (existingBook?.illustrate_enabled ?? true),
+                scening_enabled: resolvedScening,
+                illustrate_enabled: resolvedIllustrate,
                 enhance_audio_enabled: enhanceAudioEnabled !== undefined ? Boolean(enhanceAudioEnabled) : (existingBook?.enhance_audio_enabled ?? false),
                 voice_preset: voicePreset || existingBook?.voice_preset || 'original',
                 enhance_preset: enhancePreset !== undefined ? String(enhancePreset) : existingBook?.enhance_preset,
@@ -401,6 +441,7 @@ export async function POST(request: Request) {
                 art_focus: artFocus !== undefined ? String(artFocus) : existingBook?.art_focus,
                 dynamic_prompt_enabled: dynamicPromptEnabled !== undefined ? Boolean(dynamicPromptEnabled) : existingBook?.dynamic_prompt_enabled,
                 custom_prompt: customPrompt !== undefined ? String(customPrompt) : existingBook?.custom_prompt,
+                summary: (summary ?? synopsis) !== undefined ? String(summary ?? synopsis) : existingBook?.summary,
                 total_chapters: rawTracks.length > 0 ? rawTracks.length : (existingBook?.total_chapters || 0)
             });
 
@@ -501,6 +542,7 @@ export async function POST(request: Request) {
                 customPrompt,
                 synopsis,
                 description,
+                summary,
                 authorBio
             } = body;
             if (!bookKey) {
@@ -508,6 +550,7 @@ export async function POST(request: Request) {
             }
             const existing = getAudiobookMeta(bookKey, title, author);
             const incomingThumb = coverUrl ?? posterUrl ?? thumb;
+            const incomingSynopsis = synopsis !== undefined ? synopsis : (description !== undefined ? description : summary);
             const updated = upsertAudiobookMeta({
                 book_key: existing?.book_key || bookKey,
                 title: title !== undefined ? String(title).trim() : (existing?.title || 'Untitled Book'),
@@ -523,10 +566,10 @@ export async function POST(request: Request) {
                 art_style: artStyle !== undefined ? String(artStyle) : existing?.art_style,
                 images_per_chapter: imagesPerChapter !== undefined ? Number(imagesPerChapter) : existing?.images_per_chapter,
                 art_focus: artFocus !== undefined ? String(artFocus) : existing?.art_focus,
-                custom_prompt: customPrompt !== undefined ? String(customPrompt) : existing?.custom_prompt
+                custom_prompt: customPrompt !== undefined ? String(customPrompt) : existing?.custom_prompt,
+                summary: incomingSynopsis !== undefined ? String(incomingSynopsis).trim() : existing?.summary
             });
 
-            const incomingSynopsis = synopsis !== undefined ? synopsis : description;
             if (title !== undefined || publishedYear !== undefined || incomingSynopsis !== undefined || authorBio !== undefined) {
                 const colState = getAudiobookCollectionsState();
                 const prevEnrich = colState.bookMetadata[updated.book_key] || colState.bookMetadata[bookKey] || { bookKey: updated.book_key };
@@ -655,7 +698,7 @@ export async function POST(request: Request) {
 
             // Enforce Stage prerequisites before starting Stage 2 or Stage 3 manually
             if (effectiveTaskType === 'detect_scenes' || effectiveTaskType === 'illustrate') {
-                const hasTranscript = Boolean(chapter.synced_lyrics && chapter.synced_lyrics.trim().length > 20 && chapter.transcription_status === 'completed');
+                const hasTranscript = Boolean(chapter.synced_lyrics && chapter.synced_lyrics.trim().length > 20 && (chapter.transcription_status === 'completed' || (chapter.transcribed_seconds || 0) >= 180));
                 if (!hasTranscript && !body.autoTranscribeFirst) {
                     return NextResponse.json({
                         success: false,

@@ -584,6 +584,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [audiobookChapterMeta, setAudiobookChapterMeta] = useState<any | null>(null);
     const [audiobookBookMeta, setAudiobookBookMeta] = useState<any | null>(null);
     const [audiobookSubTab, setAudiobookSubTab] = useState<'transcript' | 'illustrations' | 'audio_enhance'>('transcript');
+    const [audiobookTranscriptExpanded, setAudiobookTranscriptExpanded] = useState<boolean>(false);
+    const [inspectingChapterKeyForTranscript, setInspectingChapterKeyForTranscript] = useState<string>('');
     const [shuffledSceneImages, setShuffledSceneImages] = useState<any[]>([]);
     const [isRunningChapterStudioTask, setIsRunningChapterStudioTask] = useState<string | null>(null);
     const [useEnhancedAudioStream, setUseEnhancedAudioStream] = useState<boolean>(true);
@@ -665,6 +667,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         return lines.sort((a, b) => a.time - b.time);
     }, [isFakeOrWikiTranscript]);
 
+    const findMatchingChapterMeta = useCallback((chapters: any[], track: MediaItem | null, idx?: number) => {
+        if (!track || !Array.isArray(chapters) || chapters.length === 0) return null;
+        const rawKey = String(track.chapterKey || track.id || '');
+        const rawSuffix = rawKey.includes('::') ? rawKey.split('::').pop() : rawKey.replace(/^plex_track_[^:]+::/, '');
+        return chapters.find((m: any) => {
+            if (!m) return false;
+            if (m.chapter_key === rawKey || m.chapter_key === track.id || m.chapter_key === track.chapterKey) return true;
+            const mSuffix = String(m.chapter_key || '').includes('::') ? String(m.chapter_key).split('::').pop() : String(m.chapter_key || '');
+            if (rawSuffix && mSuffix && rawSuffix === mSuffix) return true;
+            if (track.path && m.file_path && m.file_path === track.path) return true;
+            if (typeof idx === 'number' && Number(m.chapter_index) === idx + 1) return true;
+            return false;
+        }) || null;
+    }, []);
+
     const fetchAudiobookChapterStudio = useCallback(async (item: MediaItem) => {
         if (!item) return;
         const cKey = item.chapterKey || item.id;
@@ -679,7 +696,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 if (Array.isArray(data.chapters)) {
                     setAudiobookAllChaptersMeta(data.chapters);
                 }
-                const ch = data.chapter || (Array.isArray(data.chapters) ? data.chapters.find((c: any) => c.chapter_key === cKey) : null);
+                const ch = data.chapter || (Array.isArray(data.chapters) ? findMatchingChapterMeta(data.chapters, item) : null);
                 if (ch) {
                     setAudiobookChapterMeta(ch);
                     const kept = (ch.images || [])
@@ -716,7 +733,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             setAudiobookChapterMeta(null);
             setShuffledSceneImages([]);
         }
-    }, [parseLrcStringToLines, isFakeOrWikiTranscript]);
+    }, [parseLrcStringToLines, isFakeOrWikiTranscript, findMatchingChapterMeta]);
 
     // Live poll book & chapter progress while expanded audiobook player is open
     useEffect(() => {
@@ -1947,13 +1964,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     }, [currentLyricIndex, showLyricsModal]);
 
     useEffect(() => {
+        if (lyricsViewMode === 'full') return;
         if (isExpandedPlayerOpen && (expandedSidePanel === 'karaoke' || expandedSidePanel === 'guitar' || expandedSidePanel === 'bass') && expandedActiveLyricRef.current && expandedLyricsContainerRef.current) {
             const container = expandedLyricsContainerRef.current;
             const el = expandedActiveLyricRef.current;
             const targetTop = el.offsetTop - container.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
             container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
         }
-    }, [currentLyricIndex, isExpandedPlayerOpen, expandedSidePanel]);
+    }, [currentLyricIndex, isExpandedPlayerOpen, expandedSidePanel, lyricsViewMode]);
 
     // Send live playback session heartbeat to Analytics telemetry
     useEffect(() => {
@@ -4619,8 +4637,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
                                                     {(audioQueue.length > 0 ? audioQueue : [playingAudio]).map((chTrack, idx) => {
                                                         const isCurrentChap = idx === queueIndex || chTrack.id === playingAudio.id;
-                                                        const chMeta = audiobookAllChaptersMeta.find((m: any) => m.chapter_key === (chTrack.chapterKey || chTrack.id));
-                                                        const hasTranscript = (chMeta?.transcription_status === 'completed' && Boolean(chMeta?.synced_lyrics)) || (isCurrentChap && Boolean(lyricsData?.lines?.length));
+                                                        const chMeta = findMatchingChapterMeta(audiobookAllChaptersMeta, chTrack, idx);
+                                                        const hasTranscript = Boolean(
+                                                            (chMeta?.synced_lyrics && String(chMeta.synced_lyrics).trim().length > 10) ||
+                                                            (chMeta?.plain_transcript && String(chMeta.plain_transcript).trim().length > 10) ||
+                                                            (isCurrentChap && Boolean(lyricsData?.lines?.length))
+                                                        );
+                                                        const isPartialStt = chMeta?.transcription_status === 'processing' && hasTranscript;
                                                         const sceneCount = (chMeta?.images?.filter((i: any) => i.kept !== false)?.length || 0) || (isCurrentChap ? totalScenes : 0);
                                                         return (
                                                             <div key={`${chTrack.id}-${idx}`} className="rounded-2xl border border-zinc-800/80 bg-zinc-900/40 overflow-hidden">
@@ -4640,7 +4663,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                         </div>
                                                                         <div className="flex items-center gap-2 mt-0.5 text-xs text-zinc-500">
                                                                             {hasTranscript ? (
-                                                                                <span className="text-emerald-400 font-semibold">✓ STT Ready</span>
+                                                                                <span className="text-emerald-400 font-semibold">
+                                                                                    {isPartialStt ? `✓ STT (${Math.round(chMeta?.transcription_progress || 0)}%)` : '✓ STT Ready'}
+                                                                                </span>
+                                                                            ) : chMeta?.transcription_status === 'processing' ? (
+                                                                                <span className="text-amber-400 font-semibold">⏳ STT...</span>
                                                                             ) : (
                                                                                 <span className="text-zinc-500">No STT</span>
                                                                             )}
@@ -4649,11 +4676,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                             )}
                                                                         </div>
                                                                     </div>
-                                                                    {isCurrentChap && (
-                                                                        <span className="px-2.5 py-1 rounded-xl bg-amber-500 text-black text-xs font-black uppercase shrink-0">
-                                                                            Playing
-                                                                        </span>
-                                                                    )}
+                                                                    <div className="flex items-center gap-1.5 shrink-0">
+                                                                        {hasTranscript && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setInspectingChapterKeyForTranscript(chMeta?.chapter_key || chTrack.chapterKey || chTrack.id);
+                                                                                    setLyricsViewMode('full');
+                                                                                }}
+                                                                                className="px-2.5 py-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-black flex items-center gap-1 cursor-pointer"
+                                                                                title="View full transcript for this chapter"
+                                                                            >
+                                                                                <BookOpen size={13} /> Text
+                                                                            </button>
+                                                                        )}
+                                                                        {isCurrentChap && (
+                                                                            <span className="px-2.5 py-1 rounded-xl bg-amber-500 text-black text-xs font-black uppercase shrink-0">
+                                                                                Playing
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         );
@@ -4663,261 +4706,381 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </div>
                                     </div>
 
-                                    {/* ── RIGHT STAGE: STORYBOARD / PICTUREBOOK + LIVE CAPTIONS ── */}
+                                    {/* ── RIGHT STAGE: STORYBOARD / PICTUREBOOK + LIVE / FULL TRANSCRIPT ── */}
                                     <div className="col-span-1 lg:col-span-7 xl:col-span-8 h-full max-h-full flex flex-col bg-zinc-950/90 border border-zinc-800/90 rounded-[2rem] p-4 sm:p-6 shadow-2xl space-y-4 min-h-0 overflow-hidden">
-                                        {/* Top View Switcher: Storyboard (3-Card Carousel) | Live Art | Story Gallery */}
-                                        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-900 shrink-0 pr-24">
-                                            <div className="flex items-center gap-1.5 bg-zinc-900 p-1 rounded-2xl border border-zinc-800">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setAudiobookStageMode('storyboard')}
-                                                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                                        audiobookStageMode === 'storyboard'
-                                                            ? 'bg-amber-500 text-black shadow-sm'
-                                                            : 'text-zinc-400 hover:text-white'
-                                                    }`}
-                                                >
-                                                    <Layers size={15} /> Storyboard
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setAudiobookStageMode('live_art')}
-                                                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                                        audiobookStageMode === 'live_art'
-                                                            ? 'bg-amber-500 text-black shadow-sm'
-                                                            : 'text-zinc-400 hover:text-white'
-                                                    }`}
-                                                >
-                                                    <ImageIcon size={15} /> Current Art
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setAudiobookStageMode('gallery')}
-                                                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                                        audiobookStageMode === 'gallery'
-                                                            ? 'bg-amber-500 text-black shadow-sm'
-                                                            : 'text-zinc-400 hover:text-white'
-                                                    }`}
-                                                >
-                                                    <BookOpen size={15} /> Scenes ({totalScenes})
-                                                </button>
-                                            </div>
-
-                                            <div className="flex items-center gap-2">
-                                                <span className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-amber-300">
-                                                    {currentPrimaryArtBadge}
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        {/* ── VISUAL STAGE AREA (STORYBOARD / LIVE ART / GALLERY) ── */}
-                                        <div className="flex-1 min-h-0 flex flex-col justify-center overflow-hidden">
-                                            {audiobookStageMode === 'storyboard' ? (
-                                                <div className="w-full h-full flex items-center justify-center gap-3 sm:gap-5 px-2 py-1 overflow-hidden">
-                                                    <div
-                                                        onClick={() => {
-                                                            if (prevSceneObj && typeof prevSceneObj.startSec === 'number') {
-                                                                seekTo(prevSceneObj.startSec);
-                                                            }
-                                                        }}
-                                                        className={`hidden sm:flex flex-col w-1/4 max-w-[210px] aspect-[4/3] rounded-2xl border border-zinc-800 bg-zinc-900/70 overflow-hidden relative transition-all duration-500 scale-90 opacity-60 hover:opacity-90 ${
-                                                            prevSceneObj ? 'cursor-pointer' : 'opacity-25 pointer-events-none'
-                                                        }`}
-                                                        title={prevSceneObj ? 'Click to jump to Previous Scene' : 'Start of Chapter'}
-                                                    >
-                                                        {prevSceneObj?.url ? (
-                                                            <img src={prevSceneObj.url} alt="" className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 p-3 text-center">
-                                                                <SkipBack size={22} className="mb-1" />
-                                                                <span className="text-xs font-bold">Previous Scene</span>
-                                                            </div>
-                                                        )}
-                                                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/80 text-xs font-bold text-zinc-300">
-                                                            {prevSceneObj ? `Scene ${activeSceneIdx}` : 'Start'}
-                                                        </div>
+                                        {!audiobookTranscriptExpanded && (
+                                            <>
+                                                {/* Top View Switcher: Storyboard (3-Card Carousel) | Live Art | Story Gallery */}
+                                                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-900 shrink-0 pr-24">
+                                                    <div className="flex items-center gap-1.5 bg-zinc-900 p-1 rounded-2xl border border-zinc-800">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAudiobookStageMode('storyboard')}
+                                                            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                                audiobookStageMode === 'storyboard'
+                                                                    ? 'bg-amber-500 text-black shadow-sm'
+                                                                    : 'text-zinc-400 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <Layers size={15} /> Storyboard
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAudiobookStageMode('live_art')}
+                                                            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                                audiobookStageMode === 'live_art'
+                                                                    ? 'bg-amber-500 text-black shadow-sm'
+                                                                    : 'text-zinc-400 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <ImageIcon size={15} /> Current Art
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAudiobookStageMode('gallery')}
+                                                            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                                audiobookStageMode === 'gallery'
+                                                                    ? 'bg-amber-500 text-black shadow-sm'
+                                                                    : 'text-zinc-400 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <BookOpen size={15} /> Scenes ({totalScenes})
+                                                        </button>
                                                     </div>
 
-                                                    <div className="flex-1 max-w-xl h-full max-h-[36vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden relative shadow-[0_20px_60px_rgba(0,0,0,0.85)] z-20 flex items-center justify-center group">
-                                                        {currentPrimaryArtUrl ? (
-                                                            <img
-                                                                src={currentPrimaryArtUrl}
-                                                                alt={playingAudio.title}
-                                                                className="w-full h-full object-cover transition-all duration-700"
-                                                            />
-                                                        ) : (
-                                                            <div className="flex flex-col items-center justify-center text-zinc-500 p-6 text-center">
-                                                                <BookOpen size={48} className="text-amber-500/50 mb-2" />
-                                                                <span className="text-sm font-bold text-zinc-300">{playingAudio.title}</span>
-                                                            </div>
-                                                        )}
-
-                                                        <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-amber-300">
                                                             {currentPrimaryArtBadge}
-                                                        </div>
-                                                    </div>
-
-                                                    <div
-                                                        onClick={() => {
-                                                            if (nextSceneObj && typeof nextSceneObj.startSec === 'number') {
-                                                                seekTo(nextSceneObj.startSec);
-                                                            }
-                                                        }}
-                                                        className={`hidden sm:flex flex-col w-1/4 max-w-[210px] aspect-[4/3] rounded-2xl border border-zinc-800 bg-zinc-900/70 overflow-hidden relative transition-all duration-500 scale-90 opacity-60 hover:opacity-90 ${
-                                                            nextSceneObj ? 'cursor-pointer' : 'opacity-25 pointer-events-none'
-                                                        }`}
-                                                        title={nextSceneObj ? 'Click to jump to Upcoming Scene' : 'Next Scene'}
-                                                    >
-                                                        {nextSceneObj?.url ? (
-                                                            <img src={nextSceneObj.url} alt="" className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 p-3 text-center">
-                                                                <SkipForward size={22} className="mb-1" />
-                                                                <span className="text-xs font-bold">Upcoming Scene</span>
-                                                            </div>
-                                                        )}
-                                                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/80 text-xs font-bold text-zinc-300">
-                                                            {nextSceneObj ? `Scene ${activeSceneIdx + 2}` : 'Upcoming'}
-                                                        </div>
+                                                        </span>
                                                     </div>
                                                 </div>
-                                            ) : audiobookStageMode === 'live_art' ? (
-                                                <div className="w-full h-full flex items-center justify-center p-2 overflow-hidden">
-                                                    <div className="relative h-full max-h-[42vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden shadow-2xl group">
-                                                        {currentPrimaryArtUrl ? (
-                                                            <img src={currentPrimaryArtUrl} alt={playingAudio.title} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center text-amber-400">
-                                                                <BookOpen size={56} />
+
+                                                {/* ── VISUAL STAGE AREA (STORYBOARD / LIVE ART / GALLERY) ── */}
+                                                <div className="flex-1 min-h-0 flex flex-col justify-center overflow-hidden">
+                                                    {audiobookStageMode === 'storyboard' ? (
+                                                        <div className="w-full h-full flex items-center justify-center gap-3 sm:gap-5 px-2 py-1 overflow-hidden">
+                                                            <div
+                                                                onClick={() => {
+                                                                    if (prevSceneObj && typeof prevSceneObj.startSec === 'number') {
+                                                                        seekTo(prevSceneObj.startSec);
+                                                                    }
+                                                                }}
+                                                                className={`hidden sm:flex flex-col w-1/4 max-w-[210px] aspect-[4/3] rounded-2xl border border-zinc-800 bg-zinc-900/70 overflow-hidden relative transition-all duration-500 scale-90 opacity-60 hover:opacity-90 ${
+                                                                    prevSceneObj ? 'cursor-pointer' : 'opacity-25 pointer-events-none'
+                                                                }`}
+                                                                title={prevSceneObj ? 'Click to jump to Previous Scene' : 'Start of Chapter'}
+                                                            >
+                                                                {prevSceneObj?.url ? (
+                                                                    <img src={prevSceneObj.url} alt="" className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 p-3 text-center">
+                                                                        <SkipBack size={22} className="mb-1" />
+                                                                        <span className="text-xs font-bold">Previous Scene</span>
+                                                                    </div>
+                                                                )}
+                                                                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/80 text-xs font-bold text-zinc-300">
+                                                                    {prevSceneObj ? `Scene ${activeSceneIdx}` : 'Start'}
+                                                                </div>
                                                             </div>
-                                                        )}
-                                                        <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
-                                                            {currentPrimaryArtBadge}
+
+                                                            <div className="flex-1 max-w-xl h-full max-h-[36vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden relative shadow-[0_20px_60px_rgba(0,0,0,0.85)] z-20 flex items-center justify-center group">
+                                                                {currentPrimaryArtUrl ? (
+                                                                    <img
+                                                                        src={currentPrimaryArtUrl}
+                                                                        alt={playingAudio.title}
+                                                                        className="w-full h-full object-cover transition-all duration-700"
+                                                                    />
+                                                                ) : (
+                                                                    <div className="flex flex-col items-center justify-center text-zinc-500 p-6 text-center">
+                                                                        <BookOpen size={48} className="text-amber-500/50 mb-2" />
+                                                                        <span className="text-sm font-bold text-zinc-300">{playingAudio.title}</span>
+                                                                    </div>
+                                                                )}
+
+                                                                <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
+                                                                    {currentPrimaryArtBadge}
+                                                                </div>
+                                                            </div>
+
+                                                            <div
+                                                                onClick={() => {
+                                                                    if (nextSceneObj && typeof nextSceneObj.startSec === 'number') {
+                                                                        seekTo(nextSceneObj.startSec);
+                                                                    }
+                                                                }}
+                                                                className={`hidden sm:flex flex-col w-1/4 max-w-[210px] aspect-[4/3] rounded-2xl border border-zinc-800 bg-zinc-900/70 overflow-hidden relative transition-all duration-500 scale-90 opacity-60 hover:opacity-90 ${
+                                                                    nextSceneObj ? 'cursor-pointer' : 'opacity-25 pointer-events-none'
+                                                                }`}
+                                                                title={nextSceneObj ? 'Click to jump to Upcoming Scene' : 'Next Scene'}
+                                                            >
+                                                                {nextSceneObj?.url ? (
+                                                                    <img src={nextSceneObj.url} alt="" className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 p-3 text-center">
+                                                                        <SkipForward size={22} className="mb-1" />
+                                                                        <span className="text-xs font-bold">Upcoming Scene</span>
+                                                                    </div>
+                                                                )}
+                                                                <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/80 text-xs font-bold text-zinc-300">
+                                                                    {nextSceneObj ? `Scene ${activeSceneIdx + 2}` : 'Upcoming'}
+                                                                </div>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div className="w-full h-full overflow-y-auto custom-scrollbar p-2">
-                                                    {totalScenes === 0 ? (
-                                                        <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
-                                                            <ImageIcon size={36} className="text-zinc-600" />
-                                                            <p className="text-sm font-bold text-zinc-300">No Scene Illustrations Generated Yet</p>
-                                                            <div className="flex items-center gap-2">
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={Boolean(isRunningChapterStudioTask)}
-                                                                    onClick={() => handleRunInPlayerChapterTask('illustrate')}
-                                                                    className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                                    title="Paint scenes for this chapter right now"
-                                                                >
-                                                                    <ImageIcon size={14} /> Paint Scenes
-                                                                </button>
-                                                                <a
-                                                                    href={editBookHref}
-                                                                    className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-                                                                    title="Open Book Studio in Media tab"
-                                                                >
-                                                                    <Edit3 size={13} /> Studio
-                                                                </a>
+                                                    ) : audiobookStageMode === 'live_art' ? (
+                                                        <div className="w-full h-full flex items-center justify-center p-2 overflow-hidden">
+                                                            <div className="relative h-full max-h-[42vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden shadow-2xl group">
+                                                                {currentPrimaryArtUrl ? (
+                                                                    <img src={currentPrimaryArtUrl} alt={playingAudio.title} className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex items-center justify-center text-amber-400">
+                                                                        <BookOpen size={56} />
+                                                                    </div>
+                                                                )}
+                                                                <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
+                                                                    {currentPrimaryArtBadge}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
-                                                            {shuffledSceneImages.map((img: any, idx: number) => {
-                                                                const isCurrentScene = idx === activeSceneIdx;
-                                                                return (
-                                                                    <div
-                                                                        key={img.id || idx}
-                                                                        onClick={() => {
-                                                                            if (typeof img.startSec === 'number') seekTo(img.startSec);
-                                                                        }}
-                                                                        className={`group relative aspect-[16/10] rounded-2xl overflow-hidden border-2 bg-zinc-900 cursor-pointer transition-all ${
-                                                                            isCurrentScene ? 'border-amber-500 shadow-lg shadow-amber-500/20' : 'border-zinc-800 hover:border-zinc-700'
-                                                                        }`}
-                                                                        title={`Click to jump to Scene ${idx + 1}`}
-                                                                    >
-                                                                        <img src={img.url} alt={`Scene ${idx + 1}`} className="w-full h-full object-cover" />
-                                                                        <div className="absolute top-2 left-2 px-2.5 py-0.5 rounded-lg bg-black/80 text-xs font-black text-white">
-                                                                            Scene {idx + 1} of {totalScenes}
-                                                                        </div>
+                                                        <div className="w-full h-full overflow-y-auto custom-scrollbar p-2">
+                                                            {totalScenes === 0 ? (
+                                                                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
+                                                                    <ImageIcon size={36} className="text-zinc-600" />
+                                                                    <p className="text-sm font-bold text-zinc-300">No Scene Illustrations Generated Yet</p>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <button
+                                                                            type="button"
+                                                                            disabled={Boolean(isRunningChapterStudioTask)}
+                                                                            onClick={() => handleRunInPlayerChapterTask('illustrate')}
+                                                                            className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                            title="Paint scenes for this chapter right now"
+                                                                        >
+                                                                            <ImageIcon size={14} /> Paint Scenes
+                                                                        </button>
+                                                                        <a
+                                                                            href={editBookHref}
+                                                                            className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                                                                            title="Open Book Studio in Media tab"
+                                                                        >
+                                                                            <Edit3 size={13} /> Studio
+                                                                        </a>
                                                                     </div>
-                                                                );
-                                                            })}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                                                                    {shuffledSceneImages.map((img: any, idx: number) => {
+                                                                        const isCurrentScene = idx === activeSceneIdx;
+                                                                        return (
+                                                                            <div
+                                                                                key={img.id || idx}
+                                                                                onClick={() => {
+                                                                                    if (typeof img.startSec === 'number') seekTo(img.startSec);
+                                                                                }}
+                                                                                className={`group relative aspect-[16/10] rounded-2xl overflow-hidden border-2 bg-zinc-900 cursor-pointer transition-all ${
+                                                                                    isCurrentScene ? 'border-amber-500 shadow-lg shadow-amber-500/20' : 'border-zinc-800 hover:border-zinc-700'
+                                                                                }`}
+                                                                                title={`Click to jump to Scene ${idx + 1}`}
+                                                                            >
+                                                                                <img src={img.url} alt={`Scene ${idx + 1}`} className="w-full h-full object-cover" />
+                                                                                <div className="absolute top-2 left-2 px-2.5 py-0.5 rounded-lg bg-black/80 text-xs font-black text-white">
+                                                                                    Scene {idx + 1} of {totalScenes}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>
-                                            )}
-                                        </div>
+                                            </>
+                                        )}
 
-                                        {/* ── LIVE KARAOKE TEXT ── */}
-                                        <div className="h-[34%] min-h-[175px] bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 flex flex-col overflow-hidden shrink-0">
-                                            <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-zinc-800/80 shrink-0">
-                                                <span className="text-sm font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                                                    <BookOpen size={16} /> Text
-                                                </span>
-                                                <button
-                                                    type="button"
-                                                    disabled={Boolean(isRunningChapterStudioTask)}
-                                                    onClick={() => handleRunInPlayerChapterTask('transcribe')}
-                                                    className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs sm:text-sm font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                    title="Generate synced Speech-to-Text from chapter audio"
-                                                >
-                                                    <RefreshCw size={14} className={isRunningChapterStudioTask === 'transcribe' ? 'animate-spin' : ''} />
-                                                    <span>{lyricsData?.lines?.length ? 'Redo' : 'Transcribe'}</span>
-                                                </button>
-                                            </div>
+                                        {/* ── LIVE KARAOKE OR FULL CHAPTER TEXT ── */}
+                                        {(() => {
+                                            const inspectedCh = inspectingChapterKeyForTranscript
+                                                ? audiobookAllChaptersMeta.find((c: any) => c.chapter_key === inspectingChapterKeyForTranscript)
+                                                : null;
+                                            const activeReaderCh = (lyricsViewMode === 'full' && inspectedCh) ? inspectedCh : audiobookChapterMeta;
+                                            const fullLines = activeReaderCh?.synced_lyrics
+                                                ? parseLrcStringToLines(activeReaderCh.synced_lyrics)
+                                                : (lyricsData?.lines || []);
+                                            const fullPlain = activeReaderCh?.plain_transcript || lyricsData?.plainLyrics || fullLines.map((l: any) => l.text).join(' ');
+                                            const hasAnyText = fullLines.length > 0 || Boolean(fullPlain && fullPlain.trim().length > 10);
+                                            const transcribedChaps = audiobookAllChaptersMeta.filter((c: any) => (c.synced_lyrics && c.synced_lyrics.trim().length > 10) || (c.plain_transcript && c.plain_transcript.trim().length > 10));
 
-                                            <div
-                                                ref={expandedLyricsContainerRef}
-                                                className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-2 space-y-2.5"
-                                            >
-                                                {isRunningChapterStudioTask === 'transcribe' ? (
-                                                    <div className="h-full flex flex-col items-center justify-center text-center gap-2">
-                                                        <div className="w-7 h-7 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
-                                                        <p className="text-sm font-bold text-amber-300">
-                                                            Transcribing...
-                                                        </p>
-                                                    </div>
-                                                ) : lyricsData?.lines && lyricsData.lines.length > 0 ? (
-                                                    <div className="space-y-3 py-2">
-                                                        {lyricsData.lines.map((line, idx) => {
-                                                            const isActive = idx === currentLyricIndex;
-                                                            return (
-                                                                <p
-                                                                    key={idx}
-                                                                    ref={isActive ? expandedActiveLyricRef : null}
-                                                                    onClick={() => seekTo(line.time)}
-                                                                    className={`cursor-pointer transition-all duration-300 rounded-xl px-4 py-2 font-serif leading-relaxed ${
-                                                                        isActive
-                                                                            ? 'text-lg sm:text-xl font-bold text-amber-200 bg-amber-500/15 border border-amber-500/30 shadow-sm'
-                                                                            : 'text-base text-zinc-400 hover:text-zinc-200'
+                                            return (
+                                                <div className={`${audiobookTranscriptExpanded ? 'flex-1 h-full' : 'h-[36%] min-h-[185px]'} bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 flex flex-col overflow-hidden shrink-0 transition-all`}>
+                                                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-zinc-800/80 shrink-0">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span className="text-sm font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                                                                <BookOpen size={16} /> Text
+                                                            </span>
+                                                            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setInspectingChapterKeyForTranscript('');
+                                                                        setLyricsViewMode('karaoke');
+                                                                    }}
+                                                                    className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                                                        lyricsViewMode !== 'full'
+                                                                            ? 'bg-amber-500 text-black'
+                                                                            : 'text-zinc-400 hover:text-white'
                                                                     }`}
+                                                                    title="Live synced auto-scrolling transcript"
                                                                 >
-                                                                    {line.text}
+                                                                    Live
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setLyricsViewMode('full')}
+                                                                    className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                                                        lyricsViewMode === 'full'
+                                                                            ? 'bg-amber-500 text-black'
+                                                                            : 'text-zinc-400 hover:text-white'
+                                                                    }`}
+                                                                    title="Read full chapter transcript at your own pace"
+                                                                >
+                                                                    Full
+                                                                </button>
+                                                            </div>
+                                                            {lyricsViewMode === 'full' && transcribedChaps.length > 0 && (
+                                                                <select
+                                                                    value={inspectingChapterKeyForTranscript || audiobookChapterMeta?.chapter_key || ''}
+                                                                    onChange={(e) => setInspectingChapterKeyForTranscript(e.target.value)}
+                                                                    className="px-2.5 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-zinc-200 max-w-[220px]"
+                                                                    title="Select any transcribed chapter to read its full transcript"
+                                                                >
+                                                                    {transcribedChaps.map((tc: any, tcIdx: number) => (
+                                                                        <option key={tc.chapter_key || tcIdx} value={tc.chapter_key}>
+                                                                            {tc.chapter_index ? `${tc.chapter_index}. ` : ''}{tc.title || `Chapter ${tcIdx + 1}`}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setAudiobookTranscriptExpanded(prev => !prev)}
+                                                                className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 cursor-pointer"
+                                                                title={audiobookTranscriptExpanded ? 'Restore split Storyboard + Text view' : 'Expand Full Transcript reader'}
+                                                            >
+                                                                {audiobookTranscriptExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={Boolean(isRunningChapterStudioTask)}
+                                                                onClick={() => handleRunInPlayerChapterTask('transcribe')}
+                                                                className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs sm:text-sm font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                title="Generate synced Speech-to-Text from chapter audio"
+                                                            >
+                                                                <RefreshCw size={14} className={isRunningChapterStudioTask === 'transcribe' ? 'animate-spin' : ''} />
+                                                                <span>{hasAnyText ? 'Redo' : 'Transcribe'}</span>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div
+                                                        ref={expandedLyricsContainerRef}
+                                                        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-2 space-y-2.5"
+                                                    >
+                                                        {isRunningChapterStudioTask === 'transcribe' ? (
+                                                            <div className="h-full flex flex-col items-center justify-center text-center gap-2">
+                                                                <div className="w-7 h-7 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                                <p className="text-sm font-bold text-amber-300">
+                                                                    Transcribing...
                                                                 </p>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                ) : (
-                                                    <div className="h-full flex flex-col items-center justify-center text-center gap-3">
-                                                        {audiobookChapterMeta?.error_message && (
-                                                            <p className="text-xs font-mono text-red-400">
-                                                                {audiobookChapterMeta.error_message}
-                                                            </p>
+                                                            </div>
+                                                        ) : lyricsViewMode === 'full' && hasAnyText ? (
+                                                            <div className="space-y-3 py-2">
+                                                                {fullLines.length > 0 ? (
+                                                                    fullLines.map((line: any, idx: number) => {
+                                                                        const isShowingCurrentChap = !inspectingChapterKeyForTranscript || inspectingChapterKeyForTranscript === audiobookChapterMeta?.chapter_key;
+                                                                        const isActive = isShowingCurrentChap && idx === currentLyricIndex;
+                                                                        return (
+                                                                            <div
+                                                                                key={idx}
+                                                                                onClick={() => {
+                                                                                    if (isShowingCurrentChap) {
+                                                                                        seekTo(line.time);
+                                                                                    } else if (inspectedCh) {
+                                                                                        const matchIdx = audioQueue.findIndex(q => {
+                                                                                            const m = findMatchingChapterMeta([inspectedCh], q);
+                                                                                            return Boolean(m);
+                                                                                        });
+                                                                                        if (matchIdx >= 0) {
+                                                                                            setQueueIndex(matchIdx);
+                                                                                            setPlayingAudio(audioQueue[matchIdx]);
+                                                                                            setIsAudioPlaying(true);
+                                                                                            setTimeout(() => seekTo(line.time), 400);
+                                                                                        }
+                                                                                    }
+                                                                                }}
+                                                                                className={`cursor-pointer rounded-xl px-4 py-2.5 font-serif leading-relaxed flex items-start gap-3 transition-colors ${
+                                                                                    isActive
+                                                                                        ? 'text-lg font-bold text-amber-200 bg-amber-500/15 border border-amber-500/30'
+                                                                                        : 'text-base sm:text-lg text-zinc-200 hover:bg-zinc-800/60'
+                                                                                }`}
+                                                                                title="Click line to jump audio to this timestamp"
+                                                                            >
+                                                                                <span className="text-xs font-mono font-bold text-amber-400/80 pt-1 shrink-0">
+                                                                                    {formatTime(line.time)}
+                                                                                </span>
+                                                                                <span className="flex-1">{line.text}</span>
+                                                                            </div>
+                                                                        );
+                                                                    })
+                                                                ) : (
+                                                                    <div className="p-4 text-base sm:text-lg font-serif text-zinc-200 leading-relaxed whitespace-pre-wrap">
+                                                                        {fullPlain}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : lyricsData?.lines && lyricsData.lines.length > 0 ? (
+                                                            <div className="space-y-3 py-2">
+                                                                {lyricsData.lines.map((line, idx) => {
+                                                                    const isActive = idx === currentLyricIndex;
+                                                                    return (
+                                                                        <p
+                                                                            key={idx}
+                                                                            ref={isActive ? expandedActiveLyricRef : null}
+                                                                            onClick={() => seekTo(line.time)}
+                                                                            className={`cursor-pointer transition-all duration-300 rounded-xl px-4 py-2 font-serif leading-relaxed ${
+                                                                                isActive
+                                                                                    ? 'text-lg sm:text-xl font-bold text-amber-200 bg-amber-500/15 border border-amber-500/30 shadow-sm'
+                                                                                    : 'text-base text-zinc-400 hover:text-zinc-200'
+                                                                            }`}
+                                                                        >
+                                                                            {line.text}
+                                                                        </p>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="h-full flex flex-col items-center justify-center text-center gap-3">
+                                                                {audiobookChapterMeta?.error_message && (
+                                                                    <p className="text-xs font-mono text-red-400">
+                                                                        {audiobookChapterMeta.error_message}
+                                                                    </p>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={Boolean(isRunningChapterStudioTask)}
+                                                                    onClick={() => handleRunInPlayerChapterTask('transcribe')}
+                                                                    className="px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-lg"
+                                                                    title="Generate synced text from chapter audio"
+                                                                >
+                                                                    <Mic2 size={18} /> Transcribe
+                                                                </button>
+                                                            </div>
                                                         )}
-                                                        <button
-                                                            type="button"
-                                                            disabled={Boolean(isRunningChapterStudioTask)}
-                                                            onClick={() => handleRunInPlayerChapterTask('transcribe')}
-                                                            className="px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-lg"
-                                                            title="Generate synced text from chapter audio"
-                                                        >
-                                                            <Mic2 size={18} /> Transcribe
-                                                        </button>
                                                     </div>
-                                                )}
-                                            </div>
-                                        </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             );

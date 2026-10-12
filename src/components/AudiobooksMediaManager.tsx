@@ -4,66 +4,66 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     BookOpen, Sparkles, Sliders, FolderPlus, Edit3, Trash2, Check,
     RefreshCw, Play, Zap, FileText, Image as ImageIcon, Mic2,
-    Search, User, Layers, Wrench, X, Plus, Headphones, ChevronDown, ChevronUp, Wand2
+    Search, User, Layers, Wrench, X, Plus, Headphones, ChevronDown, ChevronUp, Wand2, ArrowUp, Save
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const CLIENT_BOOK_CATALOG: Array<{ pattern: RegExp; cleanTitle: string; collection: string; bookNumber: number; releaseYear: string }> = [
+const CLIENT_BOOK_CATALOG: Array<{ pattern: RegExp; cleanTitle: string; collection: string; bookNumber: number; releaseYear: string; summary?: string }> = [
     // Alastair Reynolds — Poseidon's Children
-    { pattern: /\bblue\s+remembered\s+earth\b/i, cleanTitle: 'Blue Remembered Earth', collection: "Poseidon's Children", bookNumber: 1, releaseYear: '2012' },
-    { pattern: /\bon\s+the\s+steel\s+breeze\b/i, cleanTitle: 'On the Steel Breeze', collection: "Poseidon's Children", bookNumber: 2, releaseYear: '2013' },
-    { pattern: /\bposeidon'?s\s+wake\b/i, cleanTitle: "Poseidon's Wake", collection: "Poseidon's Children", bookNumber: 3, releaseYear: '2015' },
+    { pattern: /\bblue\s+remembered\s+earth\b/i, cleanTitle: 'Blue Remembered Earth', collection: "Poseidon's Children", bookNumber: 1, releaseYear: '2012', summary: 'In a solar system under utopian surveillance, Geoffrey and Sunday Akinya follow a breadcrumb trail left by their late grandmother across the Moon, Mars, and the outer planets.' },
+    { pattern: /\bon\s+the\s+steel\s+breeze\b/i, cleanTitle: 'On the Steel Breeze', collection: "Poseidon's Children", bookNumber: 2, releaseYear: '2013', summary: 'Centuries later, cloned sisters Chiku Red, Green, and Yellow navigate an interstellar holoship fleet racing toward Crucible and its mysterious alien Mandala.' },
+    { pattern: /\bposeidon'?s\s+wake\b/i, cleanTitle: "Poseidon's Wake", collection: "Poseidon's Children", bookNumber: 3, releaseYear: '2015', summary: 'In the far future of the Poseidon’s Children saga, humanity and the Watchkeepers confront an ancient cosmic intelligence awakened across deep space.' },
     // Alastair Reynolds — Revelation Space Universe
-    { pattern: /\brevelation\s+space\b/i, cleanTitle: 'Revelation Space', collection: 'Revelation Space', bookNumber: 1, releaseYear: '2000' },
-    { pattern: /\bchasm\s+city\b/i, cleanTitle: 'Chasm City', collection: 'Revelation Space', bookNumber: 2, releaseYear: '2001' },
-    { pattern: /\bredemption\s+ark\b/i, cleanTitle: 'Redemption Ark', collection: 'Revelation Space', bookNumber: 3, releaseYear: '2002' },
-    { pattern: /\babsolution\s+gap\b/i, cleanTitle: 'Absolution Gap', collection: 'Revelation Space', bookNumber: 4, releaseYear: '2003' },
-    { pattern: /\binhibitor\s+phase\b/i, cleanTitle: 'Inhibitor Phase', collection: 'Revelation Space', bookNumber: 5, releaseYear: '2021' },
-    { pattern: /\bgalactic\s+north\b/i, cleanTitle: 'Galactic North', collection: 'Revelation Space', bookNumber: 6, releaseYear: '2006' },
-    { pattern: /\bdiamond\s+dogs.*turquoise\s+days\b/i, cleanTitle: 'Diamond Dogs, Turquoise Days', collection: 'Revelation Space', bookNumber: 7, releaseYear: '2003' },
+    { pattern: /\brevelation\s+space\b/i, cleanTitle: 'Revelation Space', collection: 'Revelation Space', bookNumber: 1, releaseYear: '2000', summary: 'Archaeologist Dan Sylveste, lighthugger crewman Ilia Volyova, and assassin Ana Khouri converge around Resurgam as the ancient Inhibitor machines stir.' },
+    { pattern: /\bchasm\s+city\b/i, cleanTitle: 'Chasm City', collection: 'Revelation Space', bookNumber: 2, releaseYear: '2001', summary: 'Security specialist Tanner Mirabel pursues a vengeance mission from Sky’s Edge to the nanotech-mutated gothic spires of Chasm City on Yellowstone.' },
+    { pattern: /\bredemption\s+ark\b/i, cleanTitle: 'Redemption Ark', collection: 'Revelation Space', bookNumber: 3, releaseYear: '2002', summary: 'Conjoiner factions led by Clavain and Skade clash over cache-weapons aboard Nostalgia for Infinity as the Wolves begin sterilizing human star systems.' },
+    { pattern: /\babsolution\s+gap\b/i, cleanTitle: 'Absolution Gap', collection: 'Revelation Space', bookNumber: 4, releaseYear: '2003', summary: 'Survivors flee across moving cathedrals on Hela while Scorpio, Aura, and Rashmika seek a desperate alliance against the Inhibitors.' },
+    { pattern: /\binhibitor\s+phase\b/i, cleanTitle: 'Inhibitor Phase', collection: 'Revelation Space', bookNumber: 5, releaseYear: '2021', summary: 'Miguel de Ruyter hides a small human colony beneath the rubble of Sun Hollow until a lone ship forces him back into the Inhibitor war.' },
+    { pattern: /\bgalactic\s+north\b/i, cleanTitle: 'Galactic North', collection: 'Revelation Space', bookNumber: 6, releaseYear: '2006', summary: 'Eight stories chronicling thousands of years in the Revelation Space universe, from early Conjoiner experiments to the far edges of the galaxy.' },
+    { pattern: /\bdiamond\s+dogs.*turquoise\s+days\b/i, cleanTitle: 'Diamond Dogs, Turquoise Days', collection: 'Revelation Space', bookNumber: 7, releaseYear: '2003', summary: 'Two novellas exploring the lethal mathematical Blood Spire on Golgotha and the Pattern Juggler oceans of Turquoise.' },
     // Alastair Reynolds — Prefect Dreyfus Emergencies
-    { pattern: /\b(the\s+prefect|aurora\s+rising)\b/i, cleanTitle: 'Aurora Rising (The Prefect)', collection: 'Prefect Dreyfus Emergencies', bookNumber: 1, releaseYear: '2007' },
-    { pattern: /\belysium\s+fire\b/i, cleanTitle: 'Elysium Fire', collection: 'Prefect Dreyfus Emergencies', bookNumber: 2, releaseYear: '2018' },
-    { pattern: /\bmachine\s+vendetta\b/i, cleanTitle: 'Machine Vendetta', collection: 'Prefect Dreyfus Emergencies', bookNumber: 3, releaseYear: '2024' },
+    { pattern: /\b(the\s+prefect|aurora\s+rising)\b/i, cleanTitle: 'Aurora Rising (The Prefect)', collection: 'Prefect Dreyfus Emergencies', bookNumber: 1, releaseYear: '2007', summary: 'Field Prefect Tom Dreyfus investigates the destruction of an orbital habitat in the Glitter Band and uncovers a plot by the digital consciousness Aurora.' },
+    { pattern: /\belysium\s+fire\b/i, cleanTitle: 'Elysium Fire', collection: 'Prefect Dreyfus Emergencies', bookNumber: 2, releaseYear: '2018', summary: 'A wave of fatal neural-implant meltdowns sweeps the ten thousand habitats of the Glitter Band as secessionist movements threaten Panoply.' },
+    { pattern: /\bmachine\s+vendetta\b/i, cleanTitle: 'Machine Vendetta', collection: 'Prefect Dreyfus Emergencies', bookNumber: 3, releaseYear: '2024', summary: 'After the mysterious death of a veteran operative inside a perilous orbital habitat, Tom Dreyfus confronts long-buried secrets inside Panoply.' },
     // Alastair Reynolds — Revenger Trilogy
-    { pattern: /\brevenger\b/i, cleanTitle: 'Revenger', collection: 'Revenger Trilogy', bookNumber: 1, releaseYear: '2016' },
-    { pattern: /\bshadow\s+captain\b/i, cleanTitle: 'Shadow Captain', collection: 'Revenger Trilogy', bookNumber: 2, releaseYear: '2019' },
-    { pattern: /\bbone\s+silence\b/i, cleanTitle: 'Bone Silence', collection: 'Revenger Trilogy', bookNumber: 3, releaseYear: '2020' },
+    { pattern: /\brevenger\b/i, cleanTitle: 'Revenger', collection: 'Revenger Trilogy', bookNumber: 1, releaseYear: '2016', summary: 'Sisters Arafura and Adrana Ness sign aboard a solar-sail bone ship hunting ancient baubles across the shattered worlds of the Congregation.' },
+    { pattern: /\bshadow\s+captain\b/i, cleanTitle: 'Shadow Captain', collection: 'Revenger Trilogy', bookNumber: 2, releaseYear: '2019', summary: 'Now commanding the dread pirate vessel Nightjammer, the Ness sisters navigate bounty hunters and the mystery of the ancient Quoins.' },
+    { pattern: /\bbone\s+silence\b/i, cleanTitle: 'Bone Silence', collection: 'Revenger Trilogy', bookNumber: 3, releaseYear: '2020', summary: 'Pursued by the entire Congregation, Adrana and Fura seek the truth behind the skulls that link the ancient bone ships across space.' },
     // Alastair Reynolds — Standalones & Novellas
-    { pattern: /\bcentury\s+rain\b/i, cleanTitle: 'Century Rain', collection: '', bookNumber: 0, releaseYear: '2004' },
-    { pattern: /\bpushing\s+ice\b/i, cleanTitle: 'Pushing Ice', collection: '', bookNumber: 0, releaseYear: '2005' },
-    { pattern: /\bhouse\s+of\s+suns\b/i, cleanTitle: 'House of Suns', collection: '', bookNumber: 0, releaseYear: '2008' },
-    { pattern: /\bterminal\s+world\b/i, cleanTitle: 'Terminal World', collection: '', bookNumber: 0, releaseYear: '2010' },
-    { pattern: /\btroika\b/i, cleanTitle: 'Troika', collection: '', bookNumber: 0, releaseYear: '2011' },
-    { pattern: /\bslow\s+bullets\b/i, cleanTitle: 'Slow Bullets', collection: '', bookNumber: 0, releaseYear: '2015' },
-    { pattern: /\bbeyond\s+the\s+aquila\s+rift\b/i, cleanTitle: 'Beyond the Aquila Rift', collection: '', bookNumber: 0, releaseYear: '2016' },
-    { pattern: /\bpermafrost\b/i, cleanTitle: 'Permafrost', collection: '', bookNumber: 0, releaseYear: '2019' },
-    { pattern: /\beversion\b/i, cleanTitle: 'Eversion', collection: '', bookNumber: 0, releaseYear: '2022' },
-    { pattern: /\bzima\s+blue\b/i, cleanTitle: 'Zima Blue and Other Stories', collection: '', bookNumber: 0, releaseYear: '2006' },
-    { pattern: /\bthousandth\s+night\b/i, cleanTitle: 'Thousandth Night', collection: '', bookNumber: 0, releaseYear: '2005' },
-    { pattern: /\bbelladonna\s+nights\b/i, cleanTitle: 'Belladonna Nights', collection: '', bookNumber: 0, releaseYear: '2021' },
+    { pattern: /\bcentury\s+rain\b/i, cleanTitle: 'Century Rain', collection: '', bookNumber: 0, releaseYear: '2004', summary: 'Archaeologist Verity Auger steps through an ancient wormhole from nanotech-ravaged Earth into an alternate 1959 Paris where World War II never happened.' },
+    { pattern: /\bpushing\s+ice\b/i, cleanTitle: 'Pushing Ice', collection: '', bookNumber: 0, releaseYear: '2005', summary: 'When Saturn’s moon Janus breaks orbit and accelerates toward a distant star, ice-miner Bella Lind and her crew of Rockhopper give chase into deep time.' },
+    { pattern: /\bhouse\s+of\s+suns\b/i, cleanTitle: 'House of Suns', collection: '', bookNumber: 0, releaseYear: '2008', summary: 'Six-million-year-old shatterlings Campion and Purslane survive a catastrophic ambush on Gentian Line and hunt the shadowy conspiracy behind it.' },
+    { pattern: /\bterminal\s+world\b/i, cleanTitle: 'Terminal World', collection: '', bookNumber: 0, releaseYear: '2010', summary: 'Exiled physician Quillon descends from the towering spire of Spearpoint through shifting technological zones accompanied by a fleet of steampunk airships.' },
+    { pattern: /\btroika\b/i, cleanTitle: 'Troika', collection: '', bookNumber: 0, releaseYear: '2011', summary: 'Three Soviet cosmonauts enter an enigmatic alien artifact known as the Matryoshka that alters reality and memory with every expedition.' },
+    { pattern: /\bslow\s+bullets\b/i, cleanTitle: 'Slow Bullets', collection: '', bookNumber: 0, releaseYear: '2015', summary: 'Soldiers from opposing sides of an interstellar war awaken from broken hibernation centuries late aboard a drifting prisoner transport ship.' },
+    { pattern: /\bbeyond\s+the\s+aquila\s+rift\b/i, cleanTitle: 'Beyond the Aquila Rift', collection: '', bookNumber: 0, releaseYear: '2016', summary: 'Far-future science fiction novellas exploring cosmic isolation, alien routing networks, and humanity across deep space.' },
+    { pattern: /\bpermafrost\b/i, cleanTitle: 'Permafrost', collection: '', bookNumber: 0, releaseYear: '2019', summary: 'In 2080, seventy-one-year-old teacher Valentina Lidova projects her mind backward to 2028 Siberia to rescue humanity from an ecological collapse.' },
+    { pattern: /\beversion\b/i, cleanTitle: 'Eversion', collection: '', bookNumber: 0, releaseYear: '2022', summary: 'Surgeon Silas Coade experiences recurring expeditions toward a mysterious Edifice across shifting centuries—from sailing ships to deep-space vessels.' },
+    { pattern: /\bzima\s+blue\b/i, cleanTitle: 'Zima Blue and Other Stories', collection: '', bookNumber: 0, releaseYear: '2006', summary: 'Visionary science fiction tales centered on cybernetic artist Zima, memory, and humanity’s place in the cosmos.' },
+    { pattern: /\bthousandth\s+night\b/i, cleanTitle: 'Thousandth Night', collection: '', bookNumber: 0, releaseYear: '2005', summary: 'At the grand reunion of Gentian Line, Campion and Purslane uncover a tampered memory pointing to an impossible cosmic secret.' },
+    { pattern: /\bbelladonna\s+nights\b/i, cleanTitle: 'Belladonna Nights', collection: '', bookNumber: 0, releaseYear: '2021', summary: 'Stories spanning the House of Suns universe and far-future interstellar voyages.' },
     // Cixin Liu — Remembrance of Earth's Past (Three-Body Trilogy)
-    { pattern: /\b(the\s+)?three[- \u2010-\u2015]body\s+problem\b/i, cleanTitle: 'The Three-Body Problem', collection: "Remembrance of Earth's Past", bookNumber: 1, releaseYear: '2008' },
-    { pattern: /\b(the\s+)?dark\s+forest\b/i, cleanTitle: 'The Dark Forest', collection: "Remembrance of Earth's Past", bookNumber: 2, releaseYear: '2008' },
-    { pattern: /\bdeath'?s\s+end\b/i, cleanTitle: "Death's End", collection: "Remembrance of Earth's Past", bookNumber: 3, releaseYear: '2010' },
-    { pattern: /\b(the\s+)?redemption\s+of\s+time\b/i, cleanTitle: 'The Redemption of Time', collection: "Remembrance of Earth's Past", bookNumber: 4, releaseYear: '2011' },
+    { pattern: /\b(the\s+)?three[- \u2010-\u2015]body\s+problem\b/i, cleanTitle: 'The Three-Body Problem', collection: "Remembrance of Earth's Past", bookNumber: 1, releaseYear: '2008', summary: 'A secret Cold War radio signal sent from Red Coast Base by astrophysicist Ye Wenjie makes contact with the dying alien civilization of Trisolaris.' },
+    { pattern: /\b(the\s+)?dark\s+forest\b/i, cleanTitle: 'The Dark Forest', collection: "Remembrance of Earth's Past", bookNumber: 2, releaseYear: '2008', summary: 'With Earth under sophon surveillance and a Trisolaran fleet four centuries away, reluctant Wallfacer Luo Ji deduces the lethal sociology of the cosmos.' },
+    { pattern: /\bdeath'?s\s+end\b/i, cleanTitle: "Death's End", collection: "Remembrance of Earth's Past", bookNumber: 3, releaseYear: '2010', summary: 'Aerospace engineer Cheng Xin and Yun Tianming’s deep-space Staircase Program probe span eras from Deterrence to dimensional collapse.' },
+    { pattern: /\b(the\s+)?redemption\s+of\s+time\b/i, cleanTitle: 'The Redemption of Time', collection: "Remembrance of Earth's Past", bookNumber: 4, releaseYear: '2011', summary: 'In the wake of the Trisolaran crisis, Yun Tianming is enlisted in an eons-long cosmic conflict between the Master and the Lurker.' },
     // Frank Herbert — Pandora Sequence
-    { pattern: /\bdestination[:\s]+void\b/i, cleanTitle: 'Destination: Void', collection: 'Pandora Sequence', bookNumber: 1, releaseYear: '1966' },
-    { pattern: /\bthe\s+jesus\s+incident\b/i, cleanTitle: 'The Jesus Incident', collection: 'Pandora Sequence', bookNumber: 2, releaseYear: '1979' },
-    { pattern: /\bthe\s+lazarus\s+effect\b/i, cleanTitle: 'The Lazarus Effect', collection: 'Pandora Sequence', bookNumber: 3, releaseYear: '1983' },
-    { pattern: /\bthe\s+ascension\s+factor\b/i, cleanTitle: 'The Ascension Factor', collection: 'Pandora Sequence', bookNumber: 4, releaseYear: '1988' },
+    { pattern: /\bdestination[:\s]+void\b/i, cleanTitle: 'Destination: Void', collection: 'Pandora Sequence', bookNumber: 1, releaseYear: '1966', summary: 'Stranded clones aboard the starship Earthling must engineer an artificial consciousness to survive after their organic brains fail.' },
+    { pattern: /\bthe\s+jesus\s+incident\b/i, cleanTitle: 'The Jesus Incident', collection: 'Pandora Sequence', bookNumber: 2, releaseYear: '1979', summary: 'The sentient starship Ship demands that its human colonists learn how to worship—or face extinction on the deadly ocean world of Pandora.' },
+    { pattern: /\bthe\s+lazarus\s+effect\b/i, cleanTitle: 'The Lazarus Effect', collection: 'Pandora Sequence', bookNumber: 3, releaseYear: '1983', summary: 'Generations after the fall of Pandora’s sentient kelp, Mermen and Islanders join forces to revive their world.' },
+    { pattern: /\bthe\s+ascension\s+factor\b/i, cleanTitle: 'The Ascension Factor', collection: 'Pandora Sequence', bookNumber: 4, releaseYear: '1988', summary: 'As a tyrannical Director rules Pandora, the ancient sentient kelp awakens once more to guide humanity’s next evolution.' },
     // Frank Herbert — Dune Chronicles
-    { pattern: /^(\d+\s*[-_.]*\s*)?dune$/i, cleanTitle: 'Dune', collection: 'Dune Chronicles', bookNumber: 1, releaseYear: '1965' },
-    { pattern: /\bdune\s+messiah\b/i, cleanTitle: 'Dune Messiah', collection: 'Dune Chronicles', bookNumber: 2, releaseYear: '1969' },
-    { pattern: /\bchildren\s+of\s+dune\b/i, cleanTitle: 'Children of Dune', collection: 'Dune Chronicles', bookNumber: 3, releaseYear: '1976' },
-    { pattern: /\bgod\s+emperor\s+of\s+dune\b/i, cleanTitle: 'God Emperor of Dune', collection: 'Dune Chronicles', bookNumber: 4, releaseYear: '1981' },
-    { pattern: /\bheretics\s+of\s+dune\b/i, cleanTitle: 'Heretics of Dune', collection: 'Dune Chronicles', bookNumber: 5, releaseYear: '1984' },
-    { pattern: /\bchapterhouse[:\s]+dune\b/i, cleanTitle: 'Chapterhouse: Dune', collection: 'Dune Chronicles', bookNumber: 6, releaseYear: '1985' },
+    { pattern: /^(\d+\s*[-_.]*\s*)?dune$/i, cleanTitle: 'Dune', collection: 'Dune Chronicles', bookNumber: 1, releaseYear: '1965', summary: 'Young Paul Atreides is thrust into the deadly politics and Fremen prophecy of desert planet Arrakis, sole source of the spice melange.' },
+    { pattern: /\bdune\s+messiah\b/i, cleanTitle: 'Dune Messiah', collection: 'Dune Chronicles', bookNumber: 2, releaseYear: '1969', summary: 'Twelve years into his imperial jihad, Emperor Paul Muad’Dib faces a Bene Gesserit, Tleilaxu, and Spacing Guild conspiracy.' },
+    { pattern: /\bchildren\s+of\s+dune\b/i, cleanTitle: 'Children of Dune', collection: 'Dune Chronicles', bookNumber: 3, releaseYear: '1976', summary: 'Paul’s twin children Leto II and Ghanima navigate prescient genetic memories and the Golden Path on a greening Arrakis.' },
+    { pattern: /\bgod\s+emperor\s+of\s+dune\b/i, cleanTitle: 'God Emperor of Dune', collection: 'Dune Chronicles', bookNumber: 4, releaseYear: '1981', summary: 'Three millennia into his reign as a human-sandworm hybrid, Leto II enforces the Golden Path to ensure humanity’s survival.' },
+    { pattern: /\bheretics\s+of\s+dune\b/i, cleanTitle: 'Heretics of Dune', collection: 'Dune Chronicles', bookNumber: 5, releaseYear: '1984', summary: 'Thousands of years after Leto II’s death, the Bene Gesserit confront the violent Honored Matres returning from the Scattering.' },
+    { pattern: /\bchapterhouse[:\s]+dune\b/i, cleanTitle: 'Chapterhouse: Dune', collection: 'Dune Chronicles', bookNumber: 6, releaseYear: '1985', summary: 'On their hidden sanctuary world Chapterhouse, Mother Superior Darwi Odrade fights a desperate war against the Honored Matres.' },
     // Frank Herbert — ConSentiency
-    { pattern: /\bwhipping\s+star\b/i, cleanTitle: 'Whipping Star', collection: 'ConSentiency', bookNumber: 1, releaseYear: '1970' },
-    { pattern: /\bthe\s+dosadi\s+experiment\b/i, cleanTitle: 'The Dosadi Experiment', collection: 'ConSentiency', bookNumber: 2, releaseYear: '1977' },
+    { pattern: /\bwhipping\s+star\b/i, cleanTitle: 'Whipping Star', collection: 'ConSentiency', bookNumber: 1, releaseYear: '1970', summary: 'BuSab agent Jorj X. McKie negotiates with the last Caleban—a sentient star whose death would instantaneously kill billions across the galaxy.' },
+    { pattern: /\bthe\s+dosadi\s+experiment\b/i, cleanTitle: 'The Dosadi Experiment', collection: 'ConSentiency', bookNumber: 2, releaseYear: '1977', summary: 'Saboteur Extraordinary Jorj X. McKie infiltrates the lethal, overpopulated prison planet Dosadi sealed behind the God Wall.' },
     // Franz Kafka
-    { pattern: /\b(?:the\s+)?metamorphosis\b/i, cleanTitle: 'The Metamorphosis', collection: '', bookNumber: 1, releaseYear: '1915' }
+    { pattern: /\b(?:the\s+)?metamorphosis\b/i, cleanTitle: 'The Metamorphosis', collection: '', bookNumber: 1, releaseYear: '1915', summary: 'Traveling salesman Gregor Samsa wakes one morning to find himself transformed into a monstrous insect inside his family’s apartment.' }
 ];
 
 function normalizeSearchText(str?: string | null): string {
@@ -83,6 +83,7 @@ function parseBookMetaClient(rawBookTitle: string, folder?: string, filePath?: s
     let releaseYear: string | undefined;
     let bookNumber: number | undefined;
     let inferredCollection: string | undefined;
+    let catalogSummary: string | undefined;
 
     const yearMatch = working.match(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/) ||
         (folder || '').match(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/) ||
@@ -139,6 +140,7 @@ function parseBookMetaClient(rawBookTitle: string, folder?: string, filePath?: s
             if (!releaseYear && entry.releaseYear) releaseYear = entry.releaseYear;
             if (!bookNumber && entry.bookNumber > 0) bookNumber = entry.bookNumber;
             if (!inferredCollection && entry.collection) inferredCollection = entry.collection;
+            if (entry.summary) catalogSummary = entry.summary;
             working = entry.cleanTitle;
             break;
         }
@@ -148,7 +150,8 @@ function parseBookMetaClient(rawBookTitle: string, folder?: string, filePath?: s
         cleanTitle: working || normInput || rawBookTitle,
         bookNumber,
         releaseYear,
-        inferredCollection
+        inferredCollection,
+        catalogSummary
     };
 }
 
@@ -257,7 +260,12 @@ function formatMMSS(sec: number): string {
 }
 
 export function AudiobooksMediaManager() {
-    const [activeSubTab, setActiveSubTab] = useState<'books' | 'collections' | 'renamer' | 'queue_settings'>('books');
+    const [activeSubTab, setActiveSubTab] = useState<'books' | 'collections' | 'renamer' | 'ai' | 'queue_settings'>('books');
+    const [aiMainSubTab, setAiMainSubTab] = useState<'queue' | 'settings'>('queue');
+    const [draggedBookKey, setDraggedBookKey] = useState<string | null>(null);
+    const [dragOverBookKey, setDragOverBookKey] = useState<string | null>(null);
+    const [priorityMovedBookKeys, setPriorityMovedBookKeys] = useState<Record<string, boolean>>({});
+    const [showFullBookTranscript, setShowFullBookTranscript] = useState(false);
     const [loading, setLoading] = useState(true);
     const [rescanning, setRescanning] = useState(false);
 
@@ -311,12 +319,15 @@ export function AudiobooksMediaManager() {
     const [editAuthorBio, setEditAuthorBio] = useState('');
     const [savingMetadata, setSavingMetadata] = useState(false);
 
-    // Prominent AI Gen Options (Styles & Number of Alternatives)
+    // Prominent AI Gen Options (Styles & Number of Alternatives) + Per-Book Step Toggles
     const [editArtStyle, setEditArtStyle] = useState('Cinematic Concept Art');
     const [editScenesPerChapter, setEditScenesPerChapter] = useState<number>(3);
     const [editNumAlternatives, setEditNumAlternatives] = useState<number>(2);
     const [editSceneFocus, setEditSceneFocus] = useState('auto-choice');
     const [editVisualNotes, setEditVisualNotes] = useState('');
+    const [editBookTranscribeEnabled, setEditBookTranscribeEnabled] = useState(true);
+    const [editBookSceningEnabled, setEditBookSceningEnabled] = useState(true);
+    const [editBookIllustrateEnabled, setEditBookIllustrateEnabled] = useState(true);
 
     // Transcription Gen Options
     const [editSttEngine, setEditSttEngine] = useState('gemini_audio');
@@ -548,6 +559,7 @@ export function AudiobooksMediaManager() {
                     bookNumber: parsedTitle.bookNumber,
                     releaseYear: parsedTitle.releaseYear || (item.releaseYear ? String(item.releaseYear) : null),
                     inferredCollection: parsedTitle.inferredCollection || null,
+                    catalogSummary: parsedTitle.catalogSummary || null,
                     author: canonicalAuthor,
                     translator: item.translator || parsedAuthor.translator || null,
                     narrator: item.narrator || parsedAuthor.narrator || null,
@@ -602,13 +614,17 @@ export function AudiobooksMediaManager() {
             // Always use the real physical chapter count when effectiveChapters exist so 3-chapter books never say 6
             const totalCh = Math.max(1, effectiveChapters.length > 0 ? effectiveChapters.length : (dbChaps.length || meta?.total_chapters || 1));
 
-            // Count transcribed, illustrated, and voice-enhanced chapters across the actual chapters
+            // Count transcribed, scened, illustrated, and voice-enhanced chapters across the actual chapters
             let transCh = 0;
+            let scenedCh = 0;
             let illCh = 0;
             let enhCh = 0;
             let totalScenesCount = 0;
             let summedChapterDurSec = 0;
+            let transcribedAudioSec = 0;
             let paintedScenesCount = 0;
+            let hasChapterTranscribing = false;
+            let hasChapterIllustrating = false;
 
             effectiveChapters.forEach((chTrack: any, idx: number) => {
                 const cMeta =
@@ -622,16 +638,29 @@ export function AudiobooksMediaManager() {
                 if ((!chTrack.durationMs || chTrack.durationMs === 300000) && cDurSec > 0 && cDurSec !== 300) {
                     chTrack.durationMs = cDurSec * 1000;
                 }
-                const trackDurSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : cDurSec;
+                const trackDurSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : (cDurSec || 300);
                 if (trackDurSec > 0) summedChapterDurSec += trackDurSec;
 
                 if (cMeta) {
-                    if (cMeta.transcription_status === 'completed' && cMeta.synced_lyrics) transCh++;
+                    if (cMeta.transcription_status === 'processing') hasChapterTranscribing = true;
+                    if (cMeta.illustration_status === 'processing') hasChapterIllustrating = true;
+
+                    if (cMeta.transcription_status === 'completed' && cMeta.synced_lyrics) {
+                        transCh++;
+                        transcribedAudioSec += trackDurSec;
+                    } else if (Number(cMeta.transcribed_seconds || 0) > 0) {
+                        transcribedAudioSec += Math.min(trackDurSec, Number(cMeta.transcribed_seconds));
+                    } else if (Number(cMeta.transcription_progress || 0) > 0) {
+                        transcribedAudioSec += Math.round(trackDurSec * (Number(cMeta.transcription_progress) / 100));
+                    }
+
                     const validImages = (cMeta.images || []).filter((i: any) => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
                     if (validImages.length > 0) {
-                        illCh++;
+                        scenedCh++;
                         totalScenesCount += validImages.length;
-                        paintedScenesCount += validImages.filter((i: any) => Boolean(i.url)).length;
+                        const paintedInCh = validImages.filter((i: any) => Boolean(i.url)).length;
+                        paintedScenesCount += paintedInCh;
+                        if (paintedInCh > 0) illCh++;
                     }
                     if (cMeta.audio_enhance_status === 'completed' || cMeta.enhanced_audio_path) enhCh++;
                 }
@@ -649,12 +678,40 @@ export function AudiobooksMediaManager() {
             const effectiveTotalDurSec = Math.max(rawBookDurSec, summedChapterDurSec, metaDurSec);
             const enrichMeta = collectionsBookMeta[effectiveBookKey] || collectionsBookMeta[book.bookKey] || {};
 
+            const parsedCleanMeta = parseBookMetaClient(meta?.title || book.cleanTitle);
+            const resolvedSynopsis = enrichMeta.synopsis || meta?.summary || parsedCleanMeta.catalogSummary || book.catalogSummary || null;
+            const shortSummary = resolvedSynopsis
+                ? String(resolvedSynopsis).replace(/\s+/g, ' ').trim()
+                : `${meta?.genre || book.genre || 'Audiobook'} • ${totalCh} ${totalCh === 1 ? 'Chapter' : 'Chapters'}${effectiveTotalDurSec > 0 ? ` • ${formatSec(effectiveTotalDurSec)}` : ''}`;
+
+            const bookTranscribeEnabled = meta?.transcribe_enabled !== undefined ? Boolean(meta.transcribe_enabled) : true;
+            const bookSceningEnabled = meta?.scening_enabled !== undefined ? Boolean(meta.scening_enabled) : true;
+            const bookIllustrateEnabled = bookSceningEnabled
+                ? (meta?.illustrate_enabled !== undefined ? Boolean(meta.illustrate_enabled) : true)
+                : false;
+
+            const isTranscribingNow = Boolean(
+                hasChapterTranscribing ||
+                workerState?.activeTranscriptionBookKey === effectiveBookKey ||
+                workerState?.activeTranscriptionBookKey === book.bookKey
+            );
+            const isSceningNow = Boolean(
+                workerState?.activeSceningBookKey === effectiveBookKey ||
+                workerState?.activeSceningBookKey === book.bookKey ||
+                (workerState?.activeBookKey === effectiveBookKey && /scene/i.test(workerState?.currentStep || ''))
+            );
+            const isImagingNow = Boolean(
+                hasChapterIllustrating ||
+                workerState?.activeImagingBookKey === effectiveBookKey ||
+                workerState?.activeImagingBookKey === book.bookKey
+            );
+
             return {
                 ...book,
                 chapters: effectiveChapters,
                 bookKey: effectiveBookKey,
-                title: parseBookMetaClient(meta?.title || book.cleanTitle).cleanTitle,
-                cleanTitle: parseBookMetaClient(meta?.title || book.cleanTitle).cleanTitle,
+                title: parsedCleanMeta.cleanTitle,
+                cleanTitle: parsedCleanMeta.cleanTitle,
                 author: meta?.canonical_author || canonicalizeAuthorClient(meta?.author || book.author).canonicalAuthor,
                 translator: meta?.translator || book.translator || null,
                 narrator: meta?.narrator || book.narrator || null,
@@ -663,24 +720,65 @@ export function AudiobooksMediaManager() {
                 posterUrl: effectivePosterUrl,
                 rawPosterUrl: book.posterUrl || null,
                 customCoverUrl,
-                savedSynopsis: enrichMeta.synopsis || null,
+                savedSynopsis: resolvedSynopsis,
+                shortSummary,
                 savedAuthorBio: enrichMeta.authorBio || null,
                 meta,
                 totalCh,
                 transCh,
+                scenedCh: Math.max(scenedCh, Number(meta?.scened_chapters || 0)),
                 illCh,
                 enhCh,
                 totalDurSec: effectiveTotalDurSec,
-                detectedScenesCount: totalScenesCount,
+                transcribedSec: Math.min(effectiveTotalDurSec || transcribedAudioSec, Math.max(transcribedAudioSec, Number(meta?.transcribed_seconds || 0))),
+                detectedScenesCount: Math.max(totalScenesCount, Number(meta?.total_scenes || 0)),
                 paintedScenesCount,
-                illustratedScenes: totalScenesCount || Number(meta?.illustrated_scenes || 0),
-                isQueued: Boolean(meta?.queue_enabled || meta?.is_queued === 1),
-                queueOrder: Number(meta?.queue_priority || meta?.queue_order || 0)
+                illustratedScenes: paintedScenesCount || Number(meta?.illustrated_scenes || 0),
+                transcribeEnabled: bookTranscribeEnabled,
+                sceningEnabled: bookSceningEnabled,
+                illustrateEnabled: bookIllustrateEnabled,
+                isTranscribingNow,
+                isSceningNow,
+                isImagingNow,
+                isQueued: meta?.is_queued !== undefined ? Boolean(meta.queue_enabled || meta.is_queued === 1) : true,
+                queueOrder: Number(meta?.queue_priority || meta?.queue_order || 9999)
             };
         });
 
         return list;
-    }, [rawItems, studioBooksMap, studioChaptersMap, collectionsBookMeta, selectedLibraryFilter]);
+    }, [rawItems, studioBooksMap, studioChaptersMap, collectionsBookMeta, selectedLibraryFilter, workerState]);
+
+    // Priority Queue Books sorted by priority (queueOrder ascending, then title)
+    const priorityQueueBooks = useMemo(() => {
+        return [...allBooks].sort((a, b) => {
+            if (a.isQueued !== b.isQueued) return a.isQueued ? -1 : 1;
+            if (a.queueOrder !== b.queueOrder) return a.queueOrder - b.queueOrder;
+            return a.title.localeCompare(b.title);
+        });
+    }, [allBooks]);
+
+    // Clear priority waiting indicator once the book starts actively running a task
+    useEffect(() => {
+        const activeKeys = [
+            workerState?.activeBookKey,
+            workerState?.activeTranscriptionBookKey,
+            workerState?.activeSceningBookKey,
+            workerState?.activeImagingBookKey
+        ].filter(Boolean);
+        if (activeKeys.length > 0) {
+            setPriorityMovedBookKeys(prev => {
+                let changed = false;
+                const next = { ...prev };
+                for (const k of activeKeys) {
+                    if (next[k]) {
+                        delete next[k];
+                        changed = true;
+                    }
+                }
+                return changed ? next : prev;
+            });
+        }
+    }, [workerState]);
 
     // Available Genres & Authors for the Filter Bar
     const availableGenres = useMemo(() => {
@@ -987,6 +1085,7 @@ export function AudiobooksMediaManager() {
         setBookModalMainTab(mainTab);
         setAiSubTab(initialAiSubTab);
         setShowBookCustomizePanel(openCustomize);
+        setShowFullBookTranscript(false);
         setExpandedChapterIndices({ 0: true });
         setEditTitle(book.title || '');
         setEditAuthor(book.author || '');
@@ -1004,6 +1103,12 @@ export function AudiobooksMediaManager() {
         setEditNumAlternatives(2);
         setEditSceneFocus(meta.art_focus || studioConfig?.artFocus || 'auto-choice');
         setEditVisualNotes(meta.custom_prompt || '');
+        const bTrans = meta.transcribe_enabled !== undefined ? Boolean(meta.transcribe_enabled) : true;
+        const bScen = meta.scening_enabled !== undefined ? Boolean(meta.scening_enabled) : true;
+        const bIll = bScen ? (meta.illustrate_enabled !== undefined ? Boolean(meta.illustrate_enabled) : true) : false;
+        setEditBookTranscribeEnabled(bTrans);
+        setEditBookSceningEnabled(bScen);
+        setEditBookIllustrateEnabled(bIll);
         setFetchedDetails({ loading: true });
 
         syncBookChaptersSilently(book);
@@ -1015,7 +1120,7 @@ export function AudiobooksMediaManager() {
         if (typeof window === 'undefined' || didHandleInitialUrlParams) return;
         const params = new URLSearchParams(window.location.search);
         const subTabParam = params.get('subTab');
-        if (subTabParam === 'collections' || subTabParam === 'renamer' || subTabParam === 'queue_settings' || subTabParam === 'books') {
+        if (subTabParam === 'collections' || subTabParam === 'renamer' || subTabParam === 'ai' || subTabParam === 'queue_settings' || subTabParam === 'books') {
             setActiveSubTab(subTabParam);
         }
         const bookKeyParam = params.get('bookKey');
@@ -1122,10 +1227,17 @@ export function AudiobooksMediaManager() {
         }
     };
 
-    const handleSaveBookStudioSettings = async (silent = false) => {
+    const handleSaveBookStudioSettings = async (
+        silent = false,
+        overrideStepToggles?: { transcribeEnabled?: boolean; sceningEnabled?: boolean; illustrateEnabled?: boolean }
+    ) => {
         if (!currentModalBook) return;
         if (!silent) setRunningStudioAction('save_settings');
         try {
+            const nextTrans = overrideStepToggles?.transcribeEnabled ?? editBookTranscribeEnabled;
+            const nextScen = overrideStepToggles?.sceningEnabled ?? editBookSceningEnabled;
+            const nextIll = nextScen ? (overrideStepToggles?.illustrateEnabled ?? editBookIllustrateEnabled) : false;
+
             const res = await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1139,17 +1251,150 @@ export function AudiobooksMediaManager() {
                     enhancePreset: editEnhancePreset,
                     imagesPerChapter: editScenesPerChapter,
                     artFocus: editSceneFocus,
-                    customPrompt: editVisualNotes
+                    customPrompt: editVisualNotes,
+                    transcribeEnabled: nextTrans,
+                    sceningEnabled: nextScen,
+                    illustrateEnabled: nextIll
                 })
             });
             if (res.ok) {
-                if (!silent) toast.success('Saved options');
+                if (!silent) toast.success('Saved book AI options');
                 fetchAll();
             }
         } catch {
             if (!silent) toast.error('Error saving options');
         } finally {
             if (!silent) setRunningStudioAction(null);
+        }
+    };
+
+    // Priority Queue Reordering (Drag & Drop or Up/Down/Top Arrow Buttons)
+    const handleReorderPriorityQueue = async (orderedBookKeys: string[], movedBookKey?: string, movedToHigherPriority = false) => {
+        try {
+            if (movedBookKey && movedToHigherPriority && workerState?.isRunning && workerState?.activeBookKey && workerState.activeBookKey !== movedBookKey) {
+                setPriorityMovedBookKeys(prev => ({ ...prev, [movedBookKey]: true }));
+            }
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'reorder_queue',
+                    orderedBookKeys
+                })
+            });
+            if (res.ok) {
+                toast.success('Updated book priority queue');
+                pollStudioOnly();
+            }
+        } catch {
+            toast.error('Failed to reorder queue');
+        }
+    };
+
+    const handleMoveBookInQueue = async (bookKey: string, direction: 'top' | 'up' | 'down') => {
+        const currentKeys = priorityQueueBooks.map(b => b.bookKey);
+        const fromIdx = currentKeys.indexOf(bookKey);
+        if (fromIdx === -1) return;
+        const toIdx =
+            direction === 'top'
+                ? 0
+                : direction === 'up'
+                ? Math.max(0, fromIdx - 1)
+                : Math.min(currentKeys.length - 1, fromIdx + 1);
+        if (fromIdx === toIdx) return;
+
+        // Ensure all books in priorityQueueBooks have their chapters synced if moving to #1
+        const movedBook = priorityQueueBooks[fromIdx];
+        if (movedBook && toIdx === 0) {
+            syncBookChaptersSilently(movedBook);
+        }
+
+        const nextKeys = [...currentKeys];
+        const [removed] = nextKeys.splice(fromIdx, 1);
+        nextKeys.splice(toIdx, 0, removed);
+        await handleReorderPriorityQueue(nextKeys, bookKey, toIdx < fromIdx);
+    };
+
+    const handleDropBookOnQueue = async (targetBookKey: string) => {
+        if (!draggedBookKey || draggedBookKey === targetBookKey) {
+            setDraggedBookKey(null);
+            setDragOverBookKey(null);
+            return;
+        }
+        const currentKeys = priorityQueueBooks.map(b => b.bookKey);
+        const fromIdx = currentKeys.indexOf(draggedBookKey);
+        const toIdx = currentKeys.indexOf(targetBookKey);
+        setDraggedBookKey(null);
+        setDragOverBookKey(null);
+        if (fromIdx === -1 || toIdx === -1) return;
+
+        const movedBook = priorityQueueBooks[fromIdx];
+        if (movedBook) {
+            syncBookChaptersSilently(movedBook);
+        }
+
+        const nextKeys = [...currentKeys];
+        const [removed] = nextKeys.splice(fromIdx, 1);
+        nextKeys.splice(toIdx, 0, removed);
+        await handleReorderPriorityQueue(nextKeys, draggedBookKey, toIdx < fromIdx);
+    };
+
+    const handleToggleBookQueueStatus = async (book: any) => {
+        try {
+            await syncBookChaptersSilently(book);
+            const nextQueued = !book.isQueued;
+            await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'update_book_settings',
+                    bookKey: book.bookKey,
+                    title: book.title,
+                    author: book.author,
+                    isQueued: nextQueued,
+                    queuePriority: nextQueued ? (book.queueOrder < 9000 ? book.queueOrder : priorityQueueBooks.length + 1) : 9999
+                })
+            });
+            toast.success(nextQueued ? `Queued "${book.title}"` : `Paused "${book.title}"`);
+            pollStudioOnly();
+        } catch {
+            toast.error('Failed to update book queue status');
+        }
+    };
+
+    const handleTriggerAutomatedQueueRun = async () => {
+        setRunningStudioAction('run_queue');
+        try {
+            // Sync top queued books so their chapters exist in SQLite before worker runs
+            for (const b of priorityQueueBooks.slice(0, 6)) {
+                await syncBookChaptersSilently(b);
+            }
+            const orderedBookKeys = priorityQueueBooks.filter(b => b.isQueued).map(b => b.bookKey);
+            if (orderedBookKeys.length > 0) {
+                await fetch('/api/theater/audiobooks/studio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'reorder_queue',
+                        orderedBookKeys
+                    })
+                });
+            }
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'run_worker_step'
+                })
+            });
+            if (res.ok) {
+                toast.success('Started automated pipeline queue');
+                pollStudioOnly();
+            }
+        } catch {
+            toast.error('Failed to start queue');
+        } finally {
+            setRunningStudioAction(null);
         }
     };
 
@@ -1852,9 +2097,29 @@ export function AudiobooksMediaManager() {
                         <span>Rename</span>
                     </button>
 
+                    {studioConfig?.aiFeaturesEnabled !== false && (
+                        <button
+                            onClick={() => setActiveSubTab('ai')}
+                            title="AI Queue & Processing Pipeline"
+                            className={`px-5 py-3 rounded-2xl text-base font-black uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer ${
+                                activeSubTab === 'ai'
+                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                    : 'bg-zinc-950/90 text-amber-300 hover:text-white border border-amber-500/40'
+                            }`}
+                        >
+                            <Sparkles size={20} />
+                            <span>AI</span>
+                            <span className={`px-2.5 py-0.5 rounded-lg text-xs font-mono font-black ${
+                                activeSubTab === 'ai' ? 'bg-black/20 text-black' : 'bg-amber-500/20 text-amber-300'
+                            }`}>
+                                {priorityQueueBooks.filter(b => b.isQueued).length}
+                            </span>
+                        </button>
+                    )}
+
                     <button
                         onClick={() => setActiveSubTab('queue_settings')}
-                        title="AI Keys & Queue Settings"
+                        title="Audiobook Features, Providers & AI Toggle"
                         className={`px-5 py-3 rounded-2xl text-base font-black uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer ${
                             activeSubTab === 'queue_settings'
                                 ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
@@ -2600,28 +2865,700 @@ export function AudiobooksMediaManager() {
                 </div>
             )}
 
-            {/* ── TAB 4: SETTINGS ── */}
+            {/* ── TAB 4: AI (SUBTAB 1: QUEUE | SUBTAB 2: SETTINGS) ── */}
+            {activeSubTab === 'ai' && studioConfig?.aiFeaturesEnabled !== false && (
+                <div className="space-y-6">
+                    {/* Subtab Switcher inside AI Tab: [Queue] | [Settings] + Automation Controls */}
+                    <div className="p-4 sm:p-5 rounded-3xl bg-zinc-900/70 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <button
+                                onClick={() => setAiMainSubTab('queue')}
+                                title="Priority Queue of Books to be Processed"
+                                className={`px-6 py-3.5 rounded-2xl text-base font-black uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer ${
+                                    aiMainSubTab === 'queue'
+                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                        : 'bg-zinc-950 text-zinc-300 hover:text-white border border-zinc-800'
+                                }`}
+                            >
+                                <Layers size={20} />
+                                <span>Queue</span>
+                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-mono font-black ${
+                                    aiMainSubTab === 'queue' ? 'bg-black/20 text-black' : 'bg-zinc-800 text-amber-400'
+                                }`}>
+                                    {priorityQueueBooks.length}
+                                </span>
+                            </button>
+
+                            <button
+                                onClick={() => setAiMainSubTab('settings')}
+                                title="Settings for Transcription, Scening & Imaging"
+                                className={`px-6 py-3.5 rounded-2xl text-base font-black uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer ${
+                                    aiMainSubTab === 'settings'
+                                        ? 'bg-purple-500 text-black shadow-lg shadow-purple-500/20'
+                                        : 'bg-zinc-950 text-zinc-300 hover:text-white border border-zinc-800'
+                                }`}
+                            >
+                                <Sliders size={20} />
+                                <span>Settings</span>
+                            </button>
+                        </div>
+
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <button
+                                onClick={() => handleSaveConfig({ autoBackgroundWorker: studioConfig?.autoBackgroundWorker === false ? true : false })}
+                                title="Toggle Automated Pipelined Queue Processing"
+                                className={`px-5 py-3 rounded-2xl text-sm font-black uppercase tracking-wider flex items-center gap-2 border cursor-pointer transition-all ${
+                                    studioConfig?.autoBackgroundWorker !== false
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        : 'bg-zinc-950 text-zinc-400 border-zinc-800'
+                                }`}
+                            >
+                                <Zap size={18} className={studioConfig?.autoBackgroundWorker !== false ? 'text-emerald-400' : 'text-zinc-500'} />
+                                <span>Auto: {studioConfig?.autoBackgroundWorker !== false ? 'ON' : 'OFF'}</span>
+                            </button>
+
+                            <button
+                                onClick={handleTriggerAutomatedQueueRun}
+                                disabled={runningStudioAction === 'run_queue'}
+                                title="Start or step automated pipeline across queued books"
+                                className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                            >
+                                <Play size={18} className={runningStudioAction === 'run_queue' ? 'animate-spin' : ''} />
+                                <span>{workerState?.isRunning ? 'Pipeline Active' : 'Run Queue'}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ── AI SUBTAB 1: BOOK PROCESSING QUEUE ── */}
+                    {aiMainSubTab === 'queue' && (() => {
+                        const activeWorkerBookKey = workerState?.activeBookKey || workerState?.activeTranscriptionBookKey || workerState?.activeSceningBookKey || workerState?.activeImagingBookKey || null;
+                        const activeBookIdx = activeWorkerBookKey
+                            ? priorityQueueBooks.findIndex(b => b.bookKey === activeWorkerBookKey)
+                            : -1;
+                        const globalTransOn = studioConfig?.transcribeEnabled !== false;
+                        const globalScenOn = studioConfig?.sceningEnabled !== false;
+                        const globalImgOn = globalScenOn && studioConfig?.imagingEnabled !== false;
+
+                        return (
+                            <div className="space-y-4">
+                                {priorityQueueBooks.map((book, bIdx) => {
+                                    const totalCh = Math.max(1, book.totalCh || 1);
+                                    const transCh = book.transCh || 0;
+                                    const scenedCh = book.scenedCh || 0;
+                                    const illCh = book.illCh || 0;
+                                    const totalDurSec = Math.max(1, book.totalDurSec || 0);
+                                    const transcribedSec = book.transcribedSec || 0;
+
+                                    // 1. Transcription % (uses audio duration ratio or chapter ratio, whichever is more granular)
+                                    const transPctByDur = book.totalDurSec > 0 ? Math.round((transcribedSec / totalDurSec) * 100) : 0;
+                                    const transPctByCh = Math.round((transCh / totalCh) * 100);
+                                    const transPct = Math.min(100, Math.max(transPctByDur, transPctByCh));
+
+                                    // 2. Scening %
+                                    const scenedPct = Math.min(100, Math.round((scenedCh / totalCh) * 100));
+
+                                    // 3. Imaging %
+                                    const imgPct = book.detectedScenesCount > 0
+                                        ? Math.min(100, Math.round(((book.paintedScenesCount || 0) / book.detectedScenesCount) * 100))
+                                        : Math.min(100, Math.round((illCh / totalCh) * 100));
+
+                                    const effTransOn = globalTransOn && book.transcribeEnabled !== false;
+                                    const effScenOn = globalScenOn && book.sceningEnabled !== false;
+                                    const effImgOn = globalImgOn && effScenOn && book.illustrateEnabled !== false;
+
+                                    // Determine if this book was moved to higher priority (or sits above the currently running book) and is waiting for the ongoing task chunk to finish
+                                    const isActivelyWorkingThisBook =
+                                        book.isTranscribingNow ||
+                                        book.isSceningNow ||
+                                        book.isImagingNow ||
+                                        workerState?.activeBookKey === book.bookKey;
+
+                                    const isWaitingForOngoingTask =
+                                        !isActivelyWorkingThisBook &&
+                                        book.isQueued &&
+                                        Boolean(workerState?.isRunning) &&
+                                        (Boolean(priorityMovedBookKeys[book.bookKey]) || (activeBookIdx > bIdx));
+
+                                    const isDragOver = dragOverBookKey === book.bookKey && draggedBookKey !== book.bookKey;
+
+                                    return (
+                                        <div
+                                            key={book.bookKey}
+                                            draggable
+                                            onDragStart={() => setDraggedBookKey(book.bookKey)}
+                                            onDragOver={(e) => {
+                                                e.preventDefault();
+                                                if (dragOverBookKey !== book.bookKey) setDragOverBookKey(book.bookKey);
+                                            }}
+                                            onDragLeave={() => {
+                                                if (dragOverBookKey === book.bookKey) setDragOverBookKey(null);
+                                            }}
+                                            onDrop={(e) => {
+                                                e.preventDefault();
+                                                handleDropBookOnQueue(book.bookKey);
+                                            }}
+                                            onClick={() => openBookModal(book, 'ai', 'illustration')}
+                                            className={`p-5 sm:p-6 rounded-3xl border-2 transition-all cursor-pointer shadow-xl flex flex-col xl:flex-row items-stretch xl:items-center gap-6 group ${
+                                                isDragOver
+                                                    ? 'bg-amber-500/15 border-amber-400 scale-[1.01]'
+                                                    : isActivelyWorkingThisBook
+                                                    ? 'bg-gradient-to-r from-amber-950/30 via-zinc-900/90 to-zinc-900/90 border-amber-500/70'
+                                                    : book.isQueued
+                                                    ? 'bg-zinc-900/75 hover:bg-zinc-900 border-zinc-800/90 hover:border-amber-500/50'
+                                                    : 'bg-zinc-950/60 border-zinc-900 opacity-60 hover:opacity-90'
+                                            }`}
+                                        >
+                                            {/* LEFT + MIDDLE: Priority Controls, Large Book Image, Title (Year), Author, Short Summary */}
+                                            <div className="flex items-start sm:items-center gap-5 min-w-0 flex-1">
+                                                {/* Drag & Arrow Priority Controls */}
+                                                <div
+                                                    className="flex flex-col items-center gap-1.5 shrink-0"
+                                                    onClick={e => e.stopPropagation()}
+                                                >
+                                                    <span
+                                                        title="Priority Rank (Drag card or click arrows to reorder)"
+                                                        className={`px-3 py-1 rounded-xl font-mono text-sm font-black ${
+                                                            bIdx === 0 && book.isQueued
+                                                                ? 'bg-amber-500 text-black shadow'
+                                                                : 'bg-zinc-950 text-amber-300 border border-zinc-800'
+                                                        }`}
+                                                    >
+                                                        #{bIdx + 1}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => handleMoveBookInQueue(book.bookKey, 'top')}
+                                                        disabled={bIdx === 0}
+                                                        title="Move to Top Priority (#1)"
+                                                        className="px-2.5 py-1.5 rounded-xl bg-zinc-950 hover:bg-amber-500 text-amber-300 hover:text-black border border-zinc-800 text-xs font-black disabled:opacity-30 cursor-pointer"
+                                                    >
+                                                        ⏫
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleMoveBookInQueue(book.bookKey, 'up')}
+                                                        disabled={bIdx === 0}
+                                                        title="Move Up Priority"
+                                                        className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 disabled:opacity-30 cursor-pointer"
+                                                    >
+                                                        <ChevronUp size={18} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleMoveBookInQueue(book.bookKey, 'down')}
+                                                        disabled={bIdx === priorityQueueBooks.length - 1}
+                                                        title="Move Down Priority"
+                                                        className="p-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 disabled:opacity-30 cursor-pointer"
+                                                    >
+                                                        <ChevronDown size={18} />
+                                                    </button>
+                                                </div>
+
+                                                {/* Large Book Cover Image on the Left */}
+                                                <div className="w-28 h-40 sm:w-32 sm:h-44 rounded-2xl bg-gradient-to-br from-[#2a1b10] to-[#120c07] border-2 border-amber-500/40 group-hover:border-amber-400 overflow-hidden shrink-0 flex flex-col items-center justify-center shadow-xl relative">
+                                                    {book.posterUrl ? (
+                                                        <img
+                                                            src={book.posterUrl}
+                                                            alt={book.title}
+                                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                                        />
+                                                    ) : (
+                                                        <div className="p-3 text-center flex flex-col items-center justify-center h-full w-full">
+                                                            <BookOpen size={30} className="text-amber-400 mb-1.5" />
+                                                            <span className="text-xs font-black text-amber-100 line-clamp-3 leading-tight">
+                                                                {book.title}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Title (Year) to the Right, Author Below, Very Short Summary Below */}
+                                                <div className="min-w-0 flex-1 space-y-2">
+                                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                                        <h4 className="text-xl sm:text-2xl font-black text-white group-hover:text-amber-300 transition-colors leading-tight">
+                                                            {book.title}{' '}
+                                                            {book.publishedYear && (
+                                                                <span className="text-zinc-400 font-mono font-bold">
+                                                                    ({book.publishedYear})
+                                                                </span>
+                                                            )}
+                                                        </h4>
+                                                    </div>
+
+                                                    <p className="text-base sm:text-lg font-bold text-amber-300 truncate">
+                                                        {book.author}
+                                                    </p>
+
+                                                    <p className="text-sm sm:text-base text-zinc-300 line-clamp-2 leading-snug">
+                                                        {book.shortSummary}
+                                                    </p>
+
+                                                    {/* Waiting Sign when moved to higher priority while an ongoing task is finishing */}
+                                                    {isWaitingForOngoingTask && (
+                                                        <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-amber-500/20 border-2 border-amber-400/60 text-amber-200 text-xs sm:text-sm font-black shadow-lg animate-pulse">
+                                                            <RefreshCw size={15} className="animate-spin text-amber-300 shrink-0" />
+                                                            <span>Waiting for ongoing task to finish before starting</span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Active Pipelined Step Badges */}
+                                                    {(book.isTranscribingNow || book.isSceningNow || book.isImagingNow) && (
+                                                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                                                            {book.isTranscribingNow && (
+                                                                <span className="px-3 py-1 rounded-xl bg-amber-500/20 border border-amber-400/50 text-amber-200 text-xs font-black uppercase flex items-center gap-1.5 animate-pulse">
+                                                                    <Mic2 size={13} />
+                                                                    <span>Transcribing</span>
+                                                                </span>
+                                                            )}
+                                                            {book.isSceningNow && (
+                                                                <span className="px-3 py-1 rounded-xl bg-purple-500/20 border border-purple-400/50 text-purple-200 text-xs font-black uppercase flex items-center gap-1.5 animate-pulse">
+                                                                    <Wand2 size={13} />
+                                                                    <span>Scening</span>
+                                                                </span>
+                                                            )}
+                                                            {book.isImagingNow && (
+                                                                <span className="px-3 py-1 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 text-xs font-black uppercase flex items-center gap-1.5 animate-pulse">
+                                                                    <Sparkles size={13} />
+                                                                    <span>Imaging</span>
+                                                                </span>
+                                                            )}
+                                                            {transCh >= totalCh && (book.isSceningNow || book.isImagingNow) && (
+                                                                <span className="px-3 py-1 rounded-xl bg-zinc-950 border border-zinc-700 text-zinc-300 text-xs font-bold">
+                                                                    Transcription moved to next book
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* RIGHT: Three Horizontal Bars for Transcription, Scening, Imaging */}
+                                            <div className="w-full xl:w-[440px] shrink-0 space-y-3.5 bg-zinc-950/90 p-4 rounded-2xl border border-zinc-800/90">
+                                                {/* BAR 1: TRANSCRIPTION */}
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center justify-between text-xs sm:text-sm font-black">
+                                                        <span className="text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                            <Mic2 size={15} />
+                                                            <span>1. Transcription</span>
+                                                        </span>
+                                                        <span className="font-mono text-zinc-200">
+                                                            {!effTransOn
+                                                                ? 'OFF'
+                                                                : `${transPct}% (${transCh}/${totalCh} Ch)`}
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-full h-3.5 rounded-full bg-zinc-900 border border-zinc-800 overflow-hidden">
+                                                        <div
+                                                            className={`h-full rounded-full transition-all duration-500 ${
+                                                                !effTransOn
+                                                                    ? 'bg-zinc-700'
+                                                                    : book.isTranscribingNow
+                                                                    ? 'bg-gradient-to-r from-amber-500 to-yellow-300 animate-pulse'
+                                                                    : 'bg-gradient-to-r from-amber-600 to-amber-400'
+                                                            }`}
+                                                            style={{ width: `${!effTransOn ? 0 : Math.max(transPct > 0 ? 4 : 0, transPct)}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* BAR 2: SCENING (Starts as soon as enough transcript is ready) */}
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center justify-between text-xs sm:text-sm font-black">
+                                                        <span className="text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                            <Wand2 size={15} />
+                                                            <span>2. Scening</span>
+                                                        </span>
+                                                        <span className="font-mono text-zinc-200">
+                                                            {!effScenOn
+                                                                ? 'OFF'
+                                                                : scenedCh === 0 && transcribedSec < 180 && transCh === 0
+                                                                ? 'Waiting for transcript'
+                                                                : `${scenedPct}% (${book.detectedScenesCount || 0} scenes)`}
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-full h-3.5 rounded-full bg-zinc-900 border border-zinc-800 overflow-hidden">
+                                                        <div
+                                                            className={`h-full rounded-full transition-all duration-500 ${
+                                                                !effScenOn
+                                                                    ? 'bg-zinc-700'
+                                                                    : book.isSceningNow
+                                                                    ? 'bg-gradient-to-r from-purple-500 to-fuchsia-400 animate-pulse'
+                                                                    : 'bg-gradient-to-r from-purple-600 to-purple-400'
+                                                            }`}
+                                                            style={{ width: `${!effScenOn ? 0 : Math.max(scenedPct > 0 ? 4 : 0, scenedPct)}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* BAR 3: IMAGING (Starts as soon as a few scenes are defined) */}
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center justify-between text-xs sm:text-sm font-black">
+                                                        <span className="text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                            <ImageIcon size={15} />
+                                                            <span>3. Imaging</span>
+                                                        </span>
+                                                        <span className="font-mono text-zinc-200">
+                                                            {!effImgOn
+                                                                ? 'OFF'
+                                                                : (book.detectedScenesCount || 0) < 2 && (book.paintedScenesCount || 0) === 0
+                                                                ? 'Waiting for scenes'
+                                                                : `${imgPct}% (${book.paintedScenesCount || 0}/${book.detectedScenesCount || 0})`}
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-full h-3.5 rounded-full bg-zinc-900 border border-zinc-800 overflow-hidden">
+                                                        <div
+                                                            className={`h-full rounded-full transition-all duration-500 ${
+                                                                !effImgOn
+                                                                    ? 'bg-zinc-700'
+                                                                    : book.isImagingNow
+                                                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-300 animate-pulse'
+                                                                    : 'bg-gradient-to-r from-emerald-600 to-emerald-400'
+                                                            }`}
+                                                            style={{ width: `${!effImgOn ? 0 : Math.max(imgPct > 0 ? 4 : 0, imgPct)}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })()}
+
+                    {/* ── AI SUBTAB 2: SETTINGS FOR TRANSCRIPTION, SCENING & IMAGING ── */}
+                    {aiMainSubTab === 'settings' && (() => {
+                        const transEnabled = studioConfig?.transcribeEnabled !== false;
+                        const scenEnabled = studioConfig?.sceningEnabled !== false;
+                        const imgEnabled = scenEnabled && studioConfig?.imagingEnabled !== false;
+
+                        return (
+                            <div className="space-y-6">
+                                {/* Pipeline Step Enable Toggles with Strict Dependency Rule:
+                                    Can turn off Imaging, or turn off Imaging + Scening, but NOT Scening without Imaging */}
+                                <div className="p-6 rounded-3xl bg-zinc-900/75 border-2 border-zinc-800 space-y-5">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                        <h4 className="text-xl font-black text-white uppercase tracking-wider flex items-center gap-2.5">
+                                            <Sparkles size={22} className="text-amber-400" />
+                                            <span>Processing Pipeline Steps</span>
+                                        </h4>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <button
+                                                onClick={() => handleSaveConfig({ transcribeEnabled: true, sceningEnabled: true, imagingEnabled: true })}
+                                                title="Enable Transcription + Scening + Imaging"
+                                                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black uppercase cursor-pointer border transition-all ${
+                                                    transEnabled && scenEnabled && imgEnabled
+                                                        ? 'bg-amber-500 text-black border-amber-400 shadow'
+                                                        : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                All 3 Steps
+                                            </button>
+                                            <button
+                                                onClick={() => handleSaveConfig({ transcribeEnabled: true, sceningEnabled: true, imagingEnabled: false })}
+                                                title="Turn off Imaging only (keep Transcription + Scening)"
+                                                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black uppercase cursor-pointer border transition-all ${
+                                                    transEnabled && scenEnabled && !imgEnabled
+                                                        ? 'bg-purple-500 text-black border-purple-400 shadow'
+                                                        : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                No Imaging
+                                            </button>
+                                            <button
+                                                onClick={() => handleSaveConfig({ transcribeEnabled: true, sceningEnabled: false, imagingEnabled: false })}
+                                                title="Turn off both Scening and Imaging (Transcription only)"
+                                                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black uppercase cursor-pointer border transition-all ${
+                                                    transEnabled && !scenEnabled && !imgEnabled
+                                                        ? 'bg-emerald-500 text-black border-emerald-400 shadow'
+                                                        : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                Transcription Only
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                                        {/* STEP 1: TRANSCRIPTION SETTINGS */}
+                                        <div className={`p-5 rounded-3xl border-2 space-y-4 ${
+                                            transEnabled ? 'bg-amber-950/20 border-amber-500/50' : 'bg-zinc-950/60 border-zinc-800 opacity-60'
+                                        }`}>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2.5">
+                                                    <Mic2 size={22} className="text-amber-400" />
+                                                    <span className="text-lg font-black text-white uppercase">1. Transcription</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleSaveConfig({ transcribeEnabled: !transEnabled })}
+                                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
+                                                        transEnabled ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                                    }`}
+                                                >
+                                                    {transEnabled ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-xs font-black text-amber-300 uppercase mb-1.5">
+                                                        Speech-to-Text Engine
+                                                    </label>
+                                                    <select
+                                                        value={studioConfig?.sttProvider || 'gemini_audio'}
+                                                        onChange={e => handleSaveConfig({ sttProvider: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                    >
+                                                        <option value="gemini_audio">Gemini Audio + Whisper Local (Synced)</option>
+                                                        <option value="whisper_tiny_local">Whisper Local C++ (Offline Free)</option>
+                                                        <option value="openai_whisper">OpenAI / Groq Whisper</option>
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-black text-amber-300 uppercase mb-1.5">
+                                                        Default Voice Preset
+                                                    </label>
+                                                    <select
+                                                        value={studioConfig?.defaultVoicePreset || 'clear_voice'}
+                                                        onChange={e => handleSaveConfig({ defaultVoicePreset: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                    >
+                                                        <option value="clear_voice">Clear Voice (Vocal Presence)</option>
+                                                        <option value="warm_bass">Warm Studio Narrator</option>
+                                                        <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
+                                                        <option value="night_compress">Night Leveler</option>
+                                                        <option value="original">Original Voice</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* STEP 2: SCENING SETTINGS */}
+                                        <div className={`p-5 rounded-3xl border-2 space-y-4 ${
+                                            scenEnabled ? 'bg-purple-950/20 border-purple-500/50' : 'bg-zinc-950/60 border-zinc-800 opacity-60'
+                                        }`}>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2.5">
+                                                    <Wand2 size={22} className="text-purple-400" />
+                                                    <span className="text-lg font-black text-white uppercase">2. Scening</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        const nextScen = !scenEnabled;
+                                                        // Turning off Scening also turns off Imaging since Imaging depends on Scening
+                                                        handleSaveConfig({
+                                                            sceningEnabled: nextScen,
+                                                            imagingEnabled: nextScen ? imgEnabled : false
+                                                        });
+                                                    }}
+                                                    title="Turning off Scening also turns off Imaging (Imaging depends on Scening)"
+                                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
+                                                        scenEnabled ? 'bg-purple-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                                    }`}
+                                                >
+                                                    {scenEnabled ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">
+                                                        Scene Focus
+                                                    </label>
+                                                    <select
+                                                        value={studioConfig?.artFocus || 'auto-choice'}
+                                                        onChange={e => handleSaveConfig({ artFocus: e.target.value })}
+                                                        disabled={!scenEnabled}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer disabled:opacity-40"
+                                                    >
+                                                        <option value="auto-choice">Characters &amp; Plot Action</option>
+                                                        <option value="characters">Character Portraits &amp; Faces</option>
+                                                        <option value="landscapes">Characters in World &amp; Setting</option>
+                                                        <option value="ambient">Dramatic Lighting &amp; Mood</option>
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">
+                                                        Target Scenes / Chapter
+                                                    </label>
+                                                    <select
+                                                        value={Number(studioConfig?.imagesPerChapter || 3)}
+                                                        onChange={e => handleSaveConfig({ imagesPerChapter: Number(e.target.value) })}
+                                                        disabled={!scenEnabled}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer disabled:opacity-40"
+                                                    >
+                                                        <option value={2}>2 Scenes / Chapter</option>
+                                                        <option value={3}>3 Scenes / Chapter (Auto Natural Windows)</option>
+                                                        <option value={4}>4 Scenes / Chapter</option>
+                                                        <option value={5}>5 Scenes / Chapter</option>
+                                                        <option value={6}>6 Scenes / Chapter</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* STEP 3: IMAGING SETTINGS */}
+                                        <div className={`p-5 rounded-3xl border-2 space-y-4 ${
+                                            imgEnabled ? 'bg-emerald-950/20 border-emerald-500/50' : 'bg-zinc-950/60 border-zinc-800 opacity-60'
+                                        }`}>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2.5">
+                                                    <ImageIcon size={22} className="text-emerald-400" />
+                                                    <span className="text-lg font-black text-white uppercase">3. Imaging</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        const nextImg = !imgEnabled;
+                                                        // Enabling Imaging automatically enables Scening because Imaging depends on Scening
+                                                        handleSaveConfig({
+                                                            imagingEnabled: nextImg,
+                                                            sceningEnabled: nextImg ? true : scenEnabled
+                                                        });
+                                                    }}
+                                                    title="Turn Imaging ON/OFF (Enabling Imaging requires Scening to be ON)"
+                                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
+                                                        imgEnabled ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                                    }`}
+                                                >
+                                                    {imgEnabled ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">
+                                                        Default Art Style
+                                                    </label>
+                                                    <select
+                                                        value={studioConfig?.artStyle || 'Cinematic Concept Art'}
+                                                        onChange={e => handleSaveConfig({ artStyle: e.target.value })}
+                                                        disabled={!imgEnabled}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer disabled:opacity-40"
+                                                    >
+                                                        <option value="Cinematic Concept Art">Cinematic Concept Art (Era-Adaptive)</option>
+                                                        <option value="Photorealistic">Photorealistic Film Still</option>
+                                                        <option value="Oil Painting">Classic Oil Painting</option>
+                                                        <option value="Dark Fantasy">Dark Atmospheric Painting</option>
+                                                        <option value="Watercolor">Storybook Watercolor</option>
+                                                        <option value="Graphic Novel">Graphic Novel Ink</option>
+                                                        <option value="Anime">Anime Masterpiece</option>
+                                                        <option value="Vintage Book Plate">Vintage Book Engraving</option>
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">
+                                                        Image Provider
+                                                    </label>
+                                                    <select
+                                                        value={studioConfig?.imageProvider || 'pollinations_free'}
+                                                        onChange={e => handleSaveConfig({ imageProvider: e.target.value })}
+                                                        disabled={!imgEnabled}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer disabled:opacity-40"
+                                                    >
+                                                        <option value="gemini_imagen">Google Imagen 3 / Gemini</option>
+                                                        <option value="pollinations_free">Pollinations Flux (Free Fallback)</option>
+                                                        <option value="openai_dalle">OpenAI DALL-E 3</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                </div>
+            )}
+
+            {/* ── TAB 5: AUDIOBOOK SUBTAB SETTINGS (AI FEATURES TOGGLE & PROVIDERS) ── */}
             {activeSubTab === 'queue_settings' && (
-                <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-5 max-w-3xl">
-                    <h4 className="text-lg font-black text-white uppercase tracking-wider flex items-center gap-2">
-                        <Sliders size={20} className="text-amber-400" />
-                        AI API Key &amp; Defaults
-                    </h4>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                        <input
-                            type="password"
-                            value={apiKeyInput}
-                            onChange={e => setApiKeyInput(e.target.value)}
-                            placeholder="Paste Gemini / OpenAI / Claude / Groq API Key (or leave blank for Free Built-in)..."
-                            className="flex-1 px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono focus:outline-none focus:border-amber-500"
-                        />
+                <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-6 max-w-4xl">
+                    {/* Master AI Features Toggle for Audiobook Subtab */}
+                    <div className="p-5 rounded-3xl bg-zinc-950 border-2 border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3.5">
+                            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0">
+                                <Sparkles size={24} />
+                            </div>
+                            <div>
+                                <h4 className="text-lg sm:text-xl font-black text-white uppercase tracking-wider">
+                                    AI Features
+                                </h4>
+                                <p className="text-xs sm:text-sm font-bold text-zinc-400">
+                                    Show AI Queue tab, automated transcription, scening, and chapter illustration
+                                </p>
+                            </div>
+                        </div>
+
                         <button
-                            onClick={() => handleSaveConfig({})}
-                            disabled={savingConfig}
-                            className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider cursor-pointer"
+                            onClick={() => {
+                                const nextAi = studioConfig?.aiFeaturesEnabled === false ? true : false;
+                                handleSaveConfig({ aiFeaturesEnabled: nextAi });
+                            }}
+                            className={`px-7 py-3.5 rounded-2xl text-base font-black uppercase tracking-wider cursor-pointer transition-all shrink-0 ${
+                                studioConfig?.aiFeaturesEnabled !== false
+                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/25'
+                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                            }`}
                         >
-                            Save Key
+                            {studioConfig?.aiFeaturesEnabled !== false ? 'AI Features: ON' : 'AI Features: OFF'}
                         </button>
+                    </div>
+
+                    {/* Audiobook Providers & Individual Feature Toggles */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-base font-black text-white">OpenLibrary Covers &amp; Synopsis</p>
+                                <p className="text-xs font-bold text-zinc-400">Auto-fetch book editions, covers &amp; descriptions</p>
+                            </div>
+                            <button
+                                onClick={() => handleSaveConfig({ openLibraryProvider: studioConfig?.openLibraryProvider === false ? true : false })}
+                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
+                                    studioConfig?.openLibraryProvider !== false ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                }`}
+                            >
+                                {studioConfig?.openLibraryProvider !== false ? 'ON' : 'OFF'}
+                            </button>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-base font-black text-white">Apple iTunes Audiobook Lookup</p>
+                                <p className="text-xs font-bold text-zinc-400">High-res square &amp; portrait audiobook artwork</p>
+                            </div>
+                            <button
+                                onClick={() => handleSaveConfig({ itunesAudiobookProvider: studioConfig?.itunesAudiobookProvider === false ? true : false })}
+                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
+                                    studioConfig?.itunesAudiobookProvider !== false ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                }`}
+                            >
+                                {studioConfig?.itunesAudiobookProvider !== false ? 'ON' : 'OFF'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* AI Provider API Key */}
+                    <div className="space-y-3 pt-2 border-t border-zinc-800">
+                        <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            <Sliders size={18} className="text-amber-400" />
+                            <span>AI Provider API Key</span>
+                        </h4>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <input
+                                type="password"
+                                value={apiKeyInput}
+                                onChange={e => setApiKeyInput(e.target.value)}
+                                placeholder="Paste Gemini / OpenAI / Claude / Groq API Key (or leave blank for Free Built-in)..."
+                                className="flex-1 px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono focus:outline-none focus:border-amber-500"
+                            />
+                            <button
+                                onClick={() => handleSaveConfig({})}
+                                disabled={savingConfig}
+                                className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider cursor-pointer"
+                            >
+                                Save Key
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -3186,6 +4123,132 @@ export function AudiobooksMediaManager() {
                                ═════════════════════════════════════════════════════════════ */}
                             {bookModalMainTab === 'ai' && (
                                 <div className="space-y-6">
+                                    {/* ── PER-BOOK AI PIPELINE & CUSTOMIZATION BAR ── */}
+                                    <div className="p-5 sm:p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 space-y-4">
+                                        <div className="flex flex-wrap items-center justify-between gap-4">
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                {/* Step 1: Transcription Toggle */}
+                                                <button
+                                                    onClick={() => {
+                                                        const next = !editBookTranscribeEnabled;
+                                                        setEditBookTranscribeEnabled(next);
+                                                        handleSaveBookStudioSettings(false, {
+                                                            transcribeEnabled: next,
+                                                            sceningEnabled: editBookSceningEnabled,
+                                                            illustrateEnabled: editBookIllustrateEnabled
+                                                        });
+                                                    }}
+                                                    title="Toggle automated Speech-to-Text Transcription for this book"
+                                                    className={`px-4 py-2.5 rounded-2xl border-2 font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer ${
+                                                        editBookTranscribeEnabled
+                                                            ? 'bg-amber-500/20 text-amber-200 border-amber-500/50'
+                                                            : 'bg-zinc-950 text-zinc-500 border-zinc-800'
+                                                    }`}
+                                                >
+                                                    <FileText size={18} className={editBookTranscribeEnabled ? 'text-amber-400' : 'text-zinc-500'} />
+                                                    <span>Transcription: {editBookTranscribeEnabled ? 'ON' : 'OFF'}</span>
+                                                </button>
+
+                                                {/* Step 2: Scening Toggle (Disabling Scening also disables Imaging) */}
+                                                <button
+                                                    onClick={() => {
+                                                        const nextScen = !editBookSceningEnabled;
+                                                        const nextIll = nextScen ? editBookIllustrateEnabled : false;
+                                                        setEditBookSceningEnabled(nextScen);
+                                                        if (!nextScen) setEditBookIllustrateEnabled(false);
+                                                        handleSaveBookStudioSettings(false, {
+                                                            transcribeEnabled: editBookTranscribeEnabled,
+                                                            sceningEnabled: nextScen,
+                                                            illustrateEnabled: nextIll
+                                                        });
+                                                    }}
+                                                    title="Toggle LLM Scene Detection for this book (Required for Imaging)"
+                                                    className={`px-4 py-2.5 rounded-2xl border-2 font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer ${
+                                                        editBookSceningEnabled
+                                                            ? 'bg-sky-500/20 text-sky-200 border-sky-500/50'
+                                                            : 'bg-zinc-950 text-zinc-500 border-zinc-800'
+                                                    }`}
+                                                >
+                                                    <Wand2 size={18} className={editBookSceningEnabled ? 'text-sky-400' : 'text-zinc-500'} />
+                                                    <span>Scening: {editBookSceningEnabled ? 'ON' : 'OFF'}</span>
+                                                </button>
+
+                                                {/* Step 3: Imaging Toggle (Requires Scening) */}
+                                                <button
+                                                    onClick={() => {
+                                                        if (!editBookSceningEnabled) {
+                                                            toast.error('Enable Scening first — Imaging depends on Scening');
+                                                            return;
+                                                        }
+                                                        const nextIll = !editBookIllustrateEnabled;
+                                                        setEditBookIllustrateEnabled(nextIll);
+                                                        handleSaveBookStudioSettings(false, {
+                                                            transcribeEnabled: editBookTranscribeEnabled,
+                                                            sceningEnabled: editBookSceningEnabled,
+                                                            illustrateEnabled: nextIll
+                                                        });
+                                                    }}
+                                                    title={
+                                                        editBookSceningEnabled
+                                                            ? 'Toggle Scene Illustration Imaging for this book'
+                                                            : 'Requires Scening to be ON before Imaging can be enabled'
+                                                    }
+                                                    className={`px-4 py-2.5 rounded-2xl border-2 font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer ${
+                                                        editBookIllustrateEnabled && editBookSceningEnabled
+                                                            ? 'bg-purple-500/20 text-purple-200 border-purple-500/50'
+                                                            : 'bg-zinc-950 text-zinc-500 border-zinc-800'
+                                                    }`}
+                                                >
+                                                    <ImageIcon size={18} className={editBookIllustrateEnabled && editBookSceningEnabled ? 'text-purple-400' : 'text-zinc-500'} />
+                                                    <span>Imaging: {editBookIllustrateEnabled && editBookSceningEnabled ? 'ON' : 'OFF'}</span>
+                                                </button>
+                                            </div>
+
+                                            <div className="flex items-center gap-2.5">
+                                                <button
+                                                    onClick={() => handleMoveBookInQueue(currentModalBook.bookKey, 'top')}
+                                                    title="Move this book to #1 Priority in the automated AI queue"
+                                                    className="px-4 py-2.5 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-black text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                                                >
+                                                    <ArrowUp size={18} />
+                                                    <span>Priority #1</span>
+                                                </button>
+
+                                                <button
+                                                    onClick={() => handleToggleBookQueueStatus(currentModalBook)}
+                                                    title={currentModalBook.isQueued ? 'Remove book from automated queue' : 'Add book to automated queue'}
+                                                    className={`px-4 py-2.5 rounded-2xl border font-black text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer ${
+                                                        currentModalBook.isQueued
+                                                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                                            : 'bg-zinc-800 text-zinc-300 border-zinc-700'
+                                                    }`}
+                                                >
+                                                    <Layers size={18} />
+                                                    <span>{currentModalBook.isQueued ? 'Queued' : 'Paused'}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Per-book Custom Visual Notes / Character & Era Directive */}
+                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+                                            <input
+                                                type="text"
+                                                value={editVisualNotes}
+                                                onChange={e => setEditVisualNotes(e.target.value)}
+                                                placeholder="Book-specific visual direction (e.g. Hard sci-fi space probe, character clothing, era)..."
+                                                className="flex-1 px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-white focus:outline-none focus:border-purple-500"
+                                            />
+                                            <button
+                                                onClick={() => handleSaveBookStudioSettings(false)}
+                                                title="Save custom visual notes and book AI settings"
+                                                className="px-5 py-3 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                                            >
+                                                <Save size={18} />
+                                                <span>Save</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
                                     {/* ── THE 3 AI SUBTABS ── */}
                                     <div className="grid grid-cols-3 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
                                         <button
@@ -3870,6 +4933,35 @@ export function AudiobooksMediaManager() {
 
                                             {/* ── BELOW: CHAPTERS & SYNCED TRANSCRIPT LINES DIVISION ── */}
                                             <div className="space-y-4">
+                                                <div className="flex items-center justify-between gap-3 px-2">
+                                                    <span className="text-sm font-black text-zinc-300 uppercase tracking-wider">
+                                                        Chapters ({currentModalBook.chapters.length})
+                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                const allOpen: Record<number, boolean> = {};
+                                                                currentModalBook.chapters.forEach((_: any, i: number) => {
+                                                                    allOpen[i] = true;
+                                                                });
+                                                                setExpandedChapterIndices(allOpen);
+                                                            }}
+                                                            title="Expand and view the full transcript across all chapters of this book"
+                                                            className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                                                        >
+                                                            <FileText size={16} />
+                                                            <span>Full Transcript</span>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setExpandedChapterIndices({})}
+                                                            title="Collapse all chapter transcripts"
+                                                            className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-black text-xs uppercase tracking-wider cursor-pointer"
+                                                        >
+                                                            Collapse
+                                                        </button>
+                                                    </div>
+                                                </div>
+
                                                 {currentModalBook.chapters.map((chTrack: any, chIdx: number) => {
                                                     const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
                                                     const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${chIdx + 1}`;

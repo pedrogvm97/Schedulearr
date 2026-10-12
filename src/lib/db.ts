@@ -387,11 +387,14 @@ function initializeSchema(d: any) {
         library_id TEXT,
         total_chapters INTEGER DEFAULT 0,
         transcribed_chapters INTEGER DEFAULT 0,
+        scened_chapters INTEGER DEFAULT 0,
+        total_scenes INTEGER DEFAULT 0,
         illustrated_chapters INTEGER DEFAULT 0,
         enhanced_chapters INTEGER DEFAULT 0,
         transcribed_seconds REAL DEFAULT 0,
         total_duration_sec REAL DEFAULT 0,
         illustrated_scenes INTEGER DEFAULT 0,
+        summary TEXT DEFAULT '',
         reading_status TEXT DEFAULT 'unstarted',
         on_bedside_table INTEGER DEFAULT 0,
         progress_percent REAL DEFAULT 0,
@@ -399,6 +402,7 @@ function initializeSchema(d: any) {
         queue_priority INTEGER DEFAULT 100,
         queue_enabled INTEGER DEFAULT 1,
         transcribe_enabled INTEGER DEFAULT 1,
+        scening_enabled INTEGER DEFAULT 1,
         illustrate_enabled INTEGER DEFAULT 1,
         enhance_audio_enabled INTEGER DEFAULT 0,
         enhance_enabled INTEGER DEFAULT 0,
@@ -450,6 +454,51 @@ function initializeSchema(d: any) {
 
       CREATE INDEX IF NOT EXISTS idx_audiobook_chapters_book ON audiobook_chapters_meta (book_key, chapter_index);
       CREATE INDEX IF NOT EXISTS idx_audiobook_books_priority ON audiobook_books_meta (queue_priority ASC);
+
+      CREATE TABLE IF NOT EXISTS ai_api_usage_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        provider TEXT NOT NULL,
+        provider_label TEXT NOT NULL,
+        key_id TEXT,
+        task_type TEXT NOT NULL,
+        success INTEGER DEFAULT 1,
+        rate_limited INTEGER DEFAULT 0,
+        images_count INTEGER DEFAULT 0,
+        audio_seconds REAL DEFAULT 0,
+        tokens_estimated INTEGER DEFAULT 0,
+        latency_ms INTEGER DEFAULT 0,
+        book_title TEXT,
+        detail TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_ai_api_usage_ts ON ai_api_usage_events (timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_ai_api_usage_prov ON ai_api_usage_events (provider, timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS instant_stream_downloads (
+        id TEXT PRIMARY KEY,
+        media_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        year INTEGER,
+        tmdb_id INTEGER,
+        imdb_id TEXT,
+        tvdb_id INTEGER,
+        instance_id TEXT,
+        arr_media_id INTEGER,
+        root_folder_path TEXT,
+        season_number INTEGER DEFAULT 1,
+        episode_number INTEGER DEFAULT 1,
+        stream_source_name TEXT,
+        stream_source_url TEXT,
+        instant_file_path TEXT,
+        hq_file_path TEXT,
+        status TEXT DEFAULT 'queued',
+        progress INTEGER DEFAULT 0,
+        replace_when_hq INTEGER DEFAULT 1,
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_instant_dl_status ON instant_stream_downloads (status, replace_when_hq);
     `);
 
     // Migrations
@@ -489,6 +538,10 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN on_bedside_table INTEGER DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN progress_percent REAL DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN last_played_at DATETIME;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN scening_enabled INTEGER DEFAULT 1;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN scened_chapters INTEGER DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN total_scenes INTEGER DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN summary TEXT DEFAULT '';"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN duration_sec INTEGER DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN transcribed_seconds REAL DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN synced_lyrics TEXT;"); } catch (e) { }
@@ -2344,6 +2397,7 @@ export interface AudiobookBookMeta {
     queue_enabled: boolean;
     is_queued?: number;
     transcribe_enabled: boolean;
+    scening_enabled: boolean;
     illustrate_enabled: boolean;
     enhance_audio_enabled: boolean;
     voice_preset: string;
@@ -2355,11 +2409,14 @@ export interface AudiobookBookMeta {
     custom_prompt?: string;
     total_chapters: number;
     transcribed_chapters: number;
+    scened_chapters: number;
+    total_scenes: number;
     illustrated_chapters: number;
     enhanced_chapters: number;
     transcribed_seconds: number;
     total_duration_sec: number;
     illustrated_scenes: number;
+    summary?: string;
     reading_status: 'unstarted' | 'ongoing' | 'finished';
     on_bedside_table: boolean;
     progress_percent: number;
@@ -2424,6 +2481,17 @@ const mapBookRow = (r: any): AudiobookBookMeta => {
         progressPercent >= 95 ? 'finished' :
         progressPercent > 0 ? 'ongoing' : 'unstarted';
 
+    const sceningEnabled = r.scening_enabled !== 0;
+    const illustrateEnabled = sceningEnabled ? (r.illustrate_enabled !== 0) : false;
+
+    let extractedSummary = r.summary || '';
+    if (!extractedSummary && r.real_structure_json) {
+        try {
+            const st = JSON.parse(r.real_structure_json);
+            if (st?.overallSynopsis) extractedSummary = String(st.overallSynopsis).slice(0, 260);
+        } catch {}
+    }
+
     return {
         book_key: r.book_key,
         title: r.title || 'Untitled Book',
@@ -2444,7 +2512,8 @@ const mapBookRow = (r: any): AudiobookBookMeta => {
         queue_enabled: queueEnabled,
         is_queued: queueEnabled ? 1 : 0,
         transcribe_enabled: r.transcribe_enabled !== 0,
-        illustrate_enabled: r.illustrate_enabled !== 0,
+        scening_enabled: sceningEnabled,
+        illustrate_enabled: illustrateEnabled,
         enhance_audio_enabled: Boolean(r.enhance_audio_enabled ?? r.enhance_enabled),
         voice_preset: r.voice_preset || 'original',
         enhance_preset: r.enhance_preset || '',
@@ -2455,11 +2524,14 @@ const mapBookRow = (r: any): AudiobookBookMeta => {
         custom_prompt: r.custom_prompt || '',
         total_chapters: Number(r.total_chapters ?? 0),
         transcribed_chapters: Number(r.transcribed_chapters ?? 0),
+        scened_chapters: Number(r.scened_chapters ?? 0),
+        total_scenes: Number(r.total_scenes ?? 0),
         illustrated_chapters: Number(r.illustrated_chapters ?? 0),
         enhanced_chapters: Number(r.enhanced_chapters ?? 0),
         transcribed_seconds: Number(r.transcribed_seconds ?? 0),
         total_duration_sec: Number(r.total_duration_sec ?? 0),
         illustrated_scenes: Number(r.illustrated_scenes ?? 0),
+        summary: extractedSummary || undefined,
         reading_status: readingStatus,
         on_bedside_table: Boolean(r.on_bedside_table) || readingStatus === 'ongoing',
         progress_percent: progressPercent,
@@ -2697,6 +2769,18 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
             ? Boolean(meta.on_bedside_table)
             : (existing?.on_bedside_table ?? (mergedReadingStatus === 'ongoing'));
 
+    let nextScening = meta.scening_enabled !== undefined ? Boolean(meta.scening_enabled) : (existing?.scening_enabled ?? true);
+    let nextIllustrate = meta.illustrate_enabled !== undefined ? Boolean(meta.illustrate_enabled) : (existing?.illustrate_enabled ?? true);
+    // Dependency rule: Imaging depends on Scening! You can turn off Imaging, or turn off Scening + Imaging, but never Scening without Imaging.
+    if (meta.scening_enabled === false) {
+        nextIllustrate = false;
+    } else if (meta.illustrate_enabled === true) {
+        nextScening = true;
+    }
+    if (!nextScening) {
+        nextIllustrate = false;
+    }
+
     const merged: AudiobookBookMeta = {
         book_key: effectiveBookKey,
         title: rawTitleInput,
@@ -2717,7 +2801,8 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
         queue_enabled: queueEnabled,
         is_queued: queueEnabled ? 1 : 0,
         transcribe_enabled: meta.transcribe_enabled ?? existing?.transcribe_enabled ?? true,
-        illustrate_enabled: meta.illustrate_enabled ?? existing?.illustrate_enabled ?? true,
+        scening_enabled: nextScening,
+        illustrate_enabled: nextIllustrate,
         enhance_audio_enabled: meta.enhance_audio_enabled ?? existing?.enhance_audio_enabled ?? false,
         voice_preset: meta.voice_preset ?? existing?.voice_preset ?? 'original',
         enhance_preset: meta.enhance_preset !== undefined ? meta.enhance_preset : (existing?.enhance_preset ?? ''),
@@ -2728,11 +2813,14 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
         custom_prompt: meta.custom_prompt !== undefined ? meta.custom_prompt : (existing?.custom_prompt ?? ''),
         total_chapters: meta.total_chapters ?? existing?.total_chapters ?? 0,
         transcribed_chapters: meta.transcribed_chapters ?? existing?.transcribed_chapters ?? 0,
+        scened_chapters: meta.scened_chapters ?? existing?.scened_chapters ?? 0,
+        total_scenes: meta.total_scenes ?? existing?.total_scenes ?? 0,
         illustrated_chapters: meta.illustrated_chapters ?? existing?.illustrated_chapters ?? 0,
         enhanced_chapters: meta.enhanced_chapters ?? existing?.enhanced_chapters ?? 0,
         transcribed_seconds: meta.transcribed_seconds ?? existing?.transcribed_seconds ?? 0,
         total_duration_sec: meta.total_duration_sec ?? existing?.total_duration_sec ?? 0,
         illustrated_scenes: meta.illustrated_scenes ?? existing?.illustrated_scenes ?? 0,
+        summary: meta.summary !== undefined ? meta.summary : existing?.summary,
         reading_status: mergedReadingStatus,
         on_bedside_table: mergedBedside,
         progress_percent: meta.progress_percent ?? existing?.progress_percent ?? 0,
@@ -2746,13 +2834,13 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
             book_key, title, author, canonical_author, translator, narrator, genre, published_year,
             thumb, custom_cover_url, use_custom_cover, real_structure_json,
             library_id, queue_priority, queue_enabled,
-            transcribe_enabled, illustrate_enabled, enhance_audio_enabled, voice_preset,
+            transcribe_enabled, scening_enabled, illustrate_enabled, enhance_audio_enabled, voice_preset,
             enhance_preset, art_style, images_per_chapter, art_focus, dynamic_prompt_enabled, custom_prompt,
-            total_chapters, transcribed_chapters, illustrated_chapters, enhanced_chapters,
-            transcribed_seconds, total_duration_sec, illustrated_scenes,
+            total_chapters, transcribed_chapters, scened_chapters, total_scenes, illustrated_chapters, enhanced_chapters,
+            transcribed_seconds, total_duration_sec, illustrated_scenes, summary,
             reading_status, on_bedside_table, progress_percent, last_played_at,
             status, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(book_key) DO UPDATE SET
             title = excluded.title,
             author = excluded.author,
@@ -2769,6 +2857,7 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
             queue_priority = excluded.queue_priority,
             queue_enabled = excluded.queue_enabled,
             transcribe_enabled = excluded.transcribe_enabled,
+            scening_enabled = excluded.scening_enabled,
             illustrate_enabled = excluded.illustrate_enabled,
             enhance_audio_enabled = excluded.enhance_audio_enabled,
             voice_preset = excluded.voice_preset,
@@ -2780,11 +2869,14 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
             custom_prompt = excluded.custom_prompt,
             total_chapters = excluded.total_chapters,
             transcribed_chapters = excluded.transcribed_chapters,
+            scened_chapters = excluded.scened_chapters,
+            total_scenes = excluded.total_scenes,
             illustrated_chapters = excluded.illustrated_chapters,
             enhanced_chapters = excluded.enhanced_chapters,
             transcribed_seconds = excluded.transcribed_seconds,
             total_duration_sec = excluded.total_duration_sec,
             illustrated_scenes = excluded.illustrated_scenes,
+            summary = COALESCE(NULLIF(excluded.summary, ''), audiobook_books_meta.summary),
             reading_status = excluded.reading_status,
             on_bedside_table = excluded.on_bedside_table,
             progress_percent = excluded.progress_percent,
@@ -2808,6 +2900,7 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
         merged.queue_priority,
         merged.queue_enabled ? 1 : 0,
         merged.transcribe_enabled ? 1 : 0,
+        merged.scening_enabled ? 1 : 0,
         merged.illustrate_enabled ? 1 : 0,
         merged.enhance_audio_enabled ? 1 : 0,
         merged.voice_preset,
@@ -2819,11 +2912,14 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
         merged.custom_prompt || '',
         merged.total_chapters,
         merged.transcribed_chapters,
+        merged.scened_chapters,
+        merged.total_scenes,
         merged.illustrated_chapters,
         merged.enhanced_chapters,
         merged.transcribed_seconds,
         merged.total_duration_sec,
         merged.illustrated_scenes,
+        merged.summary || '',
         merged.reading_status,
         merged.on_bedside_table ? 1 : 0,
         merged.progress_percent,
@@ -2989,7 +3085,17 @@ export const getAudiobookChapterMeta = (chapterKey: string, fallbackBookKey?: st
         const row = db.prepare('SELECT * FROM audiobook_chapters_meta WHERE chapter_key = ?').get(chapterKey) as any;
         if (row) return mapChapterRow(row);
 
-        // Fallback 1: Parse "bookKey::chN" or "bookKey_ch_N"
+        // Fallback 1: Match trailing Plex numeric ratingKey (e.g. "plex-1-12191" <-> "plex-12191")
+        const plexMatch = chapterKey.match(/^plex[-_](?:[^-_]+[-_])?(\d+)$/i);
+        if (plexMatch) {
+            const ratingKey = plexMatch[1];
+            const byPlex = db.prepare(
+                'SELECT * FROM audiobook_chapters_meta WHERE chapter_key = ? OR chapter_key LIKE ?'
+            ).get(`plex-${ratingKey}`, `plex-%-${ratingKey}`) as any;
+            if (byPlex) return mapChapterRow(byPlex);
+        }
+
+        // Fallback 2: Parse "bookKey::chN" or "bookKey_ch_N"
         const matchCh = chapterKey.match(/^(.+?)(?:::ch|_ch_|::ch-)(\d+)$/i);
         const targetBookPart = fallbackBookKey || (matchCh ? matchCh[1] : '');
         const targetIdx = fallbackChapterIndex ?? (matchCh ? parseInt(matchCh[2], 10) : 0);
@@ -3212,6 +3318,8 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
             db.prepare(`
                 UPDATE audiobook_books_meta SET
                     transcribed_chapters = 0,
+                    scened_chapters = 0,
+                    total_scenes = 0,
                     illustrated_chapters = 0,
                     enhanced_chapters = 0,
                     transcribed_seconds = 0,
@@ -3222,6 +3330,8 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
             return;
         }
         const transcribed = chapters.filter(c => c.transcription_status === 'completed' && c.synced_lyrics && c.synced_lyrics.trim().length > 20).length;
+        const scened = chapters.filter(c => (c.images || []).some(img => img.kept !== false && (img.sceneTitle || img.prompt))).length;
+        const totalScenes = chapters.reduce((acc, c) => acc + (c.images || []).filter(img => img.kept !== false && (img.sceneTitle || img.prompt || img.url)).length, 0);
         const illustrated = chapters.filter(c => (c.images || []).some(img => img.kept !== false && img.url && !String(img.url).toLowerCase().includes('.svg'))).length;
         const enhanced = chapters.filter(c => c.audio_enhance_status === 'completed').length;
         const totalDurationSec = chapters.reduce((acc, c) => acc + (Number(c.duration_sec) || 0), 0);
@@ -3247,12 +3357,13 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
 
         let newStatus = book.status;
         const targetTranscribed = !book.transcribe_enabled || transcribed >= chapters.length;
+        const targetScened = !book.scening_enabled || scened >= chapters.length;
         const targetIllustrated = !book.illustrate_enabled || illustrated >= chapters.length;
         const targetEnhanced = !book.enhance_audio_enabled || enhanced >= chapters.length;
 
         if (isProcessing) {
             newStatus = 'processing';
-        } else if (targetTranscribed && targetIllustrated && targetEnhanced && chapters.length > 0) {
+        } else if (targetTranscribed && targetScened && targetIllustrated && targetEnhanced && chapters.length > 0) {
             newStatus = 'completed';
         } else if (book.queue_enabled) {
             newStatus = 'queued';
@@ -3264,6 +3375,8 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
             UPDATE audiobook_books_meta SET
                 total_chapters = ?,
                 transcribed_chapters = ?,
+                scened_chapters = ?,
+                total_scenes = ?,
                 illustrated_chapters = ?,
                 enhanced_chapters = ?,
                 transcribed_seconds = ?,
@@ -3275,6 +3388,8 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
         `).run(
             chapters.length,
             transcribed,
+            scened,
+            totalScenes,
             illustrated,
             enhanced,
             transcribedSeconds,
@@ -3358,7 +3473,411 @@ export const getSystemLogs = (limit: number = 50): SystemLogEntry[] => {
     return gLogs.__schedulearrSystemLogs.slice(0, limit);
 };
 
+export const purgeAllGeneratedAudiobookDataInDb = (): { booksReset: number; chaptersDeleted: number } => {
+    try {
+        const now = new Date().toISOString();
+        const chRes = db.prepare(`
+            UPDATE audiobook_chapters_meta SET
+                transcription_status = 'idle',
+                transcription_progress = 0,
+                transcribed_seconds = 0,
+                synced_lyrics = NULL,
+                synced_transcript = NULL,
+                plain_transcript = NULL,
+                transcript_lrc_path = NULL,
+                transcript_txt_path = NULL,
+                illustration_status = 'idle',
+                illustration_progress = 0,
+                images_json = '[]',
+                audio_enhance_status = 'idle',
+                audio_enhance_progress = 0,
+                enhanced_audio_path = NULL,
+                enhanced_file_path = NULL,
+                voice_preset = 'original',
+                processed_voices_json = '{}',
+                error_message = NULL,
+                updated_at = ?
+        `).run(now);
+
+        const bkRes = db.prepare(`
+            UPDATE audiobook_books_meta SET
+                transcribed_chapters = 0,
+                scened_chapters = 0,
+                total_scenes = 0,
+                illustrated_chapters = 0,
+                enhanced_chapters = 0,
+                transcribed_seconds = 0,
+                illustrated_scenes = 0,
+                custom_cover_url = NULL,
+                use_custom_cover = 0,
+                real_structure_json = '',
+                queue_enabled = 0,
+                status = 'idle',
+                updated_at = ?
+        `).run(now);
+
+        try {
+            db.prepare("DELETE FROM music_lyrics WHERE source = 'audiobook-studio'").run();
+        } catch {}
+
+        return {
+            booksReset: Number(bkRes?.changes || 0),
+            chaptersDeleted: Number(chRes?.changes || 0)
+        };
+    } catch (e) {
+        console.error('Error purging all generated audiobook data in DB:', e);
+        return { booksReset: 0, chaptersDeleted: 0 };
+    }
+};
+
+export interface AiApiUsageEventRecord {
+    id?: number;
+    timestamp: string;
+    provider: string;
+    provider_label: string;
+    key_id?: string;
+    task_type: string;
+    success: boolean | number;
+    rate_limited?: boolean | number;
+    images_count?: number;
+    audio_seconds?: number;
+    tokens_estimated?: number;
+    latency_ms?: number;
+    book_title?: string;
+    chapter_title?: string;
+    error_message?: string;
+    detail?: string;
+}
+
+export const logAiApiUsageEvent = (evt: Omit<AiApiUsageEventRecord, 'id' | 'timestamp'> & { timestamp?: string }) => {
+    try {
+        const ts = evt.timestamp || new Date().toISOString();
+        const detailStr = evt.detail || evt.error_message || evt.chapter_title || null;
+        db.prepare(`
+            INSERT INTO ai_api_usage_events (
+                timestamp, provider, provider_label, key_id, task_type,
+                success, rate_limited, images_count, audio_seconds,
+                tokens_estimated, latency_ms, book_title, detail
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            ts,
+            evt.provider || 'unknown',
+            evt.provider_label || evt.provider || 'Unknown Provider',
+            evt.key_id || null,
+            evt.task_type || 'other',
+            evt.success ? 1 : 0,
+            evt.rate_limited ? 1 : 0,
+            Number(evt.images_count || 0),
+            Number(evt.audio_seconds || 0),
+            Number(evt.tokens_estimated || 0),
+            Number(evt.latency_ms || 0),
+            evt.book_title || null,
+            detailStr
+        );
+    } catch (e) {
+        console.warn('Error logging AI API usage event:', e);
+    }
+};
+
+export const getAiApiUsageEvents = (sinceIso?: string, limit: number = 5000): AiApiUsageEventRecord[] => {
+    try {
+        const rows = sinceIso
+            ? (db.prepare('SELECT * FROM ai_api_usage_events WHERE timestamp >= ? ORDER BY timestamp ASC LIMIT ?').all(sinceIso, limit) as any[])
+            : (db.prepare('SELECT * FROM ai_api_usage_events ORDER BY timestamp ASC LIMIT ?').all(limit) as any[]);
+        return (rows || []).map(r => ({
+            id: r.id,
+            timestamp: r.timestamp,
+            provider: r.provider,
+            provider_label: r.provider_label,
+            key_id: r.key_id || undefined,
+            task_type: r.task_type,
+            success: Boolean(r.success),
+            rate_limited: Boolean(r.rate_limited),
+            images_count: Number(r.images_count || 0),
+            audio_seconds: Number(r.audio_seconds || 0),
+            tokens_estimated: Number(r.tokens_estimated || 0),
+            latency_ms: Number(r.latency_ms || 0),
+            book_title: r.book_title || undefined,
+            detail: r.detail || undefined
+        }));
+    } catch {
+        return [];
+    }
+};
+
+export const getAiApiUsageTimeSeries = (range: '24h' | '7d' | '30d' | 'all' = '24h') => {
+    try {
+        const now = Date.now();
+        const sinceIso =
+            range === '24h'
+                ? new Date(now - 24 * 3600 * 1000).toISOString()
+                : range === '7d'
+                ? new Date(now - 7 * 24 * 3600 * 1000).toISOString()
+                : range === '30d'
+                ? new Date(now - 30 * 24 * 3600 * 1000).toISOString()
+                : '1970-01-01T00:00:00.000Z';
+
+        const bucketExpr = range === '24h' ? "substr(timestamp, 1, 13) || ':00'" : 'substr(timestamp, 1, 10)';
+
+        const bucketRows = db
+            .prepare(
+                `
+            SELECT
+                ${bucketExpr} as bucket,
+                COUNT(*) as requests,
+                SUM(COALESCE(images_count, 0)) as images_generated,
+                SUM(COALESCE(audio_seconds, 0)) as audio_seconds,
+                SUM(COALESCE(tokens_estimated, 0)) as tokens_used,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors
+            FROM ai_api_usage_events
+            WHERE timestamp >= ?
+            GROUP BY bucket
+            ORDER BY bucket ASC
+        `
+            )
+            .all(sinceIso) as any[];
+
+        const byProviderRows = db
+            .prepare(
+                `
+            SELECT
+                provider,
+                COUNT(*) as requests,
+                SUM(COALESCE(images_count, 0)) as images_generated,
+                SUM(COALESCE(audio_seconds, 0)) as audio_seconds,
+                SUM(COALESCE(tokens_estimated, 0)) as tokens_used,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors,
+                SUM(CASE WHEN rate_limited = 1 THEN 1 ELSE 0 END) as rate_limited
+            FROM ai_api_usage_events
+            WHERE timestamp >= ?
+            GROUP BY provider
+        `
+            )
+            .all(sinceIso) as any[];
+
+        const recentEvents = getAiApiUsageEvents(sinceIso, 50).reverse();
+
+        const buckets = (bucketRows || []).map(r => ({
+            bucket: String(r.bucket || ''),
+            requests: Number(r.requests || 0),
+            imagesGenerated: Number(r.images_generated || 0),
+            audioSeconds: Number(r.audio_seconds || 0),
+            audioHours: Number((Number(r.audio_seconds || 0) / 3600).toFixed(2)),
+            tokensUsed: Number(r.tokens_used || 0),
+            errors: Number(r.errors || 0)
+        }));
+
+        const totalRequests = buckets.reduce((a, b) => a + b.requests, 0);
+        const totalImages = buckets.reduce((a, b) => a + b.imagesGenerated, 0);
+        const totalAudioSeconds = buckets.reduce((a, b) => a + b.audioSeconds, 0);
+        const totalAudioHours = Number((totalAudioSeconds / 3600).toFixed(2));
+        const totalTokens = buckets.reduce((a, b) => a + b.tokensUsed, 0);
+        const totalErrors = buckets.reduce((a, b) => a + b.errors, 0);
+
+        return {
+            buckets,
+            byProvider: byProviderRows || [],
+            recentEvents,
+            totals: {
+                totalRequests,
+                totalImages,
+                totalAudioSeconds,
+                totalAudioHours,
+                totalTokens,
+                totalErrors
+            }
+        };
+    } catch (e) {
+        console.warn('Error computing AI API usage time series:', e);
+        return {
+            buckets: [],
+            byProvider: [],
+            recentEvents: [],
+            totals: {
+                totalRequests: 0,
+                totalImages: 0,
+                totalAudioSeconds: 0,
+                totalAudioHours: 0,
+                totalTokens: 0,
+                totalErrors: 0
+            }
+        };
+    }
+};
+
+export interface InstantStreamDownloadRecord {
+    id: string;
+    media_type: 'movie' | 'series';
+    title: string;
+    year?: number;
+    tmdb_id?: number;
+    imdb_id?: string;
+    tvdb_id?: number;
+    instance_id?: string;
+    arr_media_id?: number;
+    root_folder_path?: string;
+    season_number: number;
+    episode_number: number;
+    stream_source_name?: string;
+    stream_source_url?: string;
+    instant_file_path?: string;
+    hq_file_path?: string;
+    status: 'queued' | 'downloading' | 'available_instant' | 'upgraded_hq' | 'failed';
+    progress: number;
+    replace_when_hq: boolean;
+    error_message?: string;
+    created_at: string;
+    updated_at: string;
+}
+
+const mapInstantDownloadRow = (r: any): InstantStreamDownloadRecord => ({
+    id: r.id,
+    media_type: r.media_type === 'series' ? 'series' : 'movie',
+    title: r.title || 'Untitled',
+    year: r.year ? Number(r.year) : undefined,
+    tmdb_id: r.tmdb_id ? Number(r.tmdb_id) : undefined,
+    imdb_id: r.imdb_id || undefined,
+    tvdb_id: r.tvdb_id ? Number(r.tvdb_id) : undefined,
+    instance_id: r.instance_id || undefined,
+    arr_media_id: r.arr_media_id ? Number(r.arr_media_id) : undefined,
+    root_folder_path: r.root_folder_path || undefined,
+    season_number: Number(r.season_number ?? 1),
+    episode_number: Number(r.episode_number ?? 1),
+    stream_source_name: r.stream_source_name || undefined,
+    stream_source_url: r.stream_source_url || undefined,
+    instant_file_path: r.instant_file_path || undefined,
+    hq_file_path: r.hq_file_path || undefined,
+    status: (r.status || 'queued') as InstantStreamDownloadRecord['status'],
+    progress: Number(r.progress ?? 0),
+    replace_when_hq: r.replace_when_hq !== 0,
+    error_message: r.error_message || undefined,
+    created_at: r.created_at || new Date().toISOString(),
+    updated_at: r.updated_at || new Date().toISOString()
+});
+
+export const upsertInstantStreamDownload = (rec: Partial<InstantStreamDownloadRecord> & { id: string; media_type?: 'movie' | 'series'; title?: string }): InstantStreamDownloadRecord => {
+    const existingRow = db.prepare('SELECT * FROM instant_stream_downloads WHERE id = ?').get(rec.id) as any;
+    const existing = existingRow ? mapInstantDownloadRow(existingRow) : null;
+    const now = new Date().toISOString();
+
+    const merged: InstantStreamDownloadRecord = {
+        id: rec.id,
+        media_type: rec.media_type ?? existing?.media_type ?? 'movie',
+        title: rec.title ?? existing?.title ?? 'Untitled',
+        year: rec.year ?? existing?.year,
+        tmdb_id: rec.tmdb_id ?? existing?.tmdb_id,
+        imdb_id: rec.imdb_id ?? existing?.imdb_id,
+        tvdb_id: rec.tvdb_id ?? existing?.tvdb_id,
+        instance_id: rec.instance_id ?? existing?.instance_id,
+        arr_media_id: rec.arr_media_id ?? existing?.arr_media_id,
+        root_folder_path: rec.root_folder_path ?? existing?.root_folder_path,
+        season_number: rec.season_number ?? existing?.season_number ?? 1,
+        episode_number: rec.episode_number ?? existing?.episode_number ?? 1,
+        stream_source_name: rec.stream_source_name ?? existing?.stream_source_name,
+        stream_source_url: rec.stream_source_url ?? existing?.stream_source_url,
+        instant_file_path: rec.instant_file_path !== undefined ? rec.instant_file_path : existing?.instant_file_path,
+        hq_file_path: rec.hq_file_path !== undefined ? rec.hq_file_path : existing?.hq_file_path,
+        status: rec.status ?? existing?.status ?? 'queued',
+        progress: rec.progress ?? existing?.progress ?? 0,
+        replace_when_hq: rec.replace_when_hq !== undefined ? rec.replace_when_hq : (existing?.replace_when_hq ?? true),
+        error_message: rec.error_message !== undefined ? rec.error_message : existing?.error_message,
+        created_at: existing?.created_at || now,
+        updated_at: now
+    };
+
+    db.prepare(`
+        INSERT INTO instant_stream_downloads (
+            id, media_type, title, year, tmdb_id, imdb_id, tvdb_id,
+            instance_id, arr_media_id, root_folder_path,
+            season_number, episode_number, stream_source_name, stream_source_url,
+            instant_file_path, hq_file_path, status, progress, replace_when_hq,
+            error_message, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            media_type = excluded.media_type,
+            title = excluded.title,
+            year = COALESCE(excluded.year, instant_stream_downloads.year),
+            tmdb_id = COALESCE(excluded.tmdb_id, instant_stream_downloads.tmdb_id),
+            imdb_id = COALESCE(excluded.imdb_id, instant_stream_downloads.imdb_id),
+            tvdb_id = COALESCE(excluded.tvdb_id, instant_stream_downloads.tvdb_id),
+            instance_id = COALESCE(excluded.instance_id, instant_stream_downloads.instance_id),
+            arr_media_id = COALESCE(excluded.arr_media_id, instant_stream_downloads.arr_media_id),
+            root_folder_path = COALESCE(excluded.root_folder_path, instant_stream_downloads.root_folder_path),
+            season_number = excluded.season_number,
+            episode_number = excluded.episode_number,
+            stream_source_name = COALESCE(excluded.stream_source_name, instant_stream_downloads.stream_source_name),
+            stream_source_url = COALESCE(excluded.stream_source_url, instant_stream_downloads.stream_source_url),
+            instant_file_path = excluded.instant_file_path,
+            hq_file_path = excluded.hq_file_path,
+            status = excluded.status,
+            progress = excluded.progress,
+            replace_when_hq = excluded.replace_when_hq,
+            error_message = excluded.error_message,
+            updated_at = excluded.updated_at
+    `).run(
+        merged.id,
+        merged.media_type,
+        merged.title,
+        merged.year ?? null,
+        merged.tmdb_id ?? null,
+        merged.imdb_id ?? null,
+        merged.tvdb_id ?? null,
+        merged.instance_id ?? null,
+        merged.arr_media_id ?? null,
+        merged.root_folder_path ?? null,
+        merged.season_number,
+        merged.episode_number,
+        merged.stream_source_name ?? null,
+        merged.stream_source_url ?? null,
+        merged.instant_file_path ?? null,
+        merged.hq_file_path ?? null,
+        merged.status,
+        merged.progress,
+        merged.replace_when_hq ? 1 : 0,
+        merged.error_message ?? null,
+        merged.created_at,
+        merged.updated_at
+    );
+
+    return merged;
+};
+
+export const deleteInstantStreamDownload = (id: string): boolean => {
+    try {
+        db.prepare('DELETE FROM instant_stream_downloads WHERE id = ?').run(id);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+export const getInstantStreamDownloads = (statusFilter?: string): InstantStreamDownloadRecord[] => {
+    try {
+        const rows = statusFilter
+            ? (db.prepare('SELECT * FROM instant_stream_downloads WHERE status = ? ORDER BY updated_at DESC').all(statusFilter) as any[])
+            : (db.prepare('SELECT * FROM instant_stream_downloads ORDER BY updated_at DESC LIMIT 200').all() as any[]);
+        return (rows || []).map(mapInstantDownloadRow);
+    } catch {
+        return [];
+    }
+};
+
+export const getInstantStreamDownloadsForMedia = (params: { tmdbId?: number; imdbId?: string; tvdbId?: number; title?: string }): InstantStreamDownloadRecord[] => {
+    try {
+        const all = getInstantStreamDownloads();
+        return all.filter(r =>
+            (params.tmdbId && r.tmdb_id === Number(params.tmdbId)) ||
+            (params.imdbId && r.imdb_id && r.imdb_id.toLowerCase() === params.imdbId.toLowerCase()) ||
+            (params.tvdbId && r.tvdb_id === Number(params.tvdbId)) ||
+            (params.title && r.title.toLowerCase() === params.title.toLowerCase())
+        );
+    } catch {
+        return [];
+    }
+};
+
 export default db;
+
 
 
 

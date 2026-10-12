@@ -16,6 +16,8 @@ import {
     getAudiobookChapterMeta,
     upsertAudiobookChapterMeta,
     resetAudiobookAssetsInDb,
+    purgeAllGeneratedAudiobookDataInDb,
+    logAiApiUsageEvent,
     recalculateAudiobookTotals,
     AudiobookBookMeta,
     AudiobookChapterMeta,
@@ -111,6 +113,10 @@ export interface BookRealStructure {
 
 export interface AudiobookStudioConfig {
     enabled: boolean;
+    aiFeaturesEnabled?: boolean;
+    transcribeEnabled?: boolean;
+    sceningEnabled?: boolean;
+    imagingEnabled?: boolean;
     scheduleMode: 'continuous_low_cpu' | 'hourly' | 'overnight' | 'manual_only';
     sttEngine: 'whisper_tiny_local' | 'openai_whisper' | 'gemini_audio' | 'acoustic_cadence';
     cpuThreads: number;
@@ -149,6 +155,10 @@ export interface AudiobookStudioLiveStatus {
     activeBookTitle: string | null;
     activeChapterKey: string | null;
     activeChapterTitle: string | null;
+    activeTranscriptionBookKey?: string | null;
+    activeTranscriptionBookTitle?: string | null;
+    activeSceningBookKey?: string | null;
+    activeImagingBookKey?: string | null;
     activeTask: 'transcribing' | 'llm_scene_analysis' | 'illustrating' | 'cover_art' | 'enhancing' | null;
     activeCategory?: 'cpu' | 'llm' | 'api' | 'quota' | null;
     activeResourceLabel?: string;
@@ -173,6 +183,10 @@ const DEFAULT_API_METRICS: StudioApiMetrics = {
 
 const DEFAULT_STUDIO_CONFIG: AudiobookStudioConfig = {
     enabled: true,
+    aiFeaturesEnabled: true,
+    transcribeEnabled: true,
+    sceningEnabled: true,
+    imagingEnabled: true,
     scheduleMode: 'continuous_low_cpu',
     sttEngine: 'gemini_audio',
     cpuThreads: 1,
@@ -388,9 +402,24 @@ export const saveAudiobookStudioConfig = (partial: Partial<AudiobookStudioConfig
         ? partial.apiKeys
         : (partial.keyPool !== undefined ? partial.keyPool : (current.apiKeys || []));
 
+    let sceningEnabled = partial.sceningEnabled !== undefined ? Boolean(partial.sceningEnabled) : (current.sceningEnabled ?? true);
+    let imagingEnabled = partial.imagingEnabled !== undefined ? Boolean(partial.imagingEnabled) : (current.imagingEnabled ?? true);
+    if (partial.sceningEnabled === false) {
+        imagingEnabled = false;
+    } else if (partial.imagingEnabled === true) {
+        sceningEnabled = true;
+    }
+    if (!sceningEnabled) {
+        imagingEnabled = false;
+    }
+
     const updated: AudiobookStudioConfig = {
         ...current,
         ...partial,
+        aiFeaturesEnabled: partial.aiFeaturesEnabled !== undefined ? Boolean(partial.aiFeaturesEnabled) : (current.aiFeaturesEnabled ?? true),
+        transcribeEnabled: partial.transcribeEnabled !== undefined ? Boolean(partial.transcribeEnabled) : (current.transcribeEnabled ?? true),
+        sceningEnabled,
+        imagingEnabled,
         apiMetrics: partial.apiMetrics ? { ...(current.apiMetrics || DEFAULT_API_METRICS), ...partial.apiMetrics } : (current.apiMetrics || DEFAULT_API_METRICS),
         apiKeys: incomingKeys,
         keyPool: incomingKeys,
@@ -445,6 +474,8 @@ export const recordStudioApiMetric = (params: {
     success: boolean;
     errorMessage?: string;
     description?: string;
+    audioSeconds?: number;
+    imagesCount?: number;
 }) => {
     try {
         const cfg = getAudiobookStudioConfig();
@@ -463,8 +494,12 @@ export const recordStudioApiMetric = (params: {
             lastTaskDescription: params.description || params.task
         };
 
+        let matchedProvider = params.keyOrProvider;
+        let matchedKeyId = '';
         const updatedKeys = (cfg.apiKeys || []).map(k => {
             if (k.key === params.keyOrProvider || k.id === params.keyOrProvider || k.provider === params.keyOrProvider) {
+                matchedProvider = k.provider;
+                matchedKeyId = k.id;
                 return {
                     ...k,
                     requestsCount: (k.requestsCount || 0) + 1,
@@ -482,9 +517,90 @@ export const recordStudioApiMetric = (params: {
             apiKeys: updatedKeys,
             keyPool: updatedKeys
         });
+
+        const isRateLimited = !params.success && /429|rate[_\s-]*limit|quota|too many requests/i.test(params.errorMessage || '');
+        const inferredProvider = matchedProvider.startsWith('AIza') || /gemini|imagen/i.test(params.providerLabel)
+            ? 'gemini'
+            : matchedProvider.startsWith('gsk_') || /groq/i.test(params.providerLabel)
+            ? 'groq'
+            : matchedProvider.startsWith('sk-ant') || /claude|anthropic/i.test(params.providerLabel)
+            ? 'claude'
+            : matchedProvider.startsWith('sk-') || /openai|dall-e|whisper-1/i.test(params.providerLabel)
+            ? 'openai'
+            : /whisper\.cpp|offline cpu|local/i.test(params.providerLabel)
+            ? 'whisper_local'
+            : /flux|pollinations|horde|free/i.test(params.providerLabel)
+            ? 'flux_free'
+            : matchedProvider || 'free';
+
+        logAiApiUsageEvent({
+            provider: inferredProvider,
+            provider_label: params.providerLabel,
+            key_id: matchedKeyId || undefined,
+            task_type: params.task,
+            success: params.success ? 1 : 0,
+            rate_limited: isRateLimited ? 1 : 0,
+            images_count: params.imagesCount !== undefined ? params.imagesCount : (params.task === 'image_paint' && params.success ? 1 : 0),
+            audio_seconds: params.audioSeconds !== undefined ? params.audioSeconds : 0,
+            tokens_estimated: params.task === 'art_prompt' || params.task === 'structure_search' ? 450 : 0,
+            book_title: g.__audiobookStudioStatus?.activeBookTitle || undefined,
+            chapter_title: g.__audiobookStudioStatus?.activeChapterTitle || undefined,
+            error_message: params.errorMessage
+        });
     } catch (e) {
         console.warn('Error recording studio API metric:', e);
     }
+};
+
+/**
+ * Purges all generated audiobook studio assets (files on disk in art, transcripts, enhanced dirs)
+ * and clears all generated chapter/scene rows and studio history in SQLite.
+ */
+export const purgeAllGeneratedAudiobookData = (): { deletedFiles: number; booksCleared: number; chaptersDeleted: number } => {
+    let deletedFiles = 0;
+    const dirs = [getAudiobookArtDir(), getAudiobookTranscriptsDir(), getAudiobookEnhancedDir()];
+    for (const dir of dirs) {
+        try {
+            if (fs.existsSync(dir)) {
+                for (const f of fs.readdirSync(dir)) {
+                    try {
+                        const fp = path.join(dir, f);
+                        if (fs.statSync(fp).isFile()) {
+                            fs.unlinkSync(fp);
+                            deletedFiles++;
+                        }
+                    } catch {}
+                }
+            }
+        } catch {}
+    }
+
+    const dbRes = purgeAllGeneratedAudiobookDataInDb();
+    try {
+        setSetting('audiobook_studio_history', '[]');
+    } catch {}
+
+    g.__audiobookStudioStatus = {
+        ...g.__audiobookStudioStatus,
+        isRunning: false,
+        activeBookKey: null,
+        activeBookTitle: null,
+        activeChapterKey: null,
+        activeChapterTitle: null,
+        activeTask: null,
+        activeCategory: null,
+        activeResourceLabel: 'Idle',
+        progress: 0,
+        lastLog: `Cleared all generated data (${deletedFiles} files removed)`,
+        currentStep: 'Idle — Ready to process queued audiobooks',
+        updatedAt: new Date().toISOString()
+    };
+
+    return {
+        deletedFiles,
+        booksCleared: dbRes.booksReset,
+        chaptersDeleted: dbRes.chaptersDeleted
+    };
 };
 
 /**
@@ -2804,6 +2920,8 @@ export const transcribeAudiobookChapter = async (
                     break;
                 }
 
+                g.__audiobookStudioStatus.activeTranscriptionBookKey = book.book_key;
+                g.__audiobookStudioStatus.activeTranscriptionBookTitle = book.title;
                 const pctApi = Math.min(98, Math.round(((chunkIdx + 0.6) / numChunks) * 98));
                 const chunkRes = await transcribeSingleExtractedAudioFile({
                     tmpSample,
@@ -2822,15 +2940,44 @@ export const transcribeAudiobookChapter = async (
                     winningProviderLabel = chunkRes.providerLabel;
                     newChunksTranscribed++;
 
+                    const provLabel = winningProviderLabel || 'Local Whisper.cpp (Offline CPU)';
+                    logAiApiUsageEvent({
+                        provider: /gemini/i.test(provLabel) ? 'gemini' : /groq/i.test(provLabel) ? 'groq' : /openai/i.test(provLabel) ? 'openai' : 'whisper_local',
+                        provider_label: provLabel,
+                        task_type: 'transcription',
+                        success: 1,
+                        rate_limited: 0,
+                        images_count: 0,
+                        audio_seconds: currentChunkLenSec,
+                        book_title: book.title,
+                        chapter_title: chapter.title
+                    });
+
                     // Immediately persist live partial transcript so the UI shows lines appearing in real time!
                     persistTranscriptToServer(
                         allLrcLines.join('\n'),
                         allPlainParts.join(' '),
-                        winningProviderLabel || 'Local Whisper.cpp (Offline CPU)',
+                        provLabel,
                         completedSec,
                         false
                     );
                     recalculateAudiobookTotals(book.book_key);
+
+                    // Pipelined automation: as soon as there is enough of a transcript (>= 180s), wake up Scening & Imaging in background!
+                    if (completedSec >= 180 && (newChunksTranscribed === 2 || newChunksTranscribed % 4 === 0)) {
+                        triggerIncrementalSceningAndImaging(book.book_key, chapter.chapter_key);
+                    }
+
+                    // Priority preemption: if the user dragged/moved another queued book above this book's priority,
+                    // checkpoint after this chunk and yield so the higher-priority book starts immediately!
+                    const latestQueueBooks = getAllAudiobooksMeta().filter(b => b.queue_enabled && b.transcribe_enabled && b.transcribed_chapters < b.total_chapters);
+                    const curBookFresh = getAudiobookMeta(book.book_key) || book;
+                    if (latestQueueBooks.length > 0 && (latestQueueBooks[0].queue_priority || 100) < (curBookFresh.queue_priority || 100) && latestQueueBooks[0].book_key !== book.book_key) {
+                        console.log(`⚡ [AudiobookStudio] Preempting transcription of "${book.title}" at ${Math.round(completedSec)}s because "${latestQueueBooks[0].title}" was moved to #1 priority`);
+                        g.__audiobookStudioStatus.activeTranscriptionBookKey = null;
+                        g.__audiobookStudioStatus.activeTranscriptionBookTitle = null;
+                        return { syncedLyrics: allLrcLines.join('\n'), plainTranscript: allPlainParts.join(' ') };
+                    }
                 } else {
                     if (chunkIdx > 0 && allLrcLines.length > 0 && !chunkRes.error) {
                         // Trailing silence at the end of chapter audio
@@ -2845,6 +2992,9 @@ export const transcribeAudiobookChapter = async (
             }
         }
     }
+
+    g.__audiobookStudioStatus.activeTranscriptionBookKey = null;
+    g.__audiobookStudioStatus.activeTranscriptionBookTitle = null;
 
     if (allLrcLines.length > 0 && !isFakePlaceholderTranscript(allLrcLines.join('\n'))) {
         const syncedLyrics = allLrcLines.join('\n');
@@ -2862,6 +3012,8 @@ export const transcribeAudiobookChapter = async (
             isFullyDone
         );
         recalculateAudiobookTotals(book.book_key);
+        // Trigger Scening & Imaging as soon as chapter transcription completes while Transcription worker moves on to the next chapter/book!
+        triggerIncrementalSceningAndImaging(book.book_key, chapter.chapter_key);
         if (newChunksTranscribed > 0) {
             console.log(`✅ [AudiobookStudio] Completed real audio transcription for "${book.title}" — ${chapter.title} (${effectiveProviderLabel}, ${Math.round(completedSec)}s/${Math.round(durationSec)}s)`);
         }
@@ -3033,11 +3185,77 @@ export const enhanceAudiobookChapterAudio = async (
 };
 
 /**
- * Sanitizes and grounds an image generation prompt against the actual scene text:
- * - Preserves all named characters, actions, costumes, facial expressions, and story events!
- * - Only strips extreme gore/disfigurement tokens so diffusion models draw expressive literary illustrations
- *   featuring the real characters and plot moments of the scene.
+ * Translates narrative project names, metaphors, and proper-noun codenames into their actual physical visual reality
+ * so diffusion models NEVER draw literal misinterpretations (e.g. drawing a literal architectural staircase for
+ * Cixin Liu's "Staircase Program" / "Project Staircase" deep-space radiation-sail probe mission).
  */
+export const deliteralizeNarrativeTermsForVisualPrompt = (text: string, bookTitle: string, author: string): string => {
+    let out = text || '';
+    const isSciFiOrLiu = /death'?s end|three[\s-]*body|dark forest|cixin|liu|foundation|dune|hyperion|expanse|neuromancer|culture/i.test(`${bookTitle} ${author} ${text}`);
+
+    out = out
+        .replace(/\b(the\s+)?staircase\s+(program|project|plan|mission|initiative)\b/gi, 'deep-space nuclear-pulse radiation-sail probe launch mission and futuristic aerospace command center')
+        .replace(/\bproject\s+staircase\b/gi, 'deep-space radiation-sail spacecraft probe mission in an aerospace command center')
+        .replace(/\bwallfacer(\s+project|\s+program)?\b/gi, 'United Nations planetary defense council chamber and strategic command center')
+        .replace(/\bswordholder\b/gi, 'sole guardian of the gravitational-wave deterrence control console in a subterranean bunker')
+        .replace(/\bdark\s+forest\s+(deterrence|theory|state|broadcast)\b/gi, 'interstellar gravitational-wave deterrence array and deep-space cosmos')
+        .replace(/\bred\s+coast\s+base\b/gi, 'giant parabolic radio-astronomy dish antenna atop a mountain peak')
+        .replace(/\bsophon(s)?\b/gi, 'subatomic multidimensional quantum supercomputer projection floating in a high-tech facility');
+
+    if (isSciFiOrLiu && /\b(probe|sail|launch|nuclear|space|orbit|pia|cheng\s+xin|yun\s+tianming|wade|thomas\s+wade|halo|bunker|deterrence|crisis\s+era)\b/i.test(out)) {
+        out = out.replace(/\bstaircase(s|way)?\b/gi, 'deep-space radiation-sail trajectory');
+    }
+
+    return out;
+};
+
+/**
+ * Resolves the authentic historical or futuristic era & visual aesthetic for a specific book/chapter/scene,
+ * preventing hardcoded "literary book illustration" / "period clothing" tokens from forcing a vintage/retro pulp style
+ * onto modern or futuristic sci-fi scenes.
+ */
+export const resolveSceneEraAndStyleDirective = (params: {
+    bookTitle: string;
+    author: string;
+    chapterTitle: string;
+    sceneSnippet: string;
+    effectiveStyle: string;
+}): { eraContext: string; wardrobeAndSettingDirective: string; styleFinish: string } => {
+    const { bookTitle, author, chapterTitle, sceneSnippet, effectiveStyle } = params;
+    const combined = `${bookTitle} ${author} ${chapterTitle} ${sceneSnippet}`;
+
+    // Check if a chapter is an explicit historical prologue/flashback (e.g. "May 1453", "Constantinople")
+    if (/\b(1453|constantinople|byzantine|emperor\s+constantine|sultan|medieval)\b/i.test(`${chapterTitle} ${sceneSnippet}`)) {
+        return {
+            eraContext: '15th-century 1453 Byzantine Constantinople historical setting',
+            wardrobeAndSettingDirective: 'authentic 15th-century Byzantine stone architecture, candlelight, and period attire',
+            styleFinish: `${effectiveStyle}, high-detail cinematic historical realism, no retro pulp poster borders`
+        };
+    }
+
+    if (/death'?s end|three[\s-]*body|dark forest|cixin|liu|spacecraft|starship|orbital|hibernation|crisis\s+era|deterrence\s+era|bunker\s+era|galaxy\s+era|cheng\s+xin|yun\s+tianming|thomas\s+wade|pia|halo|trisolar/i.test(combined)) {
+        return {
+            eraContext: 'hard science-fiction futuristic aerospace and cosmic civilization setting (contemporary / near-future / interstellar Crisis & Deterrence Era)',
+            wardrobeAndSettingDirective: 'sleek modern and futuristic technical attire, realistic aerospace command centers, holographic telemetry, orbital habitats, and hard sci-fi engineering (strictly NO retro 1950s pulp sci-fi, NO vintage book-cover aesthetic, NO literal staircases for Project Staircase)',
+            styleFinish: `${effectiveStyle}, ultra-clean modern hard sci-fi cinematic concept art, realistic lighting and materials`
+        };
+    }
+
+    if (/metamorphosis|kafka|191\d|prague|samsa/i.test(combined)) {
+        return {
+            eraContext: 'early 20th-century 1915 Central European Prague apartment setting',
+            wardrobeAndSettingDirective: 'authentic 1910s European wardrobe, expressive faces, moody chiaroscuro interior lighting',
+            styleFinish: `${effectiveStyle}, dramatic atmospheric cinema`
+        };
+    }
+
+    return {
+        eraContext: `authentic world and era of "${bookTitle}" by ${author}`,
+        wardrobeAndSettingDirective: 'era-appropriate clothing matching the exact scene setting, expressive faces, coherent natural anatomy',
+        styleFinish: `${effectiveStyle}, high-resolution cinematic scene composition`
+    };
+};
+
 export const sanitizeAndGroundScenePrompt = (params: {
     rawPrompt: string;
     sceneSnippet: string;
@@ -3047,13 +3265,17 @@ export const sanitizeAndGroundScenePrompt = (params: {
     effectiveStyle: string;
     attempt?: number;
 }): string => {
-    const { rawPrompt, sceneSnippet, bookTitle, effectiveStyle } = params;
+    const { rawPrompt, sceneSnippet, bookTitle, author, chapterTitle, effectiveStyle } = params;
+    const eraInfo = resolveSceneEraAndStyleDirective({ bookTitle, author, chapterTitle, sceneSnippet, effectiveStyle });
 
-    let cleaned = rawPrompt
+    let cleaned = deliteralizeNarrativeTermsForVisualPrompt(rawPrompt, bookTitle, author)
         .replace(/\b(nightmare fuel|visceral gore|gory|mutilated|rotting flesh|maggot|cockroach monster|human-insect hybrid)\b/gi, '')
         .replace(/\b(monstrous\s+vermin|giant\s+insect|giant\s+bug)\b/gi,
             'unsettling transformed silhouette shrouded in deep chiaroscuro bedroom shadows'
-        );
+        )
+        .replace(/\bmasterpiece\s+literary\s+book\s+illustration\b/gi, eraInfo.styleFinish)
+        .replace(/\bliterary\s+book\s+illustration\b/gi, eraInfo.styleFinish)
+        .replace(/\bdetailed\s+period\s+clothing\b/gi, eraInfo.wardrobeAndSettingDirective);
 
     if (/metamorphosis/i.test(bookTitle)) {
         cleaned = cleaned.replace(/\b(cockroach|roach|mandibles|chitin)\b/gi, 'dark carapace shadow');
@@ -3061,11 +3283,15 @@ export const sanitizeAndGroundScenePrompt = (params: {
 
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
     if (!cleaned || cleaned.length < 25) {
-        const cleanSnippet = (sceneSnippet || '').replace(/["'()\[\]{}<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220);
-        cleaned = `${effectiveStyle} literary book illustration for "${bookTitle}", depicting the characters and dramatic action of the scene: ${cleanSnippet}`;
+        const cleanSnippet = deliteralizeNarrativeTermsForVisualPrompt(
+            (sceneSnippet || '').replace(/["'()\[\]{}<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200),
+            bookTitle,
+            author
+        );
+        cleaned = `${eraInfo.styleFinish} for "${bookTitle}", depicting the characters and dramatic action in ${eraInfo.eraContext}: ${cleanSnippet}`;
     }
 
-    const guardrailSuffix = 'expressive character illustration, detailed period clothing and faces, coherent natural anatomy, cinematic lighting, no text, no watermark';
+    const guardrailSuffix = `${eraInfo.wardrobeAndSettingDirective}, coherent natural anatomy, cinematic lighting, no text, no watermark`;
     if (cleaned.toLowerCase().includes('no text, no watermark')) {
         return cleaned;
     }
@@ -3321,32 +3547,41 @@ export const generateDynamicScenePrompt = async (params: {
         ? `the Chapter Opening Illustration for "${chapter.title}" of "${book.title}" by ${book.author}`
         : `Scene ${sceneIndex + 1} of ${totalScenes} (${sceneTitle || `Scene ${sceneIndex + 1}`}) in "${chapter.title}" of "${book.title}" by ${book.author}`;
 
+    const eraInfo = resolveSceneEraAndStyleDirective({
+        bookTitle: book.title,
+        author: book.author,
+        chapterTitle: chapter.title,
+        sceneSnippet,
+        effectiveStyle
+    });
+
     if (useDynamic) {
         const directorSystemPrompt = [
-            `You are a master cinematic concept artist and classic literary book illustrator.`,
+            `You are a master cinematic concept artist and visual director.`,
             `Write ONE vivid, character-driven, plot-specific image-generation prompt (50 to 80 words) for ${roleTarget}.`,
-            `Art Style: ${effectiveStyle}. Visual Focus: ${focusDesc}.`,
+            `Art Style & Aesthetic: ${eraInfo.styleFinish}. Era & World Setting: ${eraInfo.eraContext}. Visual Focus: ${focusDesc}.`,
             sceneSnippet ? `Exact story event / transcribed audio passage happening right now: "${sceneSnippet}".` : '',
             properNouns.length > 0 ? `Named characters & subjects in this book: ${properNouns.join(', ')}.` : '',
             prevContinuity ? `${prevContinuity} (Keep consistent character faces, wardrobe, and era while depicting this specific new plot action).` : '',
             effectiveCustomPrompt ? `Additional user direction: ${effectiveCustomPrompt}.` : '',
             `CRITICAL ILLUSTRATION RULES:`,
-            `1. NEVER generate an empty room or generic furniture! You MUST depict the specific characters present in this scene, their physical appearance, period clothing, facial expressions, and the exact action or confrontation happening in the passage.`,
-            `2. If the scene involves a surreal transformation (such as Gregor Samsa in The Metamorphosis), depict the dramatic human and atmospheric reality of the moment—e.g. Gregor in his dim 1910s Prague bedroom, the locked double doors, the anxious family (Grete, Mr. and Mrs. Samsa) or the stern Chief Clerk in his bowler hat reacting in shock, with evocative chiaroscuro shadows.`,
-            `3. Do NOT include any text, letters, book titles, speech bubbles, or watermarks in the image. Return ONLY the raw image prompt.`
+            `1. NEVER generate an empty room or generic furniture! You MUST depict the specific characters present in this scene, their physical appearance, ${eraInfo.wardrobeAndSettingDirective}, facial expressions, and the exact action or confrontation happening in the passage.`,
+            `2. NEVER interpret scientific project codenames or narrative metaphors literally! For example, "Staircase Program" or "Project Staircase" in Cixin Liu's Death's End is a deep-space nuclear radiation-sail probe launch mission—NEVER draw a physical staircase! Depict the actual spacecraft probe, radiation sail, or aerospace command center and characters (Cheng Xin, Thomas Wade, Yun Tianming).`,
+            `3. Match the exact era of the scene (${eraInfo.eraContext}). Never use a retro 1950s pulp or vintage book-illustration look on modern or futuristic sci-fi scenes.`,
+            `4. Do NOT include any text, letters, book titles, speech bubbles, or watermarks in the image. Return ONLY the raw image prompt.`
         ].filter(Boolean).join('\n');
 
         const llmRes = await callStudioTextLlmWithFailover({
             prompt: directorSystemPrompt,
             task: 'art_prompt',
             maxTokens: 200,
-            temperature: 0.6,
+            temperature: 0.55,
             description: `Scene prompt (${artType}) for "${book.title}"`
         });
 
         if (llmRes?.text && llmRes.text.length > 25) {
             return sanitizeAndGroundScenePrompt({
-                rawPrompt: `${llmRes.text.replace(/^["']|["']$/g, '')}, ${effectiveStyle}, masterpiece literary book illustration`,
+                rawPrompt: `${llmRes.text.replace(/^["']|["']$/g, '')}, ${eraInfo.styleFinish}`,
                 sceneSnippet,
                 bookTitle: book.title,
                 author: book.author,
@@ -3357,17 +3592,21 @@ export const generateDynamicScenePrompt = async (params: {
         }
     }
 
-    const cleanSnippet = sceneSnippet
-        .replace(/["'()\[\]{}<>]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 220);
+    const cleanSnippet = deliteralizeNarrativeTermsForVisualPrompt(
+        sceneSnippet
+            .replace(/["'()\[\]{}<>]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 200),
+        book.title,
+        book.author
+    );
 
     const baseFallbackPrompt = [
-        `${effectiveStyle} literary illustration for "${book.title}" by ${book.author}`,
-        properNouns.length > 0 ? `depicting characters ${properNouns.slice(0, 4).join(', ')} in action` : 'depicting the main characters in dramatic action',
-        cleanSnippet ? `during the scene: ${cleanSnippet}` : '',
-        `(${focusDesc}, expressive faces and body language, authentic period wardrobe and setting)`
+        `${eraInfo.styleFinish} for "${book.title}" by ${book.author} (${eraInfo.eraContext})`,
+        properNouns.length > 0 ? `depicting characters ${properNouns.slice(0, 4).join(', ')} in dramatic action` : 'depicting the main characters in dramatic action',
+        cleanSnippet ? `scene context: ${cleanSnippet}` : '',
+        `(${focusDesc}, ${eraInfo.wardrobeAndSettingDirective})`
     ].filter(Boolean).join(', ');
 
     return sanitizeAndGroundScenePrompt({
@@ -4180,9 +4419,20 @@ const extractLocalScenesFromWindowTranscript = (params: {
             ? words.replace(/[.,;!?]+$/, '')
             : (atSec === 0 ? `${cleanChapLabel} — Opening` : `${cleanChapLabel} (${fmtSecToMMSS(atSec)})`);
 
-        const excerptSummary = passage.slice(0, 260) || `Story events at ${fmtSecToMMSS(atSec)} in ${cleanChapLabel} of ${bookTitle}`;
+        const excerptSummary = deliteralizeNarrativeTermsForVisualPrompt(
+            passage.slice(0, 220) || `Story events at ${fmtSecToMMSS(atSec)} in ${cleanChapLabel} of ${bookTitle}`,
+            bookTitle,
+            author
+        );
+        const eraInfo = resolveSceneEraAndStyleDirective({
+            bookTitle,
+            author,
+            chapterTitle: cleanChapLabel,
+            sceneSnippet: excerptSummary,
+            effectiveStyle
+        });
         const charPhrase = chars.length > 0 ? `featuring ${chars.join(', ')}` : `featuring the central characters of "${bookTitle}"`;
-        const prompt = `${effectiveStyle} literary book illustration for "${bookTitle}" by ${author} (${cleanChapLabel} at ${fmtSecToMMSS(atSec)}), ${charPhrase} in dramatic action during the spoken passage: "${excerptSummary}". Expressive faces, authentic wardrobe, rich atmospheric lighting, cinematic composition, no text, no watermark`;
+        const prompt = `${eraInfo.styleFinish} for "${bookTitle}" by ${author} (${cleanChapLabel} at ${fmtSecToMMSS(atSec)}, ${eraInfo.eraContext}), ${charPhrase} in dramatic action: ${excerptSummary}. ${eraInfo.wardrobeAndSettingDirective}, rich atmospheric lighting, cinematic composition, no text, no watermark`;
 
         return {
             atSecond: atSec,
@@ -4191,7 +4441,7 @@ const extractLocalScenesFromWindowTranscript = (params: {
                 ? `Opening narration of "${cleanChapLabel}"`
                 : `Narrative shift in spoken transcript at ${fmtSecToMMSS(atSec)}`,
             characters: chars,
-            visualSetting: `${bookTitle} — ${cleanChapLabel} setting`,
+            visualSetting: `${bookTitle} — ${cleanChapLabel} (${eraInfo.eraContext})`,
             illustrationPrompt: prompt
         };
     };
@@ -4234,10 +4484,8 @@ const extractLocalScenesFromWindowTranscript = (params: {
 
 /**
  * STAGE 2: Timestamped Text -> Scene Transition Timestamps & Prompts
- * STRICT PREREQUISITE: Requires Stage 1 (Audio -> Timestamped Text) to be completed first (`chapter.synced_lyrics`).
- * Never invents scenes before the chapter audio is transcribed into timestamped `[MM:SS.xx]` text!
- * Walks chronologically in 15-minute (`900s`) windows through the timestamped transcript; uses the configured LLM
- * if available and immediately falls back to the self-reliant local transcript analyzer when rate-limited or offline.
+ * Begins as soon as there is enough of a transcript (e.g. >= 180s or completed) and incrementally
+ * adds scenes as the transcript grows!
  */
 export const detectAudiobookChapterScenesWithLlm = async (
     book: AudiobookBookMeta,
@@ -4289,8 +4537,32 @@ export const detectAudiobookChapterScenesWithLlm = async (
         )
         : [];
 
+    const parsedTimedLines: { time: number; raw: string; text: string }[] = [];
+    for (const rawLine of (latestChapter.synced_lyrics || '').split('\n')) {
+        const m = rawLine.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.+)$/);
+        if (m) {
+            const t = parseInt(m[1], 10) * 60 + parseFloat(m[2]);
+            parsedTimedLines.push({ time: t, raw: rawLine.trim(), text: m[3].trim() });
+        }
+    }
+
+    const maxTranscribedLineSec = parsedTimedLines.length > 0
+        ? parsedTimedLines[parsedTimedLines.length - 1].time
+        : (latestChapter.transcribed_seconds || 0);
+    const maxExistingSceneStartSec = existingScenes.length > 0
+        ? Math.max(0, ...existingScenes.map(s => Number(s.startSec) || 0))
+        : -1;
+
+    // If scenes already exist and we aren't forcing redetect:
+    // - If chapter transcription is completed and existing scenes already cover within 480s of the end (or >= 2 scenes), return them.
+    // - If transcription is still in progress and existing scenes already cover within 480s of maxTranscribedLineSec, return them until more transcript arrives.
     if (!options?.forceRedetect && existingScenes.length >= 1) {
-        return existingScenes;
+        if (
+            (latestChapter.transcription_status === 'completed' && (existingScenes.length >= 2 || maxExistingSceneStartSec >= maxTranscribedLineSec - 480)) ||
+            (latestChapter.transcription_status !== 'completed' && maxExistingSceneStartSec >= maxTranscribedLineSec - 480)
+        ) {
+            return existingScenes;
+        }
     }
 
     const streamSource = await resolveChapterAudioStreamSource(book, latestChapter);
@@ -4298,6 +4570,10 @@ export const detectAudiobookChapterScenesWithLlm = async (
         ? latestChapter.duration_sec
         : (streamSource.inputSource ? await probeAudioDuration(streamSource.inputSource) : 600);
     const durationSec = Math.max(60, probedDur || 600);
+    // Only analyze up to the currently transcribed audio timestamp when transcription is still ongoing
+    const effectiveAnalyzeEndSec = latestChapter.transcription_status === 'completed'
+        ? durationSec
+        : Math.min(durationSec, Math.max(180, Math.round(maxTranscribedLineSec + 30)));
 
     const effectiveStyle = (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Cinematic Concept Art');
 
@@ -4339,42 +4615,46 @@ export const detectAudiobookChapterScenesWithLlm = async (
         } catch {}
     }
 
-    const parsedTimedLines: { time: number; raw: string; text: string }[] = [];
-    for (const rawLine of (latestChapter.synced_lyrics || '').split('\n')) {
-        const m = rawLine.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.+)$/);
-        if (m) {
-            const t = parseInt(m[1], 10) * 60 + parseFloat(m[2]);
-            parsedTimedLines.push({ time: t, raw: rawLine.trim(), text: m[3].trim() });
-        }
-    }
-
     // Use 15-minute (900s) windows so a 45-minute chapter needs at most 3 passes instead of 15
     const windowSizeSec = 900;
-    const totalWindows = Math.max(1, Math.ceil(durationSec / windowSizeSec));
+    const totalWindows = Math.max(1, Math.ceil(effectiveAnalyzeEndSec / windowSizeSec));
     const cleanChapLabel = latestChapter.title.replace(/\.(mp3|m4b|m4a|flac|ogg|wav)$/i, '').trim() || `Chapter ${latestChapter.chapter_index}`;
+    const eraInfo = resolveSceneEraAndStyleDirective({
+        bookTitle: currentBook.title,
+        author: currentBook.author,
+        chapterTitle: latestChapter.title,
+        sceneSnippet: chapterPlotReference,
+        effectiveStyle
+    });
 
+    g.__audiobookStudioStatus.activeSceningBookKey = book.book_key;
     updateLiveStatus({
         isRunning: true,
         activeBookKey: book.book_key,
         activeBookTitle: book.title,
         activeChapterKey: latestChapter.chapter_key,
         activeChapterTitle: latestChapter.title,
+        activeSceningBookKey: book.book_key,
         activeTask: 'llm_scene_analysis',
         activeCategory: 'llm',
         progress: 5,
-        lastLog: `[Stage 2 • Scene Detection] Analyzing timestamped transcript for "${cleanChapLabel}" (${totalWindows} window(s) across ${fmtSecToMMSS(durationSec)})...`
+        lastLog: `[Stage 2 • Scene Detection] Analyzing timestamped transcript for "${cleanChapLabel}" (${totalWindows} window(s) across ${fmtSecToMMSS(effectiveAnalyzeEndSec)})...`
     });
 
-    const discoveredScenes: AudiobookChapterSceneImage[] = [];
-    let activeSceneSummary = '';
-    let activeSceneTitle = '';
-    let activeSceneStartSec = 0;
-    let lastTransitionSec = -999;
+    const discoveredScenes: AudiobookChapterSceneImage[] = options?.forceRedetect ? [] : [...existingScenes];
+    let activeSceneSummary = discoveredScenes.length > 0 ? (discoveredScenes[discoveredScenes.length - 1].transitionReason || '') : '';
+    let activeSceneTitle = discoveredScenes.length > 0 ? (discoveredScenes[discoveredScenes.length - 1].sceneTitle || '') : '';
+    let activeSceneStartSec = discoveredScenes.length > 0 ? (discoveredScenes[discoveredScenes.length - 1].startSec || 0) : 0;
+    let lastTransitionSec = discoveredScenes.length > 0 ? (discoveredScenes[discoveredScenes.length - 1].startSec || 0) : -999;
     let llmRateLimitedInChapter = false;
 
-    for (let wIdx = 0; wIdx < totalWindows; wIdx++) {
+    const startWindowIdx = (!options?.forceRedetect && discoveredScenes.length > 0)
+        ? Math.floor(Math.max(0, lastTransitionSec + 180) / windowSizeSec)
+        : 0;
+
+    for (let wIdx = startWindowIdx; wIdx < totalWindows; wIdx++) {
         const winStartSec = wIdx * windowSizeSec;
-        const winEndSec = Math.min(durationSec, (wIdx + 1) * windowSizeSec);
+        const winEndSec = Math.min(effectiveAnalyzeEndSec, (wIdx + 1) * windowSizeSec);
         if (winEndSec - winStartSec < 8) break;
 
         const basePct = Math.min(96, Math.max(6, Math.round(((wIdx + 0.5) / totalWindows) * 95)));
@@ -4389,6 +4669,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
             activeBookTitle: book.title,
             activeChapterKey: latestChapter.chapter_key,
             activeChapterTitle: latestChapter.title,
+            activeSceningBookKey: book.book_key,
             activeTask: 'llm_scene_analysis',
             activeCategory: llmRateLimitedInChapter ? 'cpu' : 'llm',
             progress: basePct,
@@ -4409,6 +4690,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
             const llmAnalysisPrompt = [
                 `You are a literary narrative analyst and cinematic storyboard director reading the timestamped transcript of "${currentBook.title}" by ${currentBook.author}.`,
                 `We are analyzing audio file #${latestChapter.chapter_index} ("${cleanChapLabel}", total duration ${fmtSecToMMSS(durationSec)}) chronologically.`,
+                `Era & Aesthetic Directive: ${eraInfo.eraContext} — ${eraInfo.wardrobeAndSettingDirective}.`,
                 `Current Window: ${wIdx + 1} of ${totalWindows} (${fmtSecToMMSS(winStartSec)} to ${fmtSecToMMSS(winEndSec)}, seconds ${winStartSec}..${winEndSec}).`,
                 characterBible.size > 0 ? `Known Characters in Book: ${Array.from(characterBible).slice(0, 12).join(', ')}.` : '',
                 chapterPlotReference ? `Chapter Plot Context: ${chapterPlotReference.slice(0, 700)}` : '',
@@ -4428,8 +4710,8 @@ export const detectAudiobookChapterScenesWithLlm = async (
                 `   - "sceneTitle": specific, evocative 3-7 word title for what happens in this scene`,
                 `   - "transitionReason": 1 concise sentence explaining WHY a new scene starts at this exact timestamp`,
                 `   - "characters": array of specific character names present in this scene`,
-                `   - "visualSetting": specific room/location, era, and lighting`,
-                `   - "illustrationPrompt": a rich, concrete 55-80 word visual prompt in "${effectiveStyle}" style depicting the EXACT named characters, their facial expressions, period clothing, body language, and the specific plot action happening at this timestamp.`,
+                `   - "visualSetting": specific room/location, era (${eraInfo.eraContext}), and lighting`,
+                `   - "illustrationPrompt": a rich, concrete 55-80 word visual prompt in "${eraInfo.styleFinish}" style depicting the EXACT named characters, their facial expressions, ${eraInfo.wardrobeAndSettingDirective}, body language, and the specific plot action happening at this timestamp. NEVER interpret project names like "Staircase Program" as a literal staircase—depict the actual deep-space radiation-sail probe or aerospace command center!`,
                 `Respond ONLY with valid JSON matching this schema:`,
                 `{"transitions":[{"atSecond":${winStartSec},"sceneTitle":"...","transitionReason":"...","characters":["..."],"visualSetting":"...","illustrationPrompt":"..."}]}`
             ].filter(Boolean).join('\n');
@@ -4518,7 +4800,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
                 : `${cleanChapLabel} — ${tr.sceneTitle}`;
 
             const groundedPrompt = sanitizeAndGroundScenePrompt({
-                rawPrompt: `${tr.illustrationPrompt.replace(/^["']|["']$/g, '')}, ${effectiveStyle}, masterpiece literary book illustration`,
+                rawPrompt: `${tr.illustrationPrompt.replace(/^["']|["']$/g, '')}, ${eraInfo.styleFinish}`,
                 sceneSnippet: `${tr.sceneTitle} (${tr.characters.join(', ')}): ${tr.transitionReason}. ${formattedExcerpt.slice(0, 300)}`,
                 bookTitle: currentBook.title,
                 author: currentBook.author,
@@ -5164,13 +5446,172 @@ export const getQueueBreakdownAndHistory = () => {
 };
 
 /**
- * Processes the next pending step in the Audiobook Priority Queue in STRICT SEQUENTIAL ORDER:
- * 1. Stage 1: Chapter Transcription (`Audio -> Timestamped Text`, CPU Whisper.cpp or Cloud STT API)
- * 2. Stage 2: LLM Scene Transition Detection (`Timestamped Text -> Scene Transition Timestamps & Prompts`, LLM)
- *    — NEVER runs on a chapter until Stage 1 (Transcription) is completed for that chapter!
- * 3. Stage 3: Scene Imaging (`Created Scenes -> Painted Artwork`, Image API + Daily Quota)
- *    — NEVER runs on a chapter until Stage 2 (Scene Detection) has created scenes with timestamps!
- * 4. Stage 1B: Audio & Voice Enhancement (`Audio -> Cadence-Matched .m4a`, Local CPU FFmpeg DSP)
+ * Runs one step of Stage 2 (Scening) or Stage 3 (Imaging) across prioritized books:
+ * - Scening begins as soon as a chapter has enough of a transcript (>= 180s or completed).
+ * - Imaging begins as soon as there are already a few scenes defined (>= 2 scenes, or >= 1 when chapter transcript is complete).
+ * - Respects the dependency rule: Imaging never runs if Scening is disabled.
+ */
+export const runSingleSceningOrImagingStep = async (
+    forceBookKey?: string,
+    forceChapterKey?: string,
+    forceIgnoreQuota?: boolean
+): Promise<{ didWork: boolean; blockedByQuotaCount: number; failedCount: number; lastError: string }> => {
+    const config = getAudiobookStudioConfig();
+    if (config.aiFeaturesEnabled === false && !forceBookKey && !forceChapterKey) {
+        return { didWork: false, blockedByQuotaCount: 0, failedCount: 0, lastError: '' };
+    }
+    const globalSceningOn = config.sceningEnabled !== false;
+    const globalImagingOn = globalSceningOn && (config.imagingEnabled !== false);
+    if (!globalSceningOn && !forceBookKey && !forceChapterKey) {
+        return { didWork: false, blockedByQuotaCount: 0, failedCount: 0, lastError: '' };
+    }
+
+    const allBooks = getAllAudiobooksMeta();
+    const candidateBooks = forceBookKey
+        ? allBooks.filter(b => b.book_key === forceBookKey)
+        : allBooks
+            .filter(b => b.queue_enabled && b.status !== 'completed')
+            .sort((a, b) => (a.queue_priority || 100) - (b.queue_priority || 100));
+
+    let blockedByQuotaCount = 0;
+    let failedCount = 0;
+    let lastError = '';
+
+    for (const book of candidateBooks) {
+        const bookSceningOn = globalSceningOn && (book.scening_enabled !== false);
+        const bookImagingOn = bookSceningOn && globalImagingOn && (book.illustrate_enabled !== false);
+        if (!bookSceningOn) continue;
+
+        const chapters = getAudiobookChaptersMeta(book.book_key);
+        const targetChapters = forceChapterKey
+            ? chapters.filter(c => c.chapter_key === forceChapterKey)
+            : chapters;
+
+        for (const chapter of targetChapters) {
+            const latestChapter = getAudiobookChapterMeta(chapter.chapter_key, book.book_key, chapter.chapter_index) || chapter;
+            const hasCompleteTranscript = Boolean(
+                latestChapter.transcription_status === 'completed' &&
+                latestChapter.synced_lyrics &&
+                !isFakePlaceholderTranscript(latestChapter.synced_lyrics) &&
+                latestChapter.synced_lyrics.trim().length > 20
+            );
+            const hasEnoughPartialTranscript = Boolean(
+                latestChapter.synced_lyrics &&
+                !isFakePlaceholderTranscript(latestChapter.synced_lyrics) &&
+                latestChapter.synced_lyrics.trim().length > 200 &&
+                (latestChapter.transcribed_seconds || 0) >= 180
+            );
+
+            // STAGE 2 (SCENING): Begins as soon as there is enough of a transcript (>= 180s or completed)!
+            const freshCfg = getAudiobookStudioConfig();
+            const latestBook = getAudiobookMeta(book.book_key) || book;
+            const validScenes = (latestChapter.images || []).filter(i => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
+
+            const maxTranscribedSec = latestChapter.transcribed_seconds || 0;
+            const maxSceneStartSec = validScenes.length > 0 ? Math.max(0, ...validScenes.map(s => Number(s.startSec) || 0)) : -1;
+            const needsMoreScening =
+                validScenes.length === 0 ||
+                (hasCompleteTranscript && validScenes.length < 2 && (latestChapter.duration_sec || 0) > 480 && maxSceneStartSec < (latestChapter.duration_sec || 600) - 480) ||
+                (!hasCompleteTranscript && hasEnoughPartialTranscript && maxSceneStartSec < maxTranscribedSec - 480);
+
+            if (bookSceningOn && (hasCompleteTranscript || hasEnoughPartialTranscript) && needsMoreScening) {
+                try {
+                    g.__audiobookStudioStatus.activeSceningBookKey = book.book_key;
+                    if (!latestBook.real_structure_json) {
+                        await discoverBookRealStructureWithAi(latestBook);
+                    }
+                    const beforeCount = validScenes.length;
+                    const afterList = await detectAudiobookChapterScenesWithLlm(latestBook, latestChapter, freshCfg, {
+                        autoTranscribeFirst: false,
+                        forceRedetect: false
+                    });
+                    recalculateAudiobookTotals(book.book_key);
+                    g.__audiobookStudioStatus.activeSceningBookKey = null;
+                    if (afterList.length > beforeCount) {
+                        return { didWork: true, blockedByQuotaCount, failedCount, lastError };
+                    }
+                } finally {
+                    g.__audiobookStudioStatus.activeSceningBookKey = null;
+                }
+            }
+
+            // STAGE 3 (IMAGING): Begins when there are already a few scenes defined (>= 2 scenes, or >= 1 when chapter transcript is complete)!
+            const afterSceneChapter = getAudiobookChapterMeta(chapter.chapter_key, book.book_key, chapter.chapter_index) || latestChapter;
+            const scenesAfterDetect = (afterSceneChapter.images || []).filter(i => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
+            const unpaintedScenes = scenesAfterDetect.filter(i => !i.url || i.url.trim().length === 0);
+            const hasEnoughScenesToStartImaging =
+                scenesAfterDetect.length >= 2 ||
+                (scenesAfterDetect.length >= 1 && (hasCompleteTranscript || Boolean(forceChapterKey) || Boolean(forceBookKey)));
+
+            if (bookImagingOn && hasEnoughScenesToStartImaging && unpaintedScenes.length > 0) {
+                const bypassQuota = Boolean(forceChapterKey) || Boolean(forceBookKey) || Boolean(forceIgnoreQuota);
+                if (afterSceneChapter.illustration_status === 'failed') {
+                    failedCount++;
+                    if (afterSceneChapter.error_message && !lastError) lastError = afterSceneChapter.error_message;
+                } else if (!bypassQuota && freshCfg.imagesGeneratedToday >= freshCfg.dailyImageQuota) {
+                    blockedByQuotaCount++;
+                } else {
+                    try {
+                        g.__audiobookStudioStatus.activeImagingBookKey = book.book_key;
+                        await paintAudiobookChapterScenes(latestBook, afterSceneChapter, freshCfg, bypassQuota);
+                        recalculateAudiobookTotals(book.book_key);
+                        return { didWork: true, blockedByQuotaCount, failedCount, lastError };
+                    } finally {
+                        g.__audiobookStudioStatus.activeImagingBookKey = null;
+                    }
+                }
+            }
+        }
+
+        // Optional Book Cover Art only if book has no cover at all or user explicitly turned on custom cover
+        if (bookImagingOn && !book.custom_cover_url && (!book.thumb || book.use_custom_cover) && !forceChapterKey) {
+            try {
+                g.__audiobookStudioStatus.activeImagingBookKey = book.book_key;
+                await generateAudiobookCoverArt(book, false);
+                recalculateAudiobookTotals(book.book_key);
+                return { didWork: true, blockedByQuotaCount, failedCount, lastError };
+            } finally {
+                g.__audiobookStudioStatus.activeImagingBookKey = null;
+            }
+        }
+    }
+
+    return { didWork: false, blockedByQuotaCount, failedCount, lastError };
+};
+
+export const triggerIncrementalSceningAndImaging = (
+    forceBookKey?: string,
+    forceChapterKey?: string,
+    forceIgnoreQuota?: boolean
+) => {
+    setTimeout(async () => {
+        if (g.__audiobookSceneArtLock) return;
+        g.__audiobookSceneArtLock = true;
+        try {
+            for (let pass = 0; pass < 12; pass++) {
+                const cfg = getAudiobookStudioConfig();
+                if ((!cfg.enabled || cfg.aiFeaturesEnabled === false) && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) break;
+                const res = await runSingleSceningOrImagingStep(forceBookKey, forceChapterKey, forceIgnoreQuota);
+                if (!res.didWork) break;
+                await new Promise(r => setTimeout(r, 800));
+            }
+        } catch (e) {
+            console.warn('[AudiobookStudio] Background Scening/Imaging worker warning:', e);
+        } finally {
+            g.__audiobookSceneArtLock = false;
+            g.__audiobookStudioStatus.activeSceningBookKey = null;
+            g.__audiobookStudioStatus.activeImagingBookKey = null;
+        }
+    }, 50);
+};
+
+/**
+ * Pipelined Priority Queue Coordinator:
+ * 1. Wakes up the Scening & Imaging worker (`triggerIncrementalSceningAndImaging`) so chapters with >= 180s transcript
+ *    get scened and chapters with >= 2 scenes get painted concurrently.
+ * 2. Advances Stage 1 (Transcription) across queued books in priority order (`queue_priority ASC`).
+ *    As soon as Book 1's transcription finishes (even while Book 1 is still doing Scening and Imaging!),
+ *    Transcription immediately moves on to Book 2 in the queue!
  */
 export const processAudiobookPriorityQueueStep = async (
     forceBookKey?: string,
@@ -5185,10 +5626,26 @@ export const processAudiobookPriorityQueueStep = async (
 
     try {
         const config = getAudiobookStudioConfig();
+        if (config.aiFeaturesEnabled === false && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) {
+            updateLiveStatus({
+                isRunning: false,
+                activeBookKey: null,
+                activeBookTitle: null,
+                activeChapterKey: null,
+                activeChapterTitle: null,
+                activeTask: null,
+                progress: 0,
+                lastLog: 'AI Features disabled in Audiobook settings'
+            });
+            return false;
+        }
+
         const allBooks = getAllAudiobooksMeta();
         const candidateBooks = forceBookKey
             ? allBooks.filter(b => b.book_key === forceBookKey)
-            : allBooks.filter(b => b.queue_enabled && b.status !== 'completed');
+            : allBooks
+                .filter(b => b.queue_enabled && b.status !== 'completed')
+                .sort((a, b) => (a.queue_priority || 100) - (b.queue_priority || 100));
 
         if (candidateBooks.length === 0) {
             updateLiveStatus({
@@ -5206,121 +5663,90 @@ export const processAudiobookPriorityQueueStep = async (
             return false;
         }
 
+        // Kick off concurrent Scening & Imaging worker for any book/chapter that already has enough transcript/scenes
+        triggerIncrementalSceningAndImaging(forceBookKey, forceChapterKey, forceIgnoreQuota);
+
         let blockedByQuotaCount = 0;
         let failedChaptersCount = 0;
         let lastFailedError = '';
         let unmappedBooksCount = 0;
+        const globalTranscribeOn = config.transcribeEnabled !== false;
 
-        for (const book of candidateBooks) {
-            const chapters = getAudiobookChaptersMeta(book.book_key);
-            if (chapters.length === 0) {
-                unmappedBooksCount++;
-            }
-            const targetChapters = forceChapterKey
-                ? chapters.filter(c => c.chapter_key === forceChapterKey)
-                : chapters;
+        // Pass 1: Advance Stage 1 (Transcription) on the highest-priority book that still needs transcription!
+        // Because this pass only checks Transcription (and Voice DSP), as soon as Book 1's transcription finishes,
+        // it immediately moves to Book 2's transcription even while Book 1 is still Scening & Imaging!
+        if (globalTranscribeOn) {
+            for (const book of candidateBooks) {
+                const chapters = getAudiobookChaptersMeta(book.book_key);
+                if (chapters.length === 0) {
+                    unmappedBooksCount++;
+                }
+                const targetChapters = forceChapterKey
+                    ? chapters.filter(c => c.chapter_key === forceChapterKey)
+                    : chapters;
 
-            for (const chapter of targetChapters) {
-                const hasRealTranscript = Boolean(
-                    chapter.transcription_status === 'completed' &&
-                    chapter.synced_lyrics &&
-                    !isFakePlaceholderTranscript(chapter.synced_lyrics) &&
-                    chapter.synced_lyrics.trim().length > 20
-                );
+                for (const chapter of targetChapters) {
+                    const hasRealTranscript = Boolean(
+                        chapter.transcription_status === 'completed' &&
+                        chapter.synced_lyrics &&
+                        !isFakePlaceholderTranscript(chapter.synced_lyrics) &&
+                        chapter.synced_lyrics.trim().length > 20
+                    );
 
-                // STAGE 1: Audio -> Timestamped Text (Must complete BEFORE Stage 2 LLM Scene Detection!)
-                if ((book.transcribe_enabled || book.illustrate_enabled) && !hasRealTranscript) {
-                    if (chapter.transcription_status === 'failed') {
-                        failedChaptersCount++;
-                        if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
-                    } else {
-                        await transcribeAudiobookChapter(book, chapter, config);
-                        recalculateAudiobookTotals(book.book_key);
-                        if (!g.__audiobookWorkerLoopRunning) {
-                            updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                    if ((book.transcribe_enabled || book.scening_enabled || book.illustrate_enabled) && !hasRealTranscript) {
+                        if (chapter.transcription_status === 'failed') {
+                            failedChaptersCount++;
+                            if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
+                        } else {
+                            await transcribeAudiobookChapter(book, chapter, config);
+                            recalculateAudiobookTotals(book.book_key);
+                            if (!g.__audiobookWorkerLoopRunning) {
+                                updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                            }
+                            return true;
                         }
-                        return true;
+                    }
+
+                    // STAGE 1B: Audio -> Cadence-Matched Voices (Local CPU FFmpeg DSP)
+                    if (book.enhance_audio_enabled && chapter.audio_enhance_status !== 'completed') {
+                        if (chapter.audio_enhance_status === 'failed') {
+                            failedChaptersCount++;
+                            if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
+                        } else {
+                            await enhanceAudiobookChapterAudio(book, chapter, config);
+                            recalculateAudiobookTotals(book.book_key);
+                            if (!g.__audiobookWorkerLoopRunning) {
+                                updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                            }
+                            return true;
+                        }
                     }
                 }
+                recalculateAudiobookTotals(book.book_key);
+            }
+        }
 
-                // Refresh chapter after potential Stage 1 check
-                const latestChapter = getAudiobookChapterMeta(chapter.chapter_key, book.book_key, chapter.chapter_index) || chapter;
-                const latestHasTranscript = Boolean(
-                    latestChapter.transcription_status === 'completed' &&
-                    latestChapter.synced_lyrics &&
-                    !isFakePlaceholderTranscript(latestChapter.synced_lyrics) &&
-                    latestChapter.synced_lyrics.trim().length > 20
-                );
-
-                // STAGE 2: Timestamped Text -> Scene Transition Timestamps & Prompts (LLM)
-                // Only runs once Stage 1 (Timestamped Transcript) is complete!
-                const freshCfg = getAudiobookStudioConfig();
-                const latestBook = getAudiobookMeta(book.book_key) || book;
-                const validScenes = (latestChapter.images || []).filter(i => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
-                if (latestBook.illustrate_enabled && latestHasTranscript && validScenes.length === 0) {
-                    if (!latestBook.real_structure_json) {
-                        await discoverBookRealStructureWithAi(latestBook);
-                    }
-                    await detectAudiobookChapterScenesWithLlm(latestBook, latestChapter, freshCfg, {
-                        autoTranscribeFirst: false,
-                        forceRedetect: false
-                    });
-                    recalculateAudiobookTotals(book.book_key);
+        // Pass 2: If all candidate books have completed Transcription (or Transcription is turned off),
+        // directly run the next Scening or Imaging step if triggerIncrementalSceningAndImaging isn't already running it.
+        if (!g.__audiobookSceneArtLock) {
+            g.__audiobookSceneArtLock = true;
+            try {
+                const sceneImgRes = await runSingleSceningOrImagingStep(forceBookKey, forceChapterKey, forceIgnoreQuota);
+                blockedByQuotaCount += sceneImgRes.blockedByQuotaCount;
+                failedChaptersCount += sceneImgRes.failedCount;
+                if (sceneImgRes.lastError && !lastFailedError) lastFailedError = sceneImgRes.lastError;
+                if (sceneImgRes.didWork) {
                     if (!g.__audiobookWorkerLoopRunning) {
                         updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
                     }
                     return true;
                 }
-
-                // STAGE 3: Scenes -> Painted Images (Image API Models + Daily Quota)
-                // Only runs once Stage 2 has created scenes with timestamps!
-                const afterSceneChapter = getAudiobookChapterMeta(chapter.chapter_key, book.book_key, chapter.chapter_index) || latestChapter;
-                const scenesAfterDetect = (afterSceneChapter.images || []).filter(i => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
-                const unpaintedScenes = scenesAfterDetect.filter(i => !i.url || i.url.trim().length === 0);
-
-                if (latestBook.illustrate_enabled && scenesAfterDetect.length > 0 && unpaintedScenes.length > 0) {
-                    const bypassQuota = Boolean(forceChapterKey) || Boolean(forceBookKey) || Boolean(forceIgnoreQuota);
-                    if (afterSceneChapter.illustration_status === 'failed') {
-                        failedChaptersCount++;
-                        if (afterSceneChapter.error_message && !lastFailedError) lastFailedError = afterSceneChapter.error_message;
-                    } else if (!bypassQuota && freshCfg.imagesGeneratedToday >= freshCfg.dailyImageQuota) {
-                        blockedByQuotaCount++;
-                    } else {
-                        await paintAudiobookChapterScenes(latestBook, afterSceneChapter, freshCfg, bypassQuota);
-                        recalculateAudiobookTotals(book.book_key);
-                        if (!g.__audiobookWorkerLoopRunning) {
-                            updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
-                        }
-                        return true;
-                    }
-                }
-
-                // STAGE 1B: Audio -> Cadence-Matched Voices (Local CPU FFmpeg DSP)
-                if (latestBook.enhance_audio_enabled && afterSceneChapter.audio_enhance_status !== 'completed') {
-                    if (afterSceneChapter.audio_enhance_status === 'failed') {
-                        failedChaptersCount++;
-                        if (afterSceneChapter.error_message && !lastFailedError) lastFailedError = afterSceneChapter.error_message;
-                    } else {
-                        await enhanceAudiobookChapterAudio(latestBook, afterSceneChapter, config);
-                        recalculateAudiobookTotals(book.book_key);
-                        if (!g.__audiobookWorkerLoopRunning) {
-                            updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
-                        }
-                        return true;
-                    }
-                }
+            } finally {
+                g.__audiobookSceneArtLock = false;
             }
-
-            // Optional Book Cover Art only if book has no cover at all or user explicitly turned on custom cover
-            if (book.illustrate_enabled && !book.custom_cover_url && (!book.thumb || book.use_custom_cover) && !forceChapterKey) {
-                await generateAudiobookCoverArt(book, false);
-                if (!g.__audiobookWorkerLoopRunning) {
-                    updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
-                }
-                return true;
-            }
-
-            recalculateAudiobookTotals(book.book_key);
+        } else {
+            // Background Scening/Imaging worker is actively running
+            return true;
         }
 
         const freshCfg = getAudiobookStudioConfig();
@@ -5341,6 +5767,10 @@ export const processAudiobookPriorityQueueStep = async (
             activeBookTitle: null,
             activeChapterKey: null,
             activeChapterTitle: null,
+            activeTranscriptionBookKey: null,
+            activeTranscriptionBookTitle: null,
+            activeSceningBookKey: null,
+            activeImagingBookKey: null,
             activeTask: null,
             progress: 0,
             lastLog: idleReason

@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getInstanceById } from '@/lib/db';
 import { addSeries, searchSeries } from '@/lib/sonarr';
+import { enqueueInstantStreamDownload } from '@/lib/instantStreamDownloader';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
     try {
         const payload = await request.json();
-        const { instanceId, item, qualityProfileId, rootFolderPath, startSearch } = payload;
+        const { instanceId, item, qualityProfileId, rootFolderPath, startSearch, instantDownload } = payload;
 
         if (!instanceId || !item) {
             return NextResponse.json({ error: 'Missing instanceId or item' }, { status: 400 });
@@ -65,6 +66,21 @@ export async function POST(request: Request) {
 
         const result = await addSeries(instance.url, instance.api_key, seriesPayload);
         if (result.success) {
+            if (instantDownload) {
+                enqueueInstantStreamDownload({
+                    mediaType: 'series',
+                    title: seriesPayload.title || result.data?.title || 'Series',
+                    year: seriesPayload.year || result.data?.year || null,
+                    tmdbId: resolvedItem.tmdbId || null,
+                    tvdbId: seriesPayload.tvdbId || result.data?.tvdbId || null,
+                    imdbId: seriesPayload.imdbId || result.data?.imdbId || null,
+                    seasonNumber: 1,
+                    episodeNumber: 1,
+                    instanceId,
+                    arrMediaId: result.data?.id || null,
+                    rootFolderPath: rootFolderPath || '/Media'
+                }).catch(e => console.warn('[sonarr/add] Instant stream enqueue warning:', e));
+            }
             return NextResponse.json(result.data, { status: 201 });
         } else {
             const errMsg = typeof result.error === 'string'

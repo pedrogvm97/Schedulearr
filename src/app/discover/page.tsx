@@ -11,7 +11,7 @@ import {
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
     CheckCircle2, Copy, ListOrdered, RefreshCw, Layers,
     Disc, Music, Radio, ArrowDownToLine, Play,
-    FolderPlus, AlertCircle, BookOpen
+    FolderPlus, AlertCircle, BookOpen, Settings, Zap
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -1291,6 +1291,34 @@ function DiscoverPageContent() {
         return filteredItems.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
     }, [filteredItems, currentPage, pageSize]);
 
+    // ── Per-Subtab Features & Providers Settings + Instant Stream Downloads ──
+    const [showSubtabSettings, setShowSubtabSettings] = useState(false);
+    const [audiobookAiEnabled, setAudiobookAiEnabled] = useState(true);
+    const [instantDownloadsList, setInstantDownloadsList] = useState<any[]>([]);
+    const [subtabSettings, setSubtabSettings] = useState<{
+        movie: { tmdbProvider: boolean; webStreamFastProvider: boolean; defaultInstantDownload: boolean; autoStartSearch: boolean };
+        series: { tvdbProvider: boolean; webStreamFastProvider: boolean; defaultInstantDownload: boolean; autoStartSearch: boolean };
+        music: { lidarrProvider: boolean; onlineCatalogProvider: boolean; ytdlpAudioProvider: boolean; autoLyricsSync: boolean };
+        audiobooks: { aiFeaturesEnabled: boolean; transcribeEnabled: boolean; sceningEnabled: boolean; imagingEnabled: boolean; openLibraryProvider: boolean };
+        iptv_dvr: { m3uProvider: boolean; xmltvEpgProvider: boolean; ffmpegDvrEngine: boolean };
+    }>({
+        movie: { tmdbProvider: true, webStreamFastProvider: true, defaultInstantDownload: true, autoStartSearch: true },
+        series: { tvdbProvider: true, webStreamFastProvider: true, defaultInstantDownload: true, autoStartSearch: true },
+        music: { lidarrProvider: true, onlineCatalogProvider: true, ytdlpAudioProvider: true, autoLyricsSync: true },
+        audiobooks: { aiFeaturesEnabled: true, transcribeEnabled: true, sceningEnabled: true, imagingEnabled: true, openLibraryProvider: true },
+        iptv_dvr: { m3uProvider: true, xmltvEpgProvider: true, ffmpegDvrEngine: true }
+    });
+
+    const fetchInstantDownloads = useCallback(async () => {
+        try {
+            const res = await fetch('/api/media/instant-download');
+            if (res.ok) {
+                const data = await res.json();
+                setInstantDownloadsList(Array.isArray(data.items) ? data.items : []);
+            }
+        } catch {}
+    }, []);
+
     // ── Load instances and config ──
     useEffect(() => {
         fetch('/api/instances').then(r => r.ok ? r.json() : []).then(data => {
@@ -1298,8 +1326,81 @@ function DiscoverPageContent() {
         });
         fetch('/api/settings').then(r => r.ok ? r.json() : {}).then((data: any) => {
             if (data.tmdb_api_key) setTmdbApiKey(data.tmdb_api_key);
+            if (data.media_subtab_settings) {
+                try {
+                    const parsed = typeof data.media_subtab_settings === 'string' ? JSON.parse(data.media_subtab_settings) : data.media_subtab_settings;
+                    if (parsed && typeof parsed === 'object') {
+                        setSubtabSettings(prev => ({
+                            movie: { ...prev.movie, ...(parsed.movie || {}) },
+                            series: { ...prev.series, ...(parsed.series || {}) },
+                            music: { ...prev.music, ...(parsed.music || {}) },
+                            audiobooks: { ...prev.audiobooks, ...(parsed.audiobooks || {}) },
+                            iptv_dvr: { ...prev.iptv_dvr, ...(parsed.iptv_dvr || {}) }
+                        }));
+                    }
+                } catch {}
+            }
         });
-    }, []);
+        fetch('/api/theater/audiobooks/studio').then(r => r.ok ? r.json() : null).then(d => {
+            if (d?.config) {
+                const aiOn = d.config.aiFeaturesEnabled !== false;
+                setAudiobookAiEnabled(aiOn);
+                setSubtabSettings(prev => ({
+                    ...prev,
+                    audiobooks: {
+                        ...prev.audiobooks,
+                        aiFeaturesEnabled: aiOn,
+                        transcribeEnabled: d.config.transcribeEnabled !== false,
+                        sceningEnabled: d.config.sceningEnabled !== false,
+                        imagingEnabled: d.config.sceningEnabled !== false && d.config.imagingEnabled !== false
+                    }
+                }));
+            }
+        }).catch(() => {});
+        fetchInstantDownloads();
+        const timer = setInterval(fetchInstantDownloads, 10000);
+        return () => clearInterval(timer);
+    }, [fetchInstantDownloads]);
+
+    const handleUpdateSubtabSetting = async (subtab: keyof typeof subtabSettings, key: string, value: boolean) => {
+        const nextSubtabState: any = { ...subtabSettings[subtab], [key]: value };
+        if (subtab === 'audiobooks') {
+            if (key === 'sceningEnabled' && !value) {
+                nextSubtabState.imagingEnabled = false;
+            }
+            if (key === 'imagingEnabled' && value && !nextSubtabState.sceningEnabled) {
+                toast.error('Enable Scening first — Imaging depends on Scening');
+                return;
+            }
+        }
+        const nextAll = { ...subtabSettings, [subtab]: nextSubtabState };
+        setSubtabSettings(nextAll);
+
+        try {
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ media_subtab_settings: JSON.stringify(nextAll) })
+            });
+            if (subtab === 'audiobooks') {
+                if (key === 'aiFeaturesEnabled') setAudiobookAiEnabled(value);
+                await fetch('/api/theater/audiobooks/studio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'save_config',
+                        aiFeaturesEnabled: nextSubtabState.aiFeaturesEnabled,
+                        transcribeEnabled: nextSubtabState.transcribeEnabled,
+                        sceningEnabled: nextSubtabState.sceningEnabled,
+                        imagingEnabled: nextSubtabState.imagingEnabled
+                    })
+                });
+            }
+            toast.success('Updated subtab settings');
+        } catch {
+            toast.error('Failed to save subtab settings');
+        }
+    };
 
     // Sanitize selectedInstanceIds on availableInstances change
     useEffect(() => {
@@ -1345,8 +1446,8 @@ function DiscoverPageContent() {
         setIsAddModalOpen(true);
     };
 
-    const handleFinalAdd = async (payload: { item: any; targetInstanceId: string; qualityProfileId: number; rootFolderPath: string; startSearch: boolean }) => {
-        const { item, targetInstanceId, qualityProfileId, rootFolderPath, startSearch: shouldSearch } = payload;
+    const handleFinalAdd = async (payload: { item: any; targetInstanceId: string; qualityProfileId: number; rootFolderPath: string; startSearch: boolean; instantDownload?: boolean }) => {
+        const { item, targetInstanceId, qualityProfileId, rootFolderPath, startSearch: shouldSearch, instantDownload } = payload;
         const addKey = item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`;
         setAddingItemStr(addKey);
         setIsAddingInModal(true);
@@ -1361,12 +1462,20 @@ function DiscoverPageContent() {
                     qualityProfileId,
                     rootFolderPath,
                     startSearch: shouldSearch,
+                    instantDownload: Boolean(instantDownload),
                     item
                 })
             });
 
             if (res.ok) {
-                toast.success(`"${item.title || item.name}" added to library!`);
+                toast.success(
+                    instantDownload
+                        ? `"${item.title || item.name}" added + Instant Fast Stream queued (will auto-upgrade to HQ)!`
+                        : `"${item.title || item.name}" added to library!`
+                );
+                if (instantDownload) {
+                    setTimeout(() => fetchInstantDownloads(), 800);
+                }
                 setIsAddModalOpen(false);
                 setSelectedItemForAdd(null);
 
@@ -1377,7 +1486,7 @@ function DiscoverPageContent() {
                 const newStatus = {
                     exists: true,
                     hasFile: false,
-                    isDownloading: shouldSearch,
+                    isDownloading: shouldSearch || Boolean(instantDownload),
                     instances: [{ id: targetInstanceId, name: inst?.name || 'Instance', colorHex: inst?.colorHex || '#10b981' }],
                     percentage: 0,
                     sizeOnDisk: 0,
@@ -1666,42 +1775,244 @@ function DiscoverPageContent() {
                         </div>
                     </div>
 
-                    {/* Row 2: Dedicated Media Type Navigation Strip */}
-                    <div className="flex flex-wrap items-center bg-zinc-950/90 p-2 rounded-2xl border border-zinc-800/80 shadow-inner gap-2">
+                    {/* Row 2: Dedicated Media Type Navigation Strip + Subtab Settings Toggle */}
+                    <div className="flex flex-wrap items-center justify-between bg-zinc-950/90 p-2 rounded-2xl border border-zinc-800/80 shadow-inner gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                onClick={() => setMediaType('movie')}
+                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                            >
+                                <Film size={16} className="shrink-0" /> Movies
+                            </button>
+                            <button
+                                onClick={() => setMediaType('series')}
+                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                            >
+                                <Tv size={16} className="shrink-0" /> Series
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setMediaType('music');
+                                    if (musicResults.length === 0) handleMusicSearch('');
+                                }}
+                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                            >
+                                <Disc size={16} className="shrink-0" /> Music
+                            </button>
+                            <button
+                                onClick={() => setMediaType('audiobooks')}
+                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                            >
+                                <BookOpen size={16} className="shrink-0" /> Audiobooks
+                            </button>
+                            <button
+                                onClick={() => setMediaType('iptv_dvr')}
+                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                            >
+                                <Tv size={16} className="shrink-0" /> Live TV &amp; DVR
+                            </button>
+                        </div>
+
                         <button
-                            onClick={() => setMediaType('movie')}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                            onClick={() => setShowSubtabSettings(prev => !prev)}
+                            title="Open Features & Providers Settings for the active Media Subtab"
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl border transition-all whitespace-nowrap cursor-pointer ${
+                                showSubtabSettings
+                                    ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg'
+                                    : 'bg-zinc-900 text-zinc-200 border-zinc-800 hover:text-white hover:bg-zinc-800'
+                            }`}
                         >
-                            <Film size={15} className="shrink-0" /> Movies
-                        </button>
-                        <button
-                            onClick={() => setMediaType('series')}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                        >
-                            <Tv size={15} className="shrink-0" /> Series
-                        </button>
-                        <button
-                            onClick={() => {
-                                setMediaType('music');
-                                if (musicResults.length === 0) handleMusicSearch('');
-                            }}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                        >
-                            <Disc size={15} className="shrink-0" /> Music
-                        </button>
-                        <button
-                            onClick={() => setMediaType('audiobooks')}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                        >
-                            <BookOpen size={15} className="shrink-0" /> Audiobooks
-                        </button>
-                        <button
-                            onClick={() => setMediaType('iptv_dvr')}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                        >
-                            <Tv size={15} className="shrink-0" /> Live TV &amp; DVR
+                            <Settings size={16} />
+                            <span>Settings</span>
                         </button>
                     </div>
+
+                    {/* ── PER-SUBTAB FEATURES & PROVIDERS SETTINGS MENU ── */}
+                    {showSubtabSettings && (
+                        <div className="p-5 sm:p-6 rounded-3xl bg-zinc-950/95 border-2 border-emerald-500/30 space-y-5 animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5">
+                                    <Settings size={20} className="text-emerald-400" />
+                                    <h3 className="text-lg font-black text-white uppercase tracking-wider">
+                                        {mediaType === 'movie'
+                                            ? 'Movies — Features & Providers'
+                                            : mediaType === 'series'
+                                            ? 'Series — Features & Providers'
+                                            : mediaType === 'music'
+                                            ? 'Music — Features & Providers'
+                                            : mediaType === 'audiobooks'
+                                            ? 'Audiobooks — Features & Providers'
+                                            : 'Live TV & DVR — Features & Providers'}
+                                    </h3>
+                                </div>
+                                <button
+                                    onClick={() => setShowSubtabSettings(false)}
+                                    title="Close Subtab Settings"
+                                    className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {mediaType === 'movie' && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    {[
+                                        { key: 'tmdbProvider', label: 'TMDB Catalog Provider', val: subtabSettings.movie.tmdbProvider },
+                                        { key: 'webStreamFastProvider', label: 'Fast Web Stream Provider', val: subtabSettings.movie.webStreamFastProvider },
+                                        { key: 'defaultInstantDownload', label: 'Default Instant Stream + HQ Swap', val: subtabSettings.movie.defaultInstantDownload },
+                                        { key: 'autoStartSearch', label: 'Auto-Start Radarr Search', val: subtabSettings.movie.autoStartSearch }
+                                    ].map(opt => (
+                                        <button
+                                            key={opt.key}
+                                            onClick={() => handleUpdateSubtabSetting('movie', opt.key, !opt.val)}
+                                            className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                                opt.val ? 'bg-indigo-500/15 border-indigo-500/50 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                            }`}
+                                        >
+                                            <span className="text-sm font-black">{opt.label}</span>
+                                            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase ${opt.val ? 'bg-indigo-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                                                {opt.val ? 'ON' : 'OFF'}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {mediaType === 'series' && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    {[
+                                        { key: 'tvdbProvider', label: 'TVDB / TMDB Provider', val: subtabSettings.series.tvdbProvider },
+                                        { key: 'webStreamFastProvider', label: 'Fast Web Stream Provider', val: subtabSettings.series.webStreamFastProvider },
+                                        { key: 'defaultInstantDownload', label: 'Default Instant Stream + HQ Swap', val: subtabSettings.series.defaultInstantDownload },
+                                        { key: 'autoStartSearch', label: 'Auto-Start Sonarr Search', val: subtabSettings.series.autoStartSearch }
+                                    ].map(opt => (
+                                        <button
+                                            key={opt.key}
+                                            onClick={() => handleUpdateSubtabSetting('series', opt.key, !opt.val)}
+                                            className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                                opt.val ? 'bg-emerald-500/15 border-emerald-500/50 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                            }`}
+                                        >
+                                            <span className="text-sm font-black">{opt.label}</span>
+                                            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase ${opt.val ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                                                {opt.val ? 'ON' : 'OFF'}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {mediaType === 'music' && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    {[
+                                        { key: 'lidarrProvider', label: 'Lidarr Library Provider', val: subtabSettings.music.lidarrProvider },
+                                        { key: 'onlineCatalogProvider', label: 'iTunes / Online Catalog Provider', val: subtabSettings.music.onlineCatalogProvider },
+                                        { key: 'ytdlpAudioProvider', label: 'yt-dlp Audio Stream Provider', val: subtabSettings.music.ytdlpAudioProvider },
+                                        { key: 'autoLyricsSync', label: 'Automated Synced Lyrics', val: subtabSettings.music.autoLyricsSync }
+                                    ].map(opt => (
+                                        <button
+                                            key={opt.key}
+                                            onClick={() => handleUpdateSubtabSetting('music', opt.key, !opt.val)}
+                                            className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                                opt.val ? 'bg-amber-500/15 border-amber-500/50 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                            }`}
+                                        >
+                                            <span className="text-sm font-black">{opt.label}</span>
+                                            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase ${opt.val ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                                                {opt.val ? 'ON' : 'OFF'}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {mediaType === 'audiobooks' && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                                    {[
+                                        { key: 'aiFeaturesEnabled', label: 'AI Features (Shows AI Tab & Queue)', val: subtabSettings.audiobooks.aiFeaturesEnabled },
+                                        { key: 'transcribeEnabled', label: 'Step 1: Transcription', val: subtabSettings.audiobooks.transcribeEnabled },
+                                        { key: 'sceningEnabled', label: 'Step 2: Scening (Required for Imaging)', val: subtabSettings.audiobooks.sceningEnabled },
+                                        { key: 'imagingEnabled', label: 'Step 3: Imaging (Depends on Scening)', val: subtabSettings.audiobooks.imagingEnabled && subtabSettings.audiobooks.sceningEnabled },
+                                        { key: 'openLibraryProvider', label: 'OpenLibrary & Google Books Provider', val: subtabSettings.audiobooks.openLibraryProvider }
+                                    ].map(opt => (
+                                        <button
+                                            key={opt.key}
+                                            onClick={() => handleUpdateSubtabSetting('audiobooks', opt.key, !opt.val)}
+                                            className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                                opt.val ? 'bg-purple-500/15 border-purple-500/50 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                            }`}
+                                        >
+                                            <span className="text-sm font-black">{opt.label}</span>
+                                            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase ${opt.val ? 'bg-purple-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                                                {opt.val ? 'ON' : 'OFF'}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {mediaType === 'iptv_dvr' && (
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    {[
+                                        { key: 'm3uProvider', label: 'M3U Playlist Provider', val: subtabSettings.iptv_dvr.m3uProvider },
+                                        { key: 'xmltvEpgProvider', label: 'XMLTV EPG Guide Provider', val: subtabSettings.iptv_dvr.xmltvEpgProvider },
+                                        { key: 'ffmpegDvrEngine', label: 'FFmpeg Live DVR Engine', val: subtabSettings.iptv_dvr.ffmpegDvrEngine }
+                                    ].map(opt => (
+                                        <button
+                                            key={opt.key}
+                                            onClick={() => handleUpdateSubtabSetting('iptv_dvr', opt.key, !opt.val)}
+                                            className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                                opt.val ? 'bg-amber-500/15 border-amber-500/50 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                            }`}
+                                        >
+                                            <span className="text-sm font-black">{opt.label}</span>
+                                            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase ${opt.val ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                                                {opt.val ? 'ON' : 'OFF'}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* ── ACTIVE INSTANT STREAM DOWNLOADS & AUTO HQ UPGRADE TRACKER ── */}
+                    {(mediaType === 'movie' || mediaType === 'series') && instantDownloadsList.length > 0 && (
+                        <div className="p-4 rounded-2xl bg-zinc-950/90 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                                <Zap size={18} className="text-amber-400" />
+                                <span className="text-sm font-black text-white uppercase tracking-wider">
+                                    Instant Stream → HQ Swap ({instantDownloadsList.length})
+                                </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                {instantDownloadsList.slice(0, 4).map((idItem: any) => (
+                                    <div
+                                        key={idItem.id}
+                                        title={`${idItem.title}: ${idItem.source_provider || idItem.status} — Fast stream auto-replaces when Radarr/Sonarr HQ finishes`}
+                                        className="px-3.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center gap-2 text-xs font-bold text-zinc-200"
+                                    >
+                                        <span className="font-black text-white">{idItem.title}</span>
+                                        <span className={`px-2 py-0.5 rounded-lg text-[11px] font-black uppercase ${
+                                            idItem.status === 'upgraded_hq'
+                                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                                : idItem.status === 'fast_ready'
+                                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                                : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                                        }`}>
+                                            {idItem.status === 'upgraded_hq'
+                                                ? 'Swapped to HQ'
+                                                : idItem.status === 'fast_ready'
+                                                ? 'Fast Stream Ready (Awaiting HQ)'
+                                                : idItem.status === 'downloading_fast'
+                                                ? 'Grabbing Fast Stream...'
+                                                : 'Waiting for HQ'}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Row 3: Status Filter (Left) + Search & Filters (Right) */}
                     {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
@@ -2222,6 +2533,8 @@ function DiscoverPageContent() {
                     item={selectedItemForAdd}
                     mediaType={mediaType}
                     instances={instances}
+                    defaultInstantDownload={mediaType === 'series' ? subtabSettings.series.defaultInstantDownload : subtabSettings.movie.defaultInstantDownload}
+                    defaultAutoStartSearch={mediaType === 'series' ? subtabSettings.series.autoStartSearch : subtabSettings.movie.autoStartSearch}
                     onAdd={handleFinalAdd}
                     onClose={() => setIsAddModalOpen(false)}
                     loading={isAddingInModal}
@@ -2443,7 +2756,7 @@ function TransferForm({ item, instances, targetType, onTransfer, onCancel, loadi
     );
 }
 
-function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: any) {
+function AddMediaModal({ item, mediaType, instances, defaultInstantDownload = true, defaultAutoStartSearch = true, onAdd, onClose, loading }: any) {
     const availableInstances = useMemo(() => {
         return (instances || []).filter((i: any) => i.type === (mediaType === 'movie' ? 'radarr' : 'sonarr'));
     }, [instances, mediaType]);
@@ -2454,7 +2767,8 @@ function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: 
     const [rootFolders, setRootFolders] = useState<any[]>([]);
     const [selectedRootFolderPath, setSelectedRootFolderPath] = useState('');
     const [loadingConfig, setLoadingConfig] = useState(false);
-    const [startSearch, setStartSearch] = useState(true);
+    const [startSearch, setStartSearch] = useState<boolean>(defaultAutoStartSearch);
+    const [instantDownload, setInstantDownload] = useState<boolean>(defaultInstantDownload);
 
     useEffect(() => {
         if (availableInstances.length > 0 && !targetInstanceId) {
@@ -2498,7 +2812,7 @@ function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: 
                     </div>
                 </div>
 
-                <div className="space-y-5">
+                <div className="space-y-4">
                     <CustomSelect
                         label="Destination Instance"
                         value={targetInstanceId}
@@ -2518,15 +2832,39 @@ function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: 
 
                     <button
                         onClick={() => setStartSearch(!startSearch)}
-                        className={`w-full h-12 px-5 rounded-2xl border flex items-center gap-3 transition-all text-xs font-black uppercase tracking-wider ${startSearch ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
+                        title="Start Radarr/Sonarr high-quality release search immediately"
+                        className={`w-full h-12 px-5 rounded-2xl border flex items-center gap-3 transition-all text-xs font-black uppercase tracking-wider cursor-pointer ${startSearch ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
                     >
-                        <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
-                        Start Search Immediately
+                        <div className={`w-2.5 h-2.5 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
+                        <span>Start HQ Search ({mediaType === 'movie' ? 'Radarr' : 'Sonarr'})</span>
+                    </button>
+
+                    <button
+                        onClick={() => setInstantDownload(!instantDownload)}
+                        title="Grab a fast playable stream from common web platforms right away, then automatically swap it for the high-quality Radarr/Sonarr download once finished"
+                        className={`w-full py-3.5 px-5 rounded-2xl border-2 flex items-center justify-between gap-3 transition-all text-xs font-black uppercase tracking-wider cursor-pointer ${
+                            instantDownload
+                                ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 shadow-lg shadow-amber-500/10'
+                                : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                        }`}
+                    >
+                        <div className="flex items-center gap-3 text-left">
+                            <Zap size={18} className={instantDownload ? 'text-amber-400 shrink-0' : 'text-zinc-600 shrink-0'} />
+                            <div>
+                                <div>Instant Stream Download</div>
+                                <div className="text-[11px] font-bold text-zinc-400 normal-case">
+                                    Fast web stream now → Auto-swaps to HQ
+                                </div>
+                            </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-lg text-[11px] font-black ${instantDownload ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                            {instantDownload ? 'ON' : 'OFF'}
+                        </span>
                     </button>
                 </div>
 
                 <div className="flex gap-3 pt-6">
-                    <button onClick={onClose} className="flex-1 h-12 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-xs tracking-widest rounded-2xl hover:text-white transition-all">Cancel</button>
+                    <button onClick={onClose} className="flex-1 h-12 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-xs tracking-widest rounded-2xl hover:text-white transition-all cursor-pointer">Cancel</button>
                     <button
                         disabled={!canSubmit}
                         onClick={() => onAdd({
@@ -2534,9 +2872,10 @@ function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: 
                             targetInstanceId,
                             qualityProfileId: selectedProfileId!,
                             rootFolderPath: selectedRootFolderPath,
-                            startSearch
+                            startSearch,
+                            instantDownload
                         })}
-                        className={`flex-[2] h-12 flex items-center justify-center gap-2 font-black uppercase text-xs tracking-widest rounded-2xl transition-all ${canSubmit ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                        className={`flex-[2] h-12 flex items-center justify-center gap-2 font-black uppercase text-xs tracking-widest rounded-2xl transition-all cursor-pointer ${canSubmit ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
                     >
                         {loading ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : <Plus size={16} />}
                         {loading ? 'Adding...' : 'Confirm & Add'}
