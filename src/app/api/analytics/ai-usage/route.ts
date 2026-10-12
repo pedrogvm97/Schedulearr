@@ -187,6 +187,12 @@ async function pingProvidersLive(
                 const hasFlashLite = modelNames.some(n => /flash-lite/i.test(n));
                 if (hasFlashLite) {
                     quotaConfigs.gemini.detectedModel = 'Gemini Flash Lite';
+                    if (quotaConfigs.gemini.autoSetLimits && (quotaConfigs.gemini.tierId === 'free' || quotaConfigs.gemini.tierId === 'free_flash_lite')) {
+                        quotaConfigs.gemini.tierId = 'free_flash_lite';
+                        quotaConfigs.gemini.rpmLimit = 15;
+                        quotaConfigs.gemini.tpmLimit = 250000;
+                        quotaConfigs.gemini.rpdLimit = 500;
+                    }
                 }
 
                 // If deepAutoDetect is requested, run a lightweight 1-token probe on flash-lite to inspect headers or 429 QuotaFailure payload
@@ -219,7 +225,8 @@ async function pingProvidersLive(
                             }
                         } else if (probeRes.ok && quotaConfigs.gemini.autoSetLimits) {
                             // Standard AI Studio Free Tier for Flash-Lite is 15 RPM / 250K TPM / 500 RPD
-                            if (quotaConfigs.gemini.tierId === 'free_flash_lite' || !limHeader) {
+                            if (quotaConfigs.gemini.tierId === 'free_flash_lite' || quotaConfigs.gemini.tierId === 'free' || !limHeader) {
+                                quotaConfigs.gemini.tierId = 'free_flash_lite';
                                 quotaConfigs.gemini.rpmLimit = 15;
                                 quotaConfigs.gemini.tpmLimit = 250000;
                                 quotaConfigs.gemini.rpdLimit = 500;

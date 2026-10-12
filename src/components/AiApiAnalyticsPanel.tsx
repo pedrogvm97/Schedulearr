@@ -143,7 +143,7 @@ function PeakLimitChart({
 
 export function AiApiAnalyticsPanel() {
     const [range, setRange] = useState<'24h' | '7d' | '30d' | 'all'>('24h');
-    const [selectedPeakProviderId, setSelectedPeakProviderId] = useState<string>('google_gemini');
+    const [selectedPeakProviderId, setSelectedPeakProviderId] = useState<string>('gemini');
     const [loading, setLoading] = useState(true);
     const [pinging, setPinging] = useState(false);
     const [detectingLimits, setDetectingLimits] = useState(false);
@@ -251,8 +251,7 @@ export function AiApiAnalyticsPanel() {
                 body: JSON.stringify({ action: 'auto_detect_limits' })
             });
             if (res.ok) {
-                const json = await res.json();
-                setData(json);
+                await fetchAnalytics(false);
                 toast.success('Auto-detected RPM, TPM & RPD limits from active models, response headers & quota telemetry');
             } else {
                 toast.error('Failed to auto-detect provider limits');
@@ -282,7 +281,7 @@ export function AiApiAnalyticsPanel() {
             });
             if (res.ok) {
                 const json = await res.json();
-                const r = json.result || {};
+                const r = json.result || json || {};
                 toast.success(
                     `Cleaned ${label}: ${r.deletedFilesCount || 0} files deleted, ${r.booksAffected || 0} books updated`
                 );
@@ -554,7 +553,7 @@ export function AiApiAnalyticsPanel() {
                         buckets={buckets}
                         valueSelector={b =>
                             b.byProvider?.[selectedProvider.id]?.peakRpm ??
-                            (selectedProvider.id === 'google_gemini' ? b.peakRpm || 0 : 0)
+                            ((selectedProvider.id === 'gemini' || selectedProvider.id === 'google_gemini') ? b.peakRpm || 0 : 0)
                         }
                     />
 
@@ -567,7 +566,7 @@ export function AiApiAnalyticsPanel() {
                         buckets={buckets}
                         valueSelector={b =>
                             b.byProvider?.[selectedProvider.id]?.peakTpm ??
-                            (selectedProvider.id === 'google_gemini' ? b.peakTpm || 0 : 0)
+                            ((selectedProvider.id === 'gemini' || selectedProvider.id === 'google_gemini') ? b.peakTpm || 0 : 0)
                         }
                     />
 
@@ -580,7 +579,7 @@ export function AiApiAnalyticsPanel() {
                         buckets={buckets}
                         valueSelector={b =>
                             b.byProvider?.[selectedProvider.id]?.peakRpd ??
-                            (selectedProvider.id === 'google_gemini' ? b.peakRpd || 0 : 0)
+                            ((selectedProvider.id === 'gemini' || selectedProvider.id === 'google_gemini') ? b.peakRpd || 0 : 0)
                         }
                     />
                 </div>
