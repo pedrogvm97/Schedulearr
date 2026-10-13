@@ -34,6 +34,7 @@ import {
     FileText,
     Layers
 } from 'lucide-react';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 export default function TasksPage() {
     const [data, setData] = useState<any>(null);
@@ -42,6 +43,15 @@ export default function TasksPage() {
     const [toast, setToast] = useState<string | null>(null);
     const [selectedBookToAdd, setSelectedBookToAdd] = useState<string>('');
     const [nowMs, setNowMs] = useState<number>(Date.now());
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        description: React.ReactNode;
+        confirmText?: string;
+        cancelText?: string;
+        variant?: 'danger' | 'warning' | 'primary';
+        onConfirm: () => void | Promise<void>;
+    } | null>(null);
 
     const showToast = (msg: string) => {
         setToast(msg);
@@ -89,15 +99,26 @@ export default function TasksPage() {
         }
     };
 
-    const handleCleanup = async (
+    const handleCleanup = (
         target: 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all',
         label: string
     ) => {
-        if (!window.confirm(`Clean ${label}?`)) return;
-        await runAction(`clean_${target}`, {
-            action: 'clean_generated_data',
-            target,
-            pauseAiFirst: target === 'all'
+        setConfirmModal({
+            isOpen: true,
+            title: `Clean ${label}`,
+            description: target === 'all'
+                ? 'This will pause the AI engine and permanently wipe all generated scene images, prompts, transcripts, and voice exports.'
+                : `Are you sure you want to clean ${label.toLowerCase()}? This will permanently remove the selected data.`,
+            confirmText: 'Clean',
+            variant: target === 'all' ? 'danger' : 'warning',
+            onConfirm: async () => {
+                setConfirmModal(null);
+                await runAction(`clean_${target}`, {
+                    action: 'clean_generated_data',
+                    target,
+                    pauseAiFirst: target === 'all'
+                });
+            }
         });
     };
 
@@ -207,14 +228,14 @@ export default function TasksPage() {
                 </div>
             </div>
 
-            {/* 0. RESOURCE CATEGORY MATRIX: WHAT'S USING LLMs, CPU, APIs, AND QUOTAS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {/* Category 1: What's Using LLMs */}
-                <div className={`rounded-2xl p-4 border space-y-3 ${isLlmRunning ? 'bg-cyan-500/10 border-cyan-500/40' : 'bg-[#0d111a] border-white/10'}`}>
-                    <div className="flex items-center justify-between gap-2">
+            {/* 0. RESOURCE CATEGORY MATRIX: LLMs, LOCAL CPU, EXTERNAL APIs, QUOTAS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                {/* Category 1: LLMs */}
+                <div className={`rounded-2xl p-4 border space-y-3 ${isLlmRunning ? 'bg-cyan-500/10 border-cyan-500/40 shadow-lg shadow-cyan-500/10' : 'bg-[#0d111a] border-white/10'}`}>
+                    <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
                             <Brain className="w-6 h-6 text-cyan-400 shrink-0" />
-                            <h2 className="text-lg font-black text-white">Using LLMs</h2>
+                            <h2 className="text-lg font-black text-white">LLMs</h2>
                         </div>
                         <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase border ${
                             isLlmRunning
@@ -224,28 +245,28 @@ export default function TasksPage() {
                             {isLlmRunning ? 'Active' : 'Idle'}
                         </span>
                     </div>
-                    <div className="space-y-1.5 text-sm">
-                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
-                            <span className="font-bold text-gray-300">Stage 2: Scene Transitions</span>
-                            <span className="font-mono font-black text-cyan-300">
-                                {totals.llmScenes?.doneChapters ?? 0}/{totals.llmScenes?.totalChapters ?? 0} Ch
+                    <div className="space-y-2">
+                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Chapters Scened</span>
+                            <span className="font-mono text-base font-black text-cyan-300">
+                                {totals.llmScenes?.doneChapters ?? 0} / {totals.llmScenes?.totalChapters ?? 0}
                             </span>
                         </div>
-                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
-                            <span className="font-bold text-gray-300">Created Scene Windows</span>
-                            <span className="font-mono font-black text-white">
-                                {totals.llmScenes?.detectedScenes ?? 0} Scenes
+                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Detected Scenes</span>
+                            <span className="font-mono text-base font-black text-white">
+                                {totals.llmScenes?.detectedScenes ?? 0}
                             </span>
                         </div>
                     </div>
                 </div>
 
-                {/* Category 2: What's Using Local CPU */}
-                <div className={`rounded-2xl p-4 border space-y-3 ${(isVoiceRunning || (isSttRunning && sttUsesLocalCpu) || epgSyncs.length > 0 || liveStreams.length > 0 || dvrActive.length > 0) ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-[#0d111a] border-white/10'}`}>
-                    <div className="flex items-center justify-between gap-2">
+                {/* Category 2: Local CPU */}
+                <div className={`rounded-2xl p-4 border space-y-3 ${(isVoiceRunning || (isSttRunning && sttUsesLocalCpu) || epgSyncs.length > 0 || liveStreams.length > 0 || dvrActive.length > 0) ? 'bg-emerald-500/10 border-emerald-500/40 shadow-lg shadow-emerald-500/10' : 'bg-[#0d111a] border-white/10'}`}>
+                    <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
                             <Cpu className="w-6 h-6 text-emerald-400 shrink-0" />
-                            <h2 className="text-lg font-black text-white">Using Local CPU</h2>
+                            <h2 className="text-lg font-black text-white">Local CPU</h2>
                         </div>
                         <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase border ${
                             (isVoiceRunning || (isSttRunning && sttUsesLocalCpu) || epgSyncs.length > 0 || liveStreams.length > 0 || dvrActive.length > 0)
@@ -255,55 +276,55 @@ export default function TasksPage() {
                             {(isVoiceRunning || (isSttRunning && sttUsesLocalCpu) || epgSyncs.length > 0 || liveStreams.length > 0 || dvrActive.length > 0) ? 'Active' : 'Idle'}
                         </span>
                     </div>
-                    <div className="space-y-1.5 text-sm">
-                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
-                            <span className="font-bold text-gray-300">Local Whisper / FFmpeg DSP</span>
-                            <span className="font-mono font-black text-emerald-300">
-                                {totals.voices.done}/{totals.voices.total} Voice
+                    <div className="space-y-2">
+                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Whisper & Voice</span>
+                            <span className="font-mono text-base font-black text-emerald-300">
+                                {totals.voices.done} / {totals.voices.total}
                             </span>
                         </div>
-                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
-                            <span className="font-bold text-gray-300">Live Streams / DVR / EPG Parse</span>
-                            <span className="font-mono font-black text-white">
-                                {liveStreams.length} TV • {dvrActive.length} DVR • {epgSyncs.length} EPG
+                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Streams & DVR</span>
+                            <span className="font-mono text-base font-black text-white">
+                                {liveStreams.length} TV • {dvrActive.length} Rec
                             </span>
                         </div>
                     </div>
                 </div>
 
-                {/* Category 3: What's Using External APIs */}
-                <div className={`rounded-2xl p-4 border space-y-3 ${(isArtRunning || (isSttRunning && !sttUsesLocalCpu)) ? 'bg-purple-500/10 border-purple-500/40' : 'bg-[#0d111a] border-white/10'}`}>
+                {/* Category 3: External APIs */}
+                <div className={`rounded-2xl p-4 border space-y-3 ${(isArtRunning || (isSttRunning && !sttUsesLocalCpu)) ? 'bg-purple-500/10 border-purple-500/40 shadow-lg shadow-purple-500/10' : 'bg-[#0d111a] border-white/10'}`}>
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5">
                             <Globe className="w-6 h-6 text-purple-400 shrink-0" />
-                            <h2 className="text-lg font-black text-white">Using External APIs</h2>
+                            <h2 className="text-lg font-black text-white">External APIs</h2>
                         </div>
-                        <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-purple-500/15 text-purple-300 border border-purple-500/30 truncate max-w-[150px]">
-                            {studioCfg.detectedProvider || 'Pollinations / Whisper'}
+                        <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                            {studioCfg.detectedProvider ? studioCfg.detectedProvider.toUpperCase() : 'FREE FLUX'}
                         </span>
                     </div>
-                    <div className="space-y-1.5 text-sm">
-                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
-                            <span className="font-bold text-gray-300">Stage 3: Scene Image API</span>
-                            <span className="font-mono font-black text-purple-300">
-                                {totals.art.keptScenes} Painted ({totals.art.doneChapters}/{totals.art.totalChapters} Ch)
+                    <div className="space-y-2">
+                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Painted Scenes</span>
+                            <span className="font-mono text-base font-black text-purple-300">
+                                {totals.art.keptScenes} ({totals.art.doneChapters}/{totals.art.totalChapters} Ch)
                             </span>
                         </div>
-                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-2 border border-white/5">
-                            <span className="font-bold text-gray-300">Arr Indexer API / Cloud STT</span>
-                            <span className="font-mono font-black text-white">
-                                {arrScheduler.enabled ? `Every ${arrScheduler.interval || 30}m` : 'Arr Paused'} • {studioCfg.apiKeysCount ?? 0} Keys
+                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Search Schedules</span>
+                            <span className="font-mono text-base font-black text-white">
+                                {arrScheduler.enabled ? `Every ${arrScheduler.interval || 30}m` : 'Paused'}
                             </span>
                         </div>
                     </div>
                 </div>
 
-                {/* Category 4: What's Consuming Quotas */}
-                <div className={`rounded-2xl p-4 border space-y-3 ${quotaReached ? 'bg-rose-500/10 border-rose-500/40' : 'bg-[#0d111a] border-white/10'}`}>
-                    <div className="flex items-center justify-between gap-2">
+                {/* Category 4: Quotas */}
+                <div className={`rounded-2xl p-4 border space-y-3 ${quotaReached ? 'bg-rose-500/10 border-rose-500/40 shadow-lg shadow-rose-500/10' : 'bg-[#0d111a] border-white/10'}`}>
+                    <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
                             <Gauge className="w-6 h-6 text-amber-400 shrink-0" />
-                            <h2 className="text-lg font-black text-white">Consuming Quotas</h2>
+                            <h2 className="text-lg font-black text-white">Quotas</h2>
                         </div>
                         <button
                             onClick={() => runAction('reset_quota_top', { action: 'update_studio_limits', resetDailyUsage: true })}
@@ -313,40 +334,38 @@ export default function TasksPage() {
                             Reset (0)
                         </button>
                     </div>
-                    <div className="space-y-1.5 text-sm">
-                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-1.5 border border-white/5 gap-2">
-                            <span className="font-bold text-gray-300">Daily Art Quota</span>
-                            <div className="flex items-center gap-1.5">
-                                <span className={`font-mono font-black ${quotaReached ? 'text-rose-400' : 'text-amber-300'}`}>
-                                    {studioCfg.imagesGeneratedToday ?? 0} /
+                    <div className="space-y-2">
+                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Daily Art Quota</span>
+                            <div className="flex items-center gap-1.5 font-mono">
+                                <span className={`text-base font-black ${quotaReached ? 'text-rose-400' : 'text-amber-300'}`}>
+                                    {studioCfg.imagesGeneratedToday ?? 0}
                                 </span>
+                                <span className="text-gray-500">/</span>
                                 <select
                                     value={studioCfg.dailyImageQuota ?? 20}
                                     onChange={(e) => runAction('daily_quota', { action: 'update_studio_limits', dailyImageQuota: Number(e.target.value) })}
-                                    className="bg-[#141a29] border border-white/15 rounded-lg px-2 py-1 text-xs font-black text-white cursor-pointer"
+                                    className="bg-[#141a29] border border-white/15 rounded-lg px-2 py-0.5 text-xs font-black text-white cursor-pointer"
                                 >
-                                    {[20, 50, 100, 200, 500, 1000, 5000].map(q => (
+                                    {[20, 50, 100, 200, 500, 1000].map(q => (
                                         <option key={q} value={q}>{q}/day</option>
                                     ))}
                                 </select>
                             </div>
                         </div>
-                        <div className="flex items-center justify-between bg-black/40 rounded-xl px-3 py-1.5 border border-white/5 gap-2">
-                            <span className="font-bold text-gray-300">Rate Limit & Hits</span>
+                        <div className="bg-black/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Rate Limit</span>
                             <div className="flex items-center gap-2">
                                 <select
                                     value={studioCfg.rateLimitRpm ?? 10}
                                     onChange={(e) => runAction('rpm_limit', { action: 'update_studio_limits', rateLimitRpm: Number(e.target.value) })}
-                                    className="bg-[#141a29] border border-white/15 rounded-lg px-2 py-1 text-xs font-black text-white cursor-pointer"
+                                    className="bg-[#141a29] border border-white/15 rounded-lg px-2 py-0.5 text-xs font-black text-white cursor-pointer"
                                 >
-                                    {[5, 10, 15, 30, 60, 120].map(rpm => (
+                                    {[5, 10, 15, 30, 60].map(rpm => (
                                         <option key={rpm} value={rpm}>{rpm} RPM</option>
                                     ))}
                                 </select>
                                 <span className="font-mono text-xs font-black text-emerald-300">{studioCfg.apiMetrics?.totalSuccess ?? 0} OK</span>
-                                <span className={`font-mono text-xs font-black ${(studioCfg.apiMetrics?.totalErrors ?? 0) > 0 ? 'text-rose-400' : 'text-gray-400'}`}>
-                                    {studioCfg.apiMetrics?.totalErrors ?? 0} Err
-                                </span>
                             </div>
                         </div>
                     </div>
@@ -1035,222 +1054,232 @@ export default function TasksPage() {
             </section>
 
             {/* 3. SERVER SCHEDULERS: ARR BATCH SEARCH, RELEASE CALENDAR CACHE SYNC & DISK / TORRENT GUARD */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Arr Batch Search Scheduler */}
-                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                            <Search className="w-6 h-6 text-indigo-400 shrink-0" />
-                            <h2 className="text-xl font-black text-white">Arr Batch Search</h2>
-                            <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
-                                arrScheduler.enabled
-                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            }`}>
-                                {arrScheduler.enabled ? 'Enabled' : 'Paused'}
-                            </span>
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4 flex flex-col justify-between">
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <Search className="w-6 h-6 text-indigo-400 shrink-0" />
+                                <h2 className="text-xl font-black text-white">Arr Batch Search</h2>
+                                <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
+                                    arrScheduler.enabled
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                }`}>
+                                    {arrScheduler.enabled ? 'Enabled' : 'Paused'}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    onClick={() => runAction('arr_run', { action: 'update_arr_scheduler', runNow: true })}
+                                    disabled={busyKey === 'arr_run'}
+                                    title="Run Sonarr/Radarr/Lidarr missing search batch now"
+                                    className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                                >
+                                    <Play className="w-4 h-4 fill-current" />
+                                    Run
+                                </button>
+                                <button
+                                    onClick={() => runAction('arr_toggle', { action: 'update_arr_scheduler', enabled: !arrScheduler.enabled })}
+                                    disabled={busyKey === 'arr_toggle'}
+                                    title={arrScheduler.enabled ? 'Pause Arr Scheduler' : 'Enable Arr Scheduler'}
+                                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                                >
+                                    {arrScheduler.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                    {arrScheduler.enabled ? 'Pause' : 'Resume'}
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                            <button
-                                onClick={() => runAction('arr_run', { action: 'update_arr_scheduler', runNow: true })}
-                                disabled={busyKey === 'arr_run'}
-                                title="Run Sonarr/Radarr/Lidarr missing search batch now"
-                                className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
-                            >
-                                <Play className="w-4 h-4 fill-current" />
-                                Run
-                            </button>
-                            <button
-                                onClick={() => runAction('arr_toggle', { action: 'update_arr_scheduler', enabled: !arrScheduler.enabled })}
-                                disabled={busyKey === 'arr_toggle'}
-                                title={arrScheduler.enabled ? 'Pause Arr Scheduler' : 'Enable Arr Scheduler'}
-                                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
-                            >
-                                {arrScheduler.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                                {arrScheduler.enabled ? 'Pause' : 'Resume'}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
-                            <span className="text-xs font-black uppercase text-gray-400">Next Run</span>
-                            <div className="text-lg font-black text-white">
+                        {/* Top metric */}
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 flex items-center justify-between">
+                            <span className="text-xs font-black uppercase text-gray-400">Next Scheduled Run</span>
+                            <div className="text-lg font-black text-white font-mono">
                                 {arrScheduler.enabled ? formatNextRun(arrScheduler.nextRunTimestamp) : 'Paused'}
                             </div>
                         </div>
 
-                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
-                            <span className="text-xs font-black uppercase text-gray-400">Interval</span>
-                            <select
-                                value={arrScheduler.interval || 30}
-                                onChange={(e) => runAction('arr_int', { action: 'update_arr_scheduler', interval: Number(e.target.value) })}
-                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
-                            >
-                                {[15, 30, 60, 120, 360, 720].map(m => (
-                                    <option key={m} value={m}>Every {m}m</option>
-                                ))}
-                            </select>
-                        </div>
+                        {/* 2 controls with ample width */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1.5">
+                                <span className="text-xs font-black uppercase text-gray-400">Interval</span>
+                                <select
+                                    value={arrScheduler.interval || 30}
+                                    onChange={(e) => runAction('arr_int', { action: 'update_arr_scheduler', interval: Number(e.target.value) })}
+                                    className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-2 text-base font-bold text-white cursor-pointer"
+                                >
+                                    {[15, 30, 60, 120, 360, 720].map(m => (
+                                        <option key={m} value={m}>Every {m}m</option>
+                                    ))}
+                                </select>
+                            </div>
 
-                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
-                            <span className="text-xs font-black uppercase text-gray-400">Batch Limit</span>
-                            <select
-                                value={arrScheduler.batchSize || 10}
-                                onChange={(e) => runAction('arr_batch', { action: 'update_arr_scheduler', batchSize: Number(e.target.value) })}
-                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
-                            >
-                                {[1, 5, 10, 20, 50].map(b => (
-                                    <option key={b} value={b}>{b} items</option>
-                                ))}
-                            </select>
+                            <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1.5">
+                                <span className="text-xs font-black uppercase text-gray-400">Batch Limit</span>
+                                <select
+                                    value={arrScheduler.batchSize || 10}
+                                    onChange={(e) => runAction('arr_batch', { action: 'update_arr_scheduler', batchSize: Number(e.target.value) })}
+                                    className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-2 text-base font-bold text-white cursor-pointer"
+                                >
+                                    {[1, 5, 10, 20, 50].map(b => (
+                                        <option key={b} value={b}>{b} items</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </section>
 
                 {/* Release Calendar Cache Sync Scheduler */}
-                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                            <Calendar className="w-6 h-6 text-sky-400 shrink-0" />
-                            <h2 className="text-xl font-black text-white">Release Calendar Cache</h2>
-                            <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
-                                calendarSync.isRunning
-                                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 animate-pulse'
-                                    : calendarSync.enabled
-                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            }`}>
-                                {calendarSync.isRunning ? 'Syncing' : calendarSync.enabled ? 'Enabled' : 'Paused'}
-                            </span>
-                        </div>
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4 flex flex-col justify-between">
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <Calendar className="w-6 h-6 text-sky-400 shrink-0" />
+                                <h2 className="text-xl font-black text-white">Release Calendar Cache</h2>
+                                <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
+                                    calendarSync.isRunning
+                                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 animate-pulse'
+                                        : calendarSync.enabled
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                }`}>
+                                    {calendarSync.isRunning ? 'Syncing' : calendarSync.enabled ? 'Enabled' : 'Paused'}
+                                </span>
+                            </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                            <button
-                                onClick={() => runAction('cal_run', { action: 'update_calendar_sync', runNow: true })}
-                                disabled={busyKey === 'cal_run' || calendarSync.isRunning}
-                                title="Sync Radarr & Sonarr release calendar into SQLite cache right now for instant Schedule page load"
-                                className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-50"
-                            >
-                                <RefreshCw className={`w-4 h-4 ${calendarSync.isRunning ? 'animate-spin' : ''}`} />
-                                Sync
-                            </button>
-                            <button
-                                onClick={() => runAction('cal_toggle', { action: 'update_calendar_sync', enabled: !calendarSync.enabled })}
-                                disabled={busyKey === 'cal_toggle'}
-                                title={calendarSync.enabled ? 'Pause periodic release calendar sync' : 'Enable periodic release calendar sync'}
-                                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
-                            >
-                                {calendarSync.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                                {calendarSync.enabled ? 'Pause' : 'Resume'}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
-                            <span className="text-xs font-black uppercase text-gray-400">Cached Items</span>
-                            <div className="text-lg font-black text-sky-300 font-mono">
-                                {calendarSync.cachedCount ?? 0}
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    onClick={() => runAction('cal_run', { action: 'update_calendar_sync', runNow: true })}
+                                    disabled={busyKey === 'cal_run' || calendarSync.isRunning}
+                                    title="Sync Radarr & Sonarr release calendar into SQLite cache right now for instant Schedule page load"
+                                    className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-50"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${calendarSync.isRunning ? 'animate-spin' : ''}`} />
+                                    Sync
+                                </button>
+                                <button
+                                    onClick={() => runAction('cal_toggle', { action: 'update_calendar_sync', enabled: !calendarSync.enabled })}
+                                    disabled={busyKey === 'cal_toggle'}
+                                    title={calendarSync.enabled ? 'Pause periodic release calendar sync' : 'Enable periodic release calendar sync'}
+                                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                                >
+                                    {calendarSync.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                    {calendarSync.enabled ? 'Pause' : 'Resume'}
+                                </button>
                             </div>
                         </div>
 
-                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                        {/* 2 metrics in row */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                                <span className="text-xs font-black uppercase text-gray-400">Cached Items</span>
+                                <div className="text-lg font-black text-sky-300 font-mono">
+                                    {calendarSync.cachedCount ?? 0}
+                                </div>
+                            </div>
+                            <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                                <span className="text-xs font-black uppercase text-gray-400">Last Sync</span>
+                                <div className="text-base font-black text-white truncate">
+                                    {calendarSync.lastSyncAt
+                                        ? new Date(calendarSync.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                        : 'Pending'}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Sync Interval full width */}
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1.5">
                             <span className="text-xs font-black uppercase text-gray-400">Sync Interval</span>
                             <select
                                 value={calendarSync.intervalMin || 15}
                                 onChange={(e) => runAction('cal_int', { action: 'update_calendar_sync', intervalMin: Number(e.target.value) })}
-                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
+                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-2 text-base font-bold text-white cursor-pointer"
                             >
                                 {[5, 10, 15, 30, 60, 120].map(m => (
-                                    <option key={m} value={m}>Every {m}m</option>
+                                    <option key={m} value={m}>Every {m} minutes</option>
                                 ))}
                             </select>
-                        </div>
-
-                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
-                            <span className="text-xs font-black uppercase text-gray-400">Last Sync</span>
-                            <div className="text-base font-black text-white truncate">
-                                {calendarSync.lastSyncAt
-                                    ? new Date(calendarSync.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                    : 'Pending'}
-                            </div>
                         </div>
                     </div>
                 </section>
 
                 {/* Smart Disk Guard & qBittorrent Cleanup */}
-                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                            <HardDrive className="w-6 h-6 text-emerald-400 shrink-0" />
-                            <h2 className="text-xl font-black text-white">Disk Guard & qBit Cleanup</h2>
-                            <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
-                                arrScheduler.diskAutocleanEnabled
-                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                    : 'bg-white/10 text-gray-300 border-white/15'
-                            }`}>
-                                {arrScheduler.diskAutocleanEnabled ? 'Auto-Clean ON' : 'Auto-Clean OFF'}
-                            </span>
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4 flex flex-col justify-between">
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <HardDrive className="w-6 h-6 text-emerald-400 shrink-0" />
+                                <h2 className="text-xl font-black text-white">Disk Guard & qBit Cleanup</h2>
+                                <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
+                                    arrScheduler.diskAutocleanEnabled
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        : 'bg-white/10 text-gray-300 border-white/15'
+                                }`}>
+                                    {arrScheduler.diskAutocleanEnabled ? 'Auto-Clean ON' : 'Auto-Clean OFF'}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    onClick={() => runAction('clean_run', { action: 'update_cleanup_scheduler', runNow: true })}
+                                    disabled={busyKey === 'clean_run'}
+                                    title="Run torrent & disk cleanup immediately"
+                                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                                >
+                                    <Play className="w-4 h-4 fill-current" />
+                                    Clean
+                                </button>
+                                <button
+                                    onClick={() => runAction('clean_toggle', {
+                                        action: 'update_cleanup_scheduler',
+                                        diskAutocleanEnabled: !arrScheduler.diskAutocleanEnabled
+                                    })}
+                                    disabled={busyKey === 'clean_toggle'}
+                                    title="Toggle Smart Disk Auto-Clean"
+                                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                                >
+                                    {arrScheduler.diskAutocleanEnabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                    {arrScheduler.diskAutocleanEnabled ? 'Disable' : 'Enable'}
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                            <button
-                                onClick={() => runAction('clean_run', { action: 'update_cleanup_scheduler', runNow: true })}
-                                disabled={busyKey === 'clean_run'}
-                                title="Run torrent & disk cleanup immediately"
-                                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
-                            >
-                                <Play className="w-4 h-4 fill-current" />
-                                Clean
-                            </button>
-                            <button
-                                onClick={() => runAction('clean_toggle', {
-                                    action: 'update_cleanup_scheduler',
-                                    diskAutocleanEnabled: !arrScheduler.diskAutocleanEnabled
-                                })}
-                                disabled={busyKey === 'clean_toggle'}
-                                title="Toggle Smart Disk Auto-Clean"
-                                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
-                            >
-                                {arrScheduler.diskAutocleanEnabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                                {arrScheduler.diskAutocleanEnabled ? 'Disable' : 'Enable'}
-                            </button>
-                        </div>
-                    </div>
+                        {/* 2 controls with ample space */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1.5">
+                                <span className="text-xs font-black uppercase text-gray-400">Disk Threshold</span>
+                                <select
+                                    value={arrScheduler.diskThresholdPercent || 85}
+                                    onChange={(e) => runAction('disk_thresh', {
+                                        action: 'update_cleanup_scheduler',
+                                        diskThresholdPercent: Number(e.target.value)
+                                    })}
+                                    className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-2 text-base font-bold text-white cursor-pointer"
+                                >
+                                    {[75, 80, 85, 90, 95].map(p => (
+                                        <option key={p} value={p}>Clean &gt; {p}%</option>
+                                    ))}
+                                </select>
+                            </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
-                            <span className="text-xs font-black uppercase text-gray-400">Disk Threshold</span>
-                            <select
-                                value={arrScheduler.diskThresholdPercent || 85}
-                                onChange={(e) => runAction('disk_thresh', {
-                                    action: 'update_cleanup_scheduler',
-                                    diskThresholdPercent: Number(e.target.value)
-                                })}
-                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
-                            >
-                                {[75, 80, 85, 90, 95].map(p => (
-                                    <option key={p} value={p}>Clean above {p}%</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
-                            <span className="text-xs font-black uppercase text-gray-400">qBit Check Interval</span>
-                            <select
-                                value={arrScheduler.qbitCleanupIntervalMin || 15}
-                                onChange={(e) => runAction('qbit_int', {
-                                    action: 'update_cleanup_scheduler',
-                                    qbitCleanupIntervalMin: Number(e.target.value)
-                                })}
-                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
-                            >
-                                {[5, 10, 15, 30, 60].map(m => (
-                                    <option key={m} value={m}>Every {m}m</option>
-                                ))}
-                            </select>
+                            <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1.5">
+                                <span className="text-xs font-black uppercase text-gray-400">qBit Check</span>
+                                <select
+                                    value={arrScheduler.qbitCleanupIntervalMin || 15}
+                                    onChange={(e) => runAction('qbit_int', {
+                                        action: 'update_cleanup_scheduler',
+                                        qbitCleanupIntervalMin: Number(e.target.value)
+                                    })}
+                                    className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-2 text-base font-bold text-white cursor-pointer"
+                                >
+                                    {[5, 10, 15, 30, 60].map(m => (
+                                        <option key={m} value={m}>Every {m}m</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -1319,7 +1348,7 @@ export default function TasksPage() {
                                     [{(h.queueType || h.taskType || 'TASK').toUpperCase()}] {h.bookTitle}{h.chapterTitle ? ` — ${h.chapterTitle}` : ''}: {h.detail || h.details}
                                 </span>
                                 <span className="text-xs text-gray-500 shrink-0">
-                                    {h.timestamp ? new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+                                    {h.timestamp ? new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                 </span>
                             </div>
                         ))}
@@ -1331,6 +1360,20 @@ export default function TasksPage() {
                     </div>
                 </section>
             </div>
+
+            {/* Custom Confirm Modal */}
+            {confirmModal && (
+                <ConfirmModal
+                    isOpen={confirmModal.isOpen}
+                    onClose={() => setConfirmModal(null)}
+                    onConfirm={confirmModal.onConfirm}
+                    title={confirmModal.title}
+                    description={confirmModal.description}
+                    confirmText={confirmModal.confirmText}
+                    cancelText={confirmModal.cancelText}
+                    variant={confirmModal.variant}
+                />
+            )}
         </div>
     );
 }

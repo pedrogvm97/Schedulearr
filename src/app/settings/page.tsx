@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Server, Sliders, Shield, Wrench, Heart } from "lucide-react";
+import {
+    Server, Sliders, Shield, Wrench, Heart, Sparkles, Headphones,
+    Image as ImageIcon, Mic, RefreshCw, Check, ArrowUp, ArrowDown,
+    Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2
+} from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
@@ -32,7 +36,51 @@ export default function Settings() {
 
     const [isAuthorModalOpen, setIsAuthorModalOpen] = useState(false);
     const [activeTroubleshootModal, setActiveTroubleshootModal] = useState<'socket' | 'perms' | null>(null);
-    const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'system'>('instances');
+    const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'ai' | 'system'>('instances');
+    const [aiMediaCategory, setAiMediaCategory] = useState<'general' | 'audiobooks' | 'video'>('general');
+    const [voiceNarrationMode, setVoiceNarrationMode] = useState<'rvc_filter' | 'neural_tts'>('rvc_filter');
+    const [selectedVoiceModel, setSelectedVoiceModel] = useState<string>('morgan_freeman');
+    const [imageProvidersList, setImageProvidersList] = useState<Array<{
+        id: 'pollinations_flux' | 'gemini' | 'openai' | 'custom';
+        name: string;
+        badge: string;
+        description: string;
+        enabled: boolean;
+        dailyQuota: number;
+    }>>([
+        {
+            id: 'pollinations_flux',
+            name: 'Pollinations Flux',
+            badge: 'Free / Fast',
+            description: 'Local/Free FLUX.1 & Turbo model fallback. Fast generation, zero API key required.',
+            enabled: true,
+            dailyQuota: 50
+        },
+        {
+            id: 'gemini',
+            name: 'Google Imagen 3',
+            badge: 'Gemini Key',
+            description: 'Google Imagen 3 via Generative Language API. Highly detailed concept art & typography.',
+            enabled: true,
+            dailyQuota: 15
+        },
+        {
+            id: 'openai',
+            name: 'OpenAI DALL-E 3',
+            badge: 'OpenAI Key',
+            description: 'Photorealistic and stylized illustrations via OpenAI DALL-E 3.',
+            enabled: false,
+            dailyQuota: 10
+        },
+        {
+            id: 'custom',
+            name: 'Local WebUI / SDXL',
+            badge: 'Self-Hosted',
+            description: 'Automatic1111, ComfyUI, or custom SDXL / Flux endpoint on Unraid/LAN.',
+            enabled: false,
+            dailyQuota: 100
+        }
+    ]);
     const [confirmModal, setConfirmModal] = useState<{
         title: string;
         message: string;
@@ -1068,6 +1116,32 @@ export default function Settings() {
         input.click();
     };
 
+    const moveImageProvider = (idx: number, dir: -1 | 1) => {
+        const targetIdx = idx + dir;
+        if (targetIdx < 0 || targetIdx >= imageProvidersList.length) return;
+        const nextList = [...imageProvidersList];
+        const [moved] = nextList.splice(idx, 1);
+        nextList.splice(targetIdx, 0, moved);
+        setImageProvidersList(nextList);
+        const primary = nextList.find(p => p.enabled) || nextList[0];
+        saveAudiobookStudioConfig({ artProvider: primary.id });
+        toast.success(`Priority updated: ${moved.name}`);
+    };
+
+    const toggleImageProvider = (id: string) => {
+        const nextList = imageProvidersList.map(p => p.id === id ? { ...p, enabled: !p.enabled } : p);
+        setImageProvidersList(nextList);
+        const primary = nextList.find(p => p.enabled) || nextList[0];
+        saveAudiobookStudioConfig({ artProvider: primary.id });
+        toast.success(`${id} ${nextList.find(p => p.id === id)?.enabled ? 'enabled' : 'disabled'}`);
+    };
+
+    const updateProviderQuota = (id: string, quota: number) => {
+        const safeQ = Math.max(0, quota);
+        setImageProvidersList(prev => prev.map(p => p.id === id ? { ...p, dailyQuota: safeQ } : p));
+        saveAudiobookStudioConfig({ dailyImageQuota: safeQ });
+    };
+
     return (
         <div className="max-w-6xl mx-auto p-6 space-y-8 pb-32">
             {/* Top Navigation & Subtopic Section Switcher */}
@@ -1093,7 +1167,7 @@ export default function Settings() {
                 </div>
 
                 {/* Subtopic Segmented Switcher */}
-                <div className="flex p-1.5 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 max-w-xl gap-1">
+                <div className="flex p-1.5 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 max-w-2xl gap-1">
                     <button
                         onClick={() => setSettingsSubtopic('instances')}
                         className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
@@ -1103,7 +1177,7 @@ export default function Settings() {
                         }`}
                     >
                         <Server size={14} className={settingsSubtopic === 'instances' ? 'text-indigo-400' : ''} />
-                        <span>Instances & Integrations</span>
+                        <span>Instances</span>
                     </button>
                     <button
                         onClick={() => setSettingsSubtopic('automation')}
@@ -1114,7 +1188,18 @@ export default function Settings() {
                         }`}
                     >
                         <Shield size={14} className={settingsSubtopic === 'automation' ? 'text-emerald-400' : ''} />
-                        <span>Automation & Storage</span>
+                        <span>Automation</span>
+                    </button>
+                    <button
+                        onClick={() => setSettingsSubtopic('ai')}
+                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                            settingsSubtopic === 'ai'
+                                ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
+                        }`}
+                    >
+                        <Sparkles size={14} className={settingsSubtopic === 'ai' ? 'text-amber-400' : ''} />
+                        <span>AI Studio</span>
                     </button>
                     <button
                         onClick={() => setSettingsSubtopic('system')}
@@ -1124,8 +1209,8 @@ export default function Settings() {
                                 : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
                         }`}
                     >
-                        <Wrench size={14} className={settingsSubtopic === 'system' ? 'text-amber-400' : ''} />
-                        <span>System & Diagnostics</span>
+                        <Wrench size={14} className={settingsSubtopic === 'system' ? 'text-sky-400' : ''} />
+                        <span>System</span>
                     </button>
                 </div>
             </div>
@@ -1574,960 +1659,6 @@ export default function Settings() {
                     </div>
                 </div>
             </div>
-
-                    {/* Unified AI API Key Registration (Auto-Detect), Quick API Finder Helper, Quotas, Rate Limits & Schedules */}
-                    <div className="bg-zinc-900 border border-amber-500/30 rounded-2xl p-6 space-y-6 shadow-xl">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
-                            <div>
-                                <div className="flex items-center gap-2.5 flex-wrap">
-                                    <span className="text-2xl">🔑</span>
-                                    <h2 className="text-xl font-black text-white">
-                                        AI API Key Auto-Detector, Usage Limits &amp; Schedules
-                                    </h2>
-                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                                        audiobookStudioConfig.enabled
-                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                            : 'bg-zinc-800 text-zinc-500 border-zinc-700'
-                                    }`}>
-                                        {audiobookStudioConfig.enabled ? 'Background Engine Active' : 'Paused'}
-                                    </span>
-                                </div>
-                                <p className="text-xs text-zinc-400 mt-1">
-                                    Paste any AI key below to automatically detect the provider (Gemini, Claude, ChatGPT/OpenAI, Groq, or Custom URL), rate-limit tier, and capabilities. Creative per-book options (Art Style, Voice, Scene Count) now live directly on your <strong>Audiobooks Shelf</strong> in Theater.
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-                                <a
-                                    href="/theater"
-                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-amber-500/30 text-xs font-bold text-amber-300 transition-all"
-                                >
-                                    📚 Open Audiobook Shelf &amp; Book Settings
-                                </a>
-                                <button
-                                    type="button"
-                                    onClick={() => saveAudiobookStudioConfig({ enabled: !audiobookStudioConfig.enabled })}
-                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer ${
-                                        audiobookStudioConfig.enabled
-                                            ? 'bg-amber-500 text-black border-amber-400'
-                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
-                                    }`}
-                                >
-                                    {audiobookStudioConfig.enabled ? 'Engine Enabled' : 'Paused'}
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* 1. Verified Key Green Confirmation State OR Key Input / Editor */}
-                        {(() => {
-                            const hasActiveKey = Boolean(
-                                audiobookStudioConfig.lastKeyProbe?.valid ||
-                                (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0) ||
-                                audiobookStudioConfig.rawUnifiedApiKey ||
-                                audiobookStudioConfig.geminiApiKey ||
-                                audiobookStudioConfig.openaiApiKey ||
-                                audiobookStudioConfig.anthropicApiKey ||
-                                audiobookStudioConfig.groqApiKey
-                            );
-
-                            const activeProviderLabel =
-                                audiobookStudioConfig.lastKeyProbe?.providerLabel ||
-                                (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool[0]?.label) ||
-                                (audiobookStudioConfig.geminiApiKey ? 'Google Gemini' :
-                                 audiobookStudioConfig.openaiApiKey ? 'OpenAI' :
-                                 audiobookStudioConfig.anthropicApiKey ? 'Anthropic Claude' :
-                                 audiobookStudioConfig.groqApiKey ? 'Groq Cloud' : 'Active AI Engine');
-
-                            const activeTier =
-                                audiobookStudioConfig.lastKeyProbe?.tier ||
-                                (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool[0]?.tier) ||
-                                'Standard';
-
-                            const activeRpm =
-                                audiobookStudioConfig.lastKeyProbe?.rateLimitRpm ||
-                                (audiobookStudioConfig.maxRequestsPerMinute || 15);
-
-                            const maskedKeyStr =
-                                (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0 && audiobookStudioConfig.keyPool[0].maskedKey) ||
-                                (() => {
-                                    const raw = (audiobookStudioConfig.rawUnifiedApiKey || audiobookStudioConfig.geminiApiKey || audiobookStudioConfig.openaiApiKey || audiobookStudioConfig.anthropicApiKey || audiobookStudioConfig.groqApiKey || '').trim();
-                                    if (!raw) return '••••••••';
-                                    if (raw.length <= 8) return raw.slice(0, 3) + '••••';
-                                    return raw.slice(0, 6) + '••••' + raw.slice(-4);
-                                })();
-
-                            const metrics = audiobookStudioConfig.apiMetrics || {
-                                totalRequests: 0,
-                                totalSuccess: 0,
-                                totalErrors: 0,
-                                transcriptionRequests: 0,
-                                artPromptRequests: 0,
-                                imagePaintRequests: 0,
-                                structureSearchRequests: 0
-                            };
-
-                            if (hasActiveKey && !isEditingKey) {
-                                return (
-                                    <div className="space-y-4">
-                                        {/* Green Confirmation State Card */}
-                                        <div className="p-6 bg-gradient-to-br from-emerald-950/45 via-zinc-950 to-zinc-950 rounded-2xl border-2 border-emerald-500/50 space-y-5 shadow-2xl shadow-emerald-950/30">
-                                            {/* Header Row: Provider, Tier, Masked Key & Action Buttons */}
-                                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                                                <div className="space-y-2">
-                                                    <div className="flex items-center gap-2.5 flex-wrap">
-                                                        <span className="px-3 py-1 rounded-xl bg-emerald-500 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-emerald-500/30">
-                                                            <span>✓</span> Connected &amp; Active
-                                                        </span>
-                                                        <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
-                                                            {activeProviderLabel}
-                                                        </h3>
-                                                        <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 text-xs font-mono font-bold text-amber-300">
-                                                            Tier: {activeTier}
-                                                        </span>
-                                                        <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
-                                                            audiobookStudioConfig.lastKeyProbe?.isRateLimited
-                                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                                                : 'bg-zinc-900 text-emerald-300 border-emerald-500/30'
-                                                        }`}>
-                                                            {audiobookStudioConfig.lastKeyProbe?.isRateLimited
-                                                                ? '⚠️ Rate-Limited (Throttling Active)'
-                                                                : `Rate Limit: ~${activeRpm} req/min`}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <code className="text-xs font-mono text-zinc-300 bg-black/70 px-3 py-1.5 rounded-lg border border-zinc-800">
-                                                            Key: {maskedKeyStr}
-                                                        </code>
-                                                        {Array.isArray(audiobookStudioConfig.lastKeyProbe?.capabilities) && audiobookStudioConfig.lastKeyProbe!.capabilities.length > 0 && (
-                                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                                                {audiobookStudioConfig.lastKeyProbe!.capabilities.map((cap, idx) => (
-                                                                    <span key={idx} className="px-2 py-0.5 rounded-md bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-semibold text-emerald-200">
-                                                                        ✓ {cap}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* Header Action Buttons */}
-                                                <div className="flex items-center gap-2 flex-wrap shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setIsEditingKey(true)}
-                                                        className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs uppercase tracking-wider border border-zinc-700 transition-all cursor-pointer shadow-sm hover:border-zinc-500"
-                                                    >
-                                                        ✏️ Change / Edit Key
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        disabled={probingApiKey}
-                                                        onClick={() => handleAutoDetectApiKey()}
-                                                        className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-black text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
-                                                    >
-                                                        {probingApiKey ? 'Verifying...' : '🔄 Re-Verify'}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setIsAddingBackupKey(prev => !prev)}
-                                                        className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-amber-500/20"
-                                                    >
-                                                        {isAddingBackupKey ? '✕ Close Backup Form' : '＋ Add Backup Key'}
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Live API Request Metrics Counter */}
-                                            <div className="pt-4 border-t border-emerald-500/20 space-y-3">
-                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                                    <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                                                        <span>📊</span> Live API Request Activity &amp; Live Counters
-                                                    </span>
-                                                    <span className="text-xs text-zinc-400 font-mono">
-                                                        Last activity: {metrics.lastRequestAt ? new Date(metrics.lastRequestAt).toLocaleTimeString() : 'None recorded yet'}
-                                                    </span>
-                                                </div>
-
-                                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                                                    {/* Total Calls */}
-                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
-                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
-                                                            <span>📈</span> Total Requests
-                                                        </div>
-                                                        <div className="text-2xl sm:text-3xl font-black text-white">
-                                                            {metrics.totalRequests}
-                                                        </div>
-                                                        <div className="text-[10px] text-zinc-500">
-                                                            Success: {metrics.totalSuccess} • Errors: {metrics.totalErrors}
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Multimodal STT */}
-                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
-                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1">
-                                                            <span>🎙️</span> Transcription STT
-                                                        </div>
-                                                        <div className="text-2xl sm:text-3xl font-black text-sky-200">
-                                                            {metrics.transcriptionRequests}
-                                                        </div>
-                                                        <div className="text-[10px] text-zinc-500">
-                                                            Gemini Flash &amp; Whisper calls
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Dynamic Scene Prompts */}
-                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
-                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1">
-                                                            <span>🧠</span> Scene AI Prompts
-                                                        </div>
-                                                        <div className="text-2xl sm:text-3xl font-black text-purple-200">
-                                                            {metrics.artPromptRequests}
-                                                        </div>
-                                                        <div className="text-[10px] text-zinc-500">
-                                                            Context &amp; continuity analysis
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Art Painting */}
-                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
-                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-                                                            <span>🎨</span> Art Generations
-                                                        </div>
-                                                        <div className="text-2xl sm:text-3xl font-black text-amber-200">
-                                                            {metrics.imagePaintRequests}
-                                                        </div>
-                                                        <div className="text-[10px] text-zinc-500">
-                                                            Flux, Imagen 3 &amp; DALL·E
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Structure Discovery */}
-                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
-                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
-                                                            <span>📖</span> Literary Structure
-                                                        </div>
-                                                        <div className="text-2xl sm:text-3xl font-black text-emerald-200">
-                                                            {metrics.structureSearchRequests || 0}
-                                                        </div>
-                                                        <div className="text-[10px] text-zinc-500">
-                                                            Chapters &amp; scene discovery
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {metrics.lastTaskDescription && (
-                                                    <div className="text-xs text-zinc-400 bg-black/40 rounded-xl px-3.5 py-2 border border-zinc-800/80 flex items-center justify-between gap-2">
-                                                        <div className="truncate">
-                                                            Latest Completed: <span className="text-white font-medium">{metrics.lastTaskDescription}</span>
-                                                        </div>
-                                                        {metrics.lastProviderUsed && (
-                                                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300 shrink-0">
-                                                                {metrics.lastProviderUsed}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Backup API Keys & Load-Balancing Pool Card */}
-                                        <div className="p-5 bg-zinc-950/85 rounded-2xl border border-zinc-800 space-y-4">
-                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
-                                                <div>
-                                                    <h4 className="text-sm font-black text-white flex items-center gap-2">
-                                                        <span>🛡️</span> Backup API Keys &amp; Load-Balancing Pool
-                                                    </h4>
-                                                    <p className="text-xs text-zinc-400 mt-0.5">
-                                                        Add secondary keys (Gemini, Groq, OpenAI) to prevent hourly rate limits from stalling whole-book jobs.
-                                                    </p>
-                                                </div>
-
-                                                {/* Key Routing Mode Switch */}
-                                                <div className="flex items-center gap-1.5 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleSetKeyRoutingMode('failover')}
-                                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                                            (audiobookStudioConfig.keyRoutingMode || 'failover') === 'failover'
-                                                                ? 'bg-amber-500 text-black shadow-md'
-                                                                : 'text-zinc-400 hover:text-white'
-                                                        }`}
-                                                    >
-                                                        🛡️ Failover
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleSetKeyRoutingMode('round_robin')}
-                                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                                            audiobookStudioConfig.keyRoutingMode === 'round_robin'
-                                                                ? 'bg-sky-500 text-black shadow-md'
-                                                                : 'text-zinc-400 hover:text-white'
-                                                        }`}
-                                                    >
-                                                        ⚖️ Round-Robin
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Key Pool Items */}
-                                            {audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0 ? (
-                                                <div className="space-y-2">
-                                                    {audiobookStudioConfig.keyPool.map((k) => (
-                                                        <div
-                                                            key={k.id}
-                                                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 text-xs"
-                                                        >
-                                                            <div className="flex items-center gap-2.5 flex-wrap">
-                                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
-                                                                    k.role === 'primary' ? 'bg-amber-500 text-black' : 'bg-sky-500 text-black'
-                                                                }`}>
-                                                                    {k.role === 'primary' ? 'Primary' : 'Backup'}
-                                                                </span>
-                                                                <span className="font-black text-white">{k.label}</span>
-                                                                <code className="font-mono text-zinc-400 bg-black/60 px-2 py-0.5 rounded border border-zinc-800">
-                                                                    {k.maskedKey}
-                                                                </code>
-                                                                <span className="text-zinc-500 font-mono">Tier: {k.tier}</span>
-                                                                <span className="text-zinc-400 font-mono">({k.requestsCount} reqs)</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 shrink-0">
-                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                                                    k.valid ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/20' : 'text-red-400 bg-red-950/40 border border-red-500/20'
-                                                                }`}>
-                                                                    {k.valid ? 'Active' : 'Error'}
-                                                                </span>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleRemoveKey(k.id)}
-                                                                    className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-red-500/20 hover:text-red-300 text-zinc-400 font-bold border border-zinc-700 text-xs transition-colors cursor-pointer"
-                                                                >
-                                                                    ✕ Remove
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-xs text-zinc-400 italic">
-                                                    No backup keys registered. Using primary API key for all book tasks. Add secondary keys below to load-balance across providers.
-                                                </p>
-                                            )}
-
-                                            {/* Add Backup Key Subform */}
-                                            {isAddingBackupKey && (
-                                                <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/30 space-y-3 animate-in fade-in duration-200">
-                                                    <div className="text-xs font-black text-amber-300 uppercase tracking-wider">
-                                                        Add New API Key to Load-Balancing Pool
-                                                    </div>
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                                        <input
-                                                            type="password"
-                                                            placeholder="Paste backup API key (AIza..., gsk_..., sk-..., etc.)"
-                                                            value={backupKeyInput}
-                                                            onChange={e => setBackupKeyInput(e.target.value)}
-                                                            className="bg-black/60 border border-zinc-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
-                                                        />
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Key label e.g. 'Secondary Gemini Key' or 'Free Groq'"
-                                                            value={backupKeyLabel}
-                                                            onChange={e => setBackupKeyLabel(e.target.value)}
-                                                            className="bg-black/60 border border-zinc-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            type="button"
-                                                            disabled={submittingBackupKey || !backupKeyInput.trim()}
-                                                            onClick={handleAddBackupKey}
-                                                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
-                                                        >
-                                                            {submittingBackupKey ? 'Probing & Adding...' : 'Verify & Add to Pool'}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setIsAddingBackupKey(false)}
-                                                            className="px-3 py-2 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-xs cursor-pointer"
-                                                        >
-                                                            Cancel
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            }
-
-                            {/* Fallback / Editing Input Box */}
-                            return (
-                                <div className="p-5 bg-zinc-950/85 rounded-2xl border border-zinc-800 space-y-4">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                        <div>
-                                            <label className="text-sm sm:text-base font-black text-white flex items-center gap-2">
-                                                {isEditingKey ? 'Update or Replace Your AI API Key' : '1. Paste Your AI API Key (Auto-Detects Provider, Tier & Rate Limits)'}
-                                            </label>
-                                            <p className="text-xs text-zinc-400 mt-0.5">
-                                                Supports Google Gemini (<code className="text-amber-300">AIza...</code>), Anthropic Claude (<code className="text-amber-300">sk-ant-...</code>), OpenAI (<code className="text-amber-300">sk-...</code>), Groq (<code className="text-amber-300">gsk_...</code>), or leave empty for Free Built-In Flux.
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            {isEditingKey && (
-                                                <>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setIsEditingKey(false)}
-                                                        className="px-3.5 py-2 rounded-xl text-xs font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 cursor-pointer hover:text-white"
-                                                    >
-                                                        Cancel Edit
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleDisconnectKey}
-                                                        className="px-3.5 py-2 rounded-xl text-xs font-bold bg-red-950/40 text-red-300 border border-red-500/30 cursor-pointer hover:bg-red-900/50"
-                                                    >
-                                                        Disconnect Key
-                                                    </button>
-                                                </>
-                                            )}
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowApiFinderHelper(prev => !prev)}
-                                                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer shrink-0 ${
-                                                    showApiFinderHelper
-                                                        ? 'bg-sky-500 text-black border-sky-400'
-                                                        : 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border-sky-500/35'
-                                                }`}
-                                            >
-                                                {showApiFinderHelper ? 'Hide API Key Finder' : '❓ Quick API Key Finder Helper'}
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Paste Box + Auto-Detect Trigger */}
-                                    <div className="flex flex-col sm:flex-row gap-2.5">
-                                        <input
-                                            type="password"
-                                            placeholder="Paste any API key here (AIza..., sk-ant-..., sk-..., gsk_..., or http://...) — auto-detects everything!"
-                                            value={
-                                                audiobookStudioConfig.rawUnifiedApiKey ||
-                                                audiobookStudioConfig.geminiApiKey ||
-                                                audiobookStudioConfig.anthropicApiKey ||
-                                                audiobookStudioConfig.openaiApiKey ||
-                                                audiobookStudioConfig.groqApiKey ||
-                                                ''
-                                            }
-                                            onChange={(e) => {
-                                                const val = e.target.value;
-                                                setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: val }));
-                                            }}
-                                            onPaste={(e) => {
-                                                const pasted = e.clipboardData.getData('text');
-                                                if (pasted && pasted.trim().length > 6) {
-                                                    setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: pasted.trim() }));
-                                                    setTimeout(() => handleAutoDetectApiKey(pasted.trim()), 80);
-                                                }
-                                            }}
-                                            className="flex-1 bg-zinc-900 border border-zinc-700 focus:border-amber-400 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono text-white outline-none"
-                                        />
-                                        <button
-                                            type="button"
-                                            disabled={probingApiKey}
-                                            onClick={() => handleAutoDetectApiKey()}
-                                            className="px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-50"
-                                        >
-                                            {probingApiKey ? 'Detecting & Probing Key...' : '🔍 Auto-Detect & Verify Key'}
-                                        </button>
-                                    </div>
-
-                                    {/* Live Auto-Detection Result Banner */}
-                                    {audiobookStudioConfig.lastKeyProbe && (
-                                        <div className={`p-4 rounded-xl border space-y-2.5 ${
-                                            audiobookStudioConfig.lastKeyProbe.valid
-                                                ? 'bg-emerald-950/25 border-emerald-500/35'
-                                                : 'bg-red-950/25 border-red-500/35'
-                                        }`}>
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase ${
-                                                        audiobookStudioConfig.lastKeyProbe.valid
-                                                            ? 'bg-emerald-500 text-black'
-                                                            : 'bg-red-500 text-white'
-                                                    }`}>
-                                                        {audiobookStudioConfig.lastKeyProbe.valid ? 'Verified' : 'Invalid Key'}
-                                                    </span>
-                                                    <span className="text-sm font-black text-white">
-                                                        {audiobookStudioConfig.lastKeyProbe.providerLabel}
-                                                    </span>
-                                                    <span className="px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-700 text-xs font-mono font-bold text-amber-300">
-                                                        Tier: {audiobookStudioConfig.lastKeyProbe.tier}
-                                                    </span>
-                                                    <span className={`px-2 py-0.5 rounded-md text-xs font-mono font-bold border ${
-                                                        audiobookStudioConfig.lastKeyProbe.isRateLimited
-                                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                                            : 'bg-zinc-900 text-emerald-300 border-zinc-800'
-                                                    }`}>
-                                                        {audiobookStudioConfig.lastKeyProbe.isRateLimited
-                                                            ? '⚠️ Currently Rate-Limited (Auto-Throttling Active)'
-                                                            : `Rate Limit: ~${audiobookStudioConfig.lastKeyProbe.rateLimitRpm} req/min`}
-                                                    </span>
-                                                </div>
-                                                {audiobookStudioConfig.lastKeyProbe.rateLimitRemaining && (
-                                                    <span className="text-xs font-mono text-zinc-400">
-                                                        Remaining: {audiobookStudioConfig.lastKeyProbe.rateLimitRemaining}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <p className="text-xs text-zinc-300">
-                                                {audiobookStudioConfig.lastKeyProbe.statusMessage}
-                                            </p>
-                                        </div>
-                                    )}
-
-                                    {/* Interactive Quick API Key Finder Helper */}
-                                    {showApiFinderHelper && (
-                                        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-sky-950/30 to-zinc-950 border border-sky-500/35 space-y-4 animate-in fade-in duration-200">
-                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
-                                                <div>
-                                                    <h4 className="text-sm font-black text-white">
-                                                        Quick API Key Finder — Pick a Provider to Get Your Key in 30 Seconds
-                                                    </h4>
-                                                    <p className="text-xs text-zinc-400">
-                                                        Don&apos;t know where to find an API key? Choose which AI service you want to use below and follow the direct link:
-                                                    </p>
-                                                </div>
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    {([
-                                                        { id: 'gemini', label: '✨ Google Gemini (Free Tier)' },
-                                                        { id: 'claude', label: '🧠 Anthropic Claude' },
-                                                        { id: 'openai', label: '🎨 OpenAI / ChatGPT' },
-                                                        { id: 'groq', label: '⚡ Groq (Free Fast Tier)' }
-                                                    ] as const).map(p => (
-                                                        <button
-                                                            key={p.id}
-                                                            type="button"
-                                                            onClick={() => setSelectedHelperProvider(p.id)}
-                                                            className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-all ${
-                                                                selectedHelperProvider === p.id
-                                                                 ? 'bg-sky-500 text-black border-sky-400'
-                                                                    : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:bg-zinc-800'
-                                                            }`}
-                                                        >
-                                                            {p.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            {selectedHelperProvider === 'gemini' && (
-                                                <div className="space-y-2.5 text-xs text-zinc-300">
-                                                    <p className="font-bold text-sky-300">Google Gemini API Key (Starts with <code className="text-white">AIza...</code> — Free Tier Available!)</p>
-                                                    <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                                        <li>Click the button below to open <strong>Google AI Studio</strong> and sign in with your Google account.</li>
-                                                        <li>Click the blue <strong>&ldquo;Create API key&rdquo;</strong> button on the top right.</li>
-                                                        <li>Copy the key starting with <code className="text-amber-300">AIza...</code> and paste it into the box above — ScheduleArr will auto-detect Gemini 2.0 Flash &amp; Imagen 3!</li>
-                                                    </ol>
-                                                    <div className="pt-1">
-                                                        <a
-                                                            href="https://aistudio.google.com/app/apikey"
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
-                                                        >
-                                                            ↗ Open Google AI Studio Key Page (aistudio.google.com/app/apikey)
-                                                        </a>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {selectedHelperProvider === 'claude' && (
-                                                <div className="space-y-2.5 text-xs text-zinc-300">
-                                                    <p className="font-bold text-sky-300">Anthropic Claude API Key (Starts with <code className="text-white">sk-ant-...</code>)</p>
-                                                    <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                                        <li>Click the button below to open the <strong>Anthropic Console Keys</strong> page.</li>
-                                                        <li>Click <strong>&ldquo;Create Key&rdquo;</strong>, name it <em>ScheduleArr</em>, and copy the key starting with <code className="text-amber-300">sk-ant-...</code>.</li>
-                                                        <li>Paste it into the box above to unlock Claude 3.5 Dynamic Scene Prompting (paired with Flux artwork).</li>
-                                                    </ol>
-                                                    <div className="pt-1">
-                                                        <a
-                                                            href="https://console.anthropic.com/settings/keys"
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
-                                                        >
-                                                            ↗ Open Anthropic Claude Keys Page (console.anthropic.com/settings/keys)
-                                                        </a>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {selectedHelperProvider === 'openai' && (
-                                                <div className="space-y-2.5 text-xs text-zinc-300">
-                                                    <p className="font-bold text-sky-300">OpenAI / ChatGPT API Key (Starts with <code className="text-white">sk-...</code>)</p>
-                                                    <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                                        <li>Click the button below to open the <strong>OpenAI Platform API Keys</strong> page.</li>
-                                                        <li>Click <strong>&ldquo;Create new secret key&rdquo;</strong> and copy the key starting with <code className="text-amber-300">sk-...</code>.</li>
-                                                        <li>Paste it above to unlock GPT-4o-mini Dynamic Scene Prompts, DALL·E 3 artwork, and Whisper Cloud transcription.</li>
-                                                    </ol>
-                                                    <div className="pt-1">
-                                                        <a
-                                                            href="https://platform.openai.com/api-keys"
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
-                                                        >
-                                                            ↗ Open OpenAI API Keys Page (platform.openai.com/api-keys)
-                                                        </a>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {selectedHelperProvider === 'groq' && (
-                                                <div className="space-y-2.5 text-xs text-zinc-300">
-                                                    <p className="font-bold text-sky-300">Groq Cloud API Key (Starts with <code className="text-white">gsk_...</code> — Free Tier Available!)</p>
-                                                    <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                                        <li>Click the button below to open <strong>GroqCloud Console</strong> and sign in for free.</li>
-                                                        <li>Click <strong>&ldquo;Create API Key&rdquo;</strong> and copy the key starting with <code className="text-amber-300">gsk_...</code>.</li>
-                                                        <li>Paste it above for ultra-fast Llama 3.3 70B Dynamic Scene Prompting &amp; Whisper Large v3 Turbo transcription!</li>
-                                                    </ol>
-                                                    <div className="pt-1">
-                                                        <a
-                                                            href="https://console.groq.com/keys"
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
-                                                        >
-                                                            ↗ Open Groq Console Keys Page (console.groq.com/keys)
-                                                        </a>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })()}
-
-                        {/* 1. Automated Pipeline Stages */}
-                        <div className="space-y-4 bg-zinc-950/80 p-5 rounded-2xl border border-zinc-800">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-3">
-                                <div>
-                                    <h3 className="text-base font-black text-white flex items-center gap-2">
-                                        <span className="text-xl">⚙️</span> 1. Automated Pipeline Stages
-                                    </h3>
-                                    <p className="text-xs text-zinc-400 mt-0.5">
-                                        Toggle autonomous background stages across all queued audiobooks. Each stage respects quotas and rate limits.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {/* Stage 1: Auto Transcription */}
-                                <div className="p-4 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-3 flex flex-col justify-between">
-                                    <div className="space-y-2.5">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-lg">🎙️</span>
-                                                <span className="text-sm font-black text-white">Transcription</span>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => saveAudiobookStudioConfig({ transcribeEnabled: audiobookStudioConfig.transcribeEnabled === false })}
-                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border cursor-pointer transition-all ${
-                                                    audiobookStudioConfig.transcribeEnabled !== false
-                                                        ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
-                                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
-                                                }`}
-                                                title="Toggle automated Speech-to-Text transcription of queued audiobooks"
-                                            >
-                                                {audiobookStudioConfig.transcribeEnabled !== false ? 'ON' : 'OFF'}
-                                            </button>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <select
-                                                value={audiobookStudioConfig.sttEngine || 'whisper_tiny_local'}
-                                                onChange={e => saveAudiobookStudioConfig({ sttEngine: e.target.value as any })}
-                                                className="w-full bg-black/60 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-400"
-                                                title="Speech-to-Text engine. Local Whisper runs offline on CPU and consumes zero API credits."
-                                            >
-                                                <option value="whisper_tiny_local">🖥️ Local Whisper CPU (0 Credits · Offline)</option>
-                                                <option value="gemini_audio">✨ Google Gemini Flash Audio (Cloud API)</option>
-                                                <option value="openai_whisper">🎙️ OpenAI Whisper API (Cloud API)</option>
-                                                <option value="acoustic_cadence">⚡ Acoustic Cadence (Cloud Free)</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    {/* Live Telemetry */}
-                                    <div className="p-3 rounded-xl bg-black/50 border border-zinc-800/80 space-y-1 text-xs">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider">Status</span>
-                                            {audiobookStudioConfig.transcribeEnabled === false ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">Paused</span>
-                                            ) : audiobookStudioStatus?.activeTask === 'transcribing' ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">Processing</span>
-                                            ) : (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-950/40 text-emerald-400 border border-emerald-500/20">Idle</span>
-                                            )}
-                                        </div>
-                                        <p className="text-zinc-300 line-clamp-2" title={audiobookStudioStatus?.activeTask === 'transcribing' ? (audiobookStudioStatus?.currentStep || audiobookStudioStatus?.lastLog) : undefined}>
-                                            {audiobookStudioConfig.transcribeEnabled === false
-                                                ? 'Stage paused. Manual triggers only.'
-                                                : audiobookStudioStatus?.activeTask === 'transcribing'
-                                                    ? `${audiobookStudioStatus.activeBookTitle || 'Audiobook'}${audiobookStudioStatus.activeChapterTitle ? ` — ${audiobookStudioStatus.activeChapterTitle}` : ''} (${audiobookStudioStatus.progress || 0}%)`
-                                                    : 'All audiobooks transcribed. Waiting for new audio.'}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {/* Stage 2: Auto Scening */}
-                                <div className="p-4 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-3 flex flex-col justify-between">
-                                    <div className="space-y-2.5">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-lg">🧠</span>
-                                                <span className="text-sm font-black text-white">Scening</span>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => saveAudiobookStudioConfig({ sceningEnabled: audiobookStudioConfig.sceningEnabled === false })}
-                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border cursor-pointer transition-all ${
-                                                    audiobookStudioConfig.sceningEnabled !== false
-                                                        ? 'bg-cyan-500 text-black border-cyan-400 shadow-sm'
-                                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
-                                                }`}
-                                                title="Toggle automated 3-minute scene detection from transcripts"
-                                            >
-                                                {audiobookStudioConfig.sceningEnabled !== false ? 'ON' : 'OFF'}
-                                            </button>
-                                        </div>
-                                        <div className="text-xs text-zinc-400">
-                                            Analyzes transcripts into scene intervals for illustration.
-                                        </div>
-                                    </div>
-
-                                    {/* Live Telemetry */}
-                                    <div className="p-3 rounded-xl bg-black/50 border border-zinc-800/80 space-y-1 text-xs">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider">Status</span>
-                                            {audiobookStudioConfig.sceningEnabled === false ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">Paused</span>
-                                            ) : audiobookStudioStatus?.activeTask === 'llm_scene_analysis' ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">Processing</span>
-                                            ) : audiobookStudioStatus?.activeTask === 'transcribing' ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-sky-950/40 text-sky-400 border border-sky-500/20">Waiting</span>
-                                            ) : (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-950/40 text-emerald-400 border border-emerald-500/20">Idle</span>
-                                            )}
-                                        </div>
-                                        <p className="text-zinc-300 line-clamp-2" title={audiobookStudioStatus?.activeTask === 'llm_scene_analysis' ? (audiobookStudioStatus?.currentStep || audiobookStudioStatus?.lastLog) : undefined}>
-                                            {audiobookStudioConfig.sceningEnabled === false
-                                                ? 'Stage paused. Manual triggers only.'
-                                                : audiobookStudioStatus?.activeTask === 'llm_scene_analysis'
-                                                    ? `${audiobookStudioStatus.activeBookTitle || 'Audiobook'}${audiobookStudioStatus.activeChapterTitle ? ` — ${audiobookStudioStatus.activeChapterTitle}` : ''} (${audiobookStudioStatus.progress || 0}%)`
-                                                    : audiobookStudioStatus?.activeTask === 'transcribing'
-                                                        ? 'Waiting for chapter transcription to complete...'
-                                                        : 'All transcripts processed into scenes.'}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {/* Stage 3: Auto Illustration */}
-                                <div className="p-4 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-3 flex flex-col justify-between">
-                                    <div className="space-y-2.5">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-lg">🎨</span>
-                                                <span className="text-sm font-black text-white">Illustration</span>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => saveAudiobookStudioConfig({ imagingEnabled: audiobookStudioConfig.imagingEnabled === false })}
-                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border cursor-pointer transition-all ${
-                                                    audiobookStudioConfig.imagingEnabled !== false
-                                                        ? 'bg-purple-500 text-black border-purple-400 shadow-sm'
-                                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
-                                                }`}
-                                                title="Toggle automated scene artwork and cover illustration"
-                                            >
-                                                {audiobookStudioConfig.imagingEnabled !== false ? 'ON' : 'OFF'}
-                                            </button>
-                                        </div>
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="text-zinc-400">Daily Quota Meter:</span>
-                                            <span className="font-mono font-bold text-amber-300">
-                                                {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Live Telemetry */}
-                                    <div className="p-3 rounded-xl bg-black/50 border border-zinc-800/80 space-y-1 text-xs">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider">Status</span>
-                                            {audiobookStudioConfig.imagingEnabled === false ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">Paused</span>
-                                            ) : (audiobookStudioConfig.imagesGeneratedToday >= audiobookStudioConfig.dailyImageQuota) ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-rose-950/50 text-rose-300 border border-rose-500/30">Quota Reached</span>
-                                            ) : (audiobookStudioStatus?.activeTask === 'illustrating' || audiobookStudioStatus?.activeTask === 'cover_art') ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">Processing</span>
-                                            ) : (audiobookStudioStatus?.activeTask === 'transcribing' || audiobookStudioStatus?.activeTask === 'llm_scene_analysis') ? (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-sky-950/40 text-sky-400 border border-sky-500/20">Waiting</span>
-                                            ) : (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-950/40 text-emerald-400 border border-emerald-500/20">Idle</span>
-                                            )}
-                                        </div>
-                                        <p className="text-zinc-300 line-clamp-2" title={(audiobookStudioStatus?.activeTask === 'illustrating' || audiobookStudioStatus?.activeTask === 'cover_art') ? (audiobookStudioStatus?.currentStep || audiobookStudioStatus?.lastLog) : undefined}>
-                                            {audiobookStudioConfig.imagingEnabled === false
-                                                ? 'Stage paused. Manual triggers only.'
-                                                : (audiobookStudioConfig.imagesGeneratedToday >= audiobookStudioConfig.dailyImageQuota)
-                                                    ? `Quota reached (${audiobookStudioConfig.imagesGeneratedToday}/${audiobookStudioConfig.dailyImageQuota}). Resets at 00:00 UTC.`
-                                                    : (audiobookStudioStatus?.activeTask === 'illustrating' || audiobookStudioStatus?.activeTask === 'cover_art')
-                                                        ? `${audiobookStudioStatus.activeBookTitle || 'Audiobook'} — Painting scene artwork...`
-                                                        : (audiobookStudioStatus?.activeTask === 'transcribing' || audiobookStudioStatus?.activeTask === 'llm_scene_analysis')
-                                                            ? 'Waiting for scene detection before painting...'
-                                                            : 'All scenes illustrated. Waiting for new chapters.'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 2. API Usage Limits, Rate Limits & Background Schedules */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {/* Schedule Mode */}
-                            <div className="space-y-2 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
-                                <label className="text-xs font-black uppercase tracking-wider text-amber-400 block">
-                                    2. Background Processing Schedule
-                                </label>
-                                <select
-                                    value={audiobookStudioConfig.scheduleMode}
-                                    onChange={e => saveAudiobookStudioConfig({ scheduleMode: e.target.value as any })}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-amber-500"
-                                >
-                                    <option value="continuous_low_cpu">Continuous 1-Thread (Low Unraid CPU)</option>
-                                    <option value="hourly">Hourly Batch</option>
-                                    <option value="overnight">Overnight Only (01:00–07:00)</option>
-                                    <option value="manual_only">Manual Trigger Only</option>
-                                </select>
-                                <p className="text-[11px] text-zinc-500">
-                                    Controls when ScheduleArr processes books in your Bookshelf Priority Queue.
-                                </p>
-                            </div>
-
-                            {/* Daily API / Image Quota */}
-                            <div className="space-y-2 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs font-black uppercase tracking-wider text-emerald-400">
-                                        3. Daily API Quota Limit
-                                    </label>
-                                    <span className="text-[11px] font-mono font-bold text-amber-300">
-                                        Used Today: {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={1000}
-                                        value={audiobookStudioConfig.dailyImageQuota}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
-                                        onBlur={() => saveAudiobookStudioConfig()}
-                                        className="w-20 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-300 outline-none focus:border-amber-500"
-                                    />
-                                    <div className="flex gap-1 flex-wrap">
-                                        {[5, 15, 50, 100].map(q => (
-                                            <button
-                                                key={q}
-                                                type="button"
-                                                onClick={() => saveAudiobookStudioConfig({ dailyImageQuota: q })}
-                                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black border cursor-pointer ${
-                                                    audiobookStudioConfig.dailyImageQuota === q
-                                                        ? 'bg-emerald-500 text-black border-emerald-400'
-                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
-                                                }`}
-                                            >
-                                                {q}/day
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <p className="text-[11px] text-zinc-500">
-                                    Maximum new scene illustrations generated per day across all queued books.
-                                </p>
-                            </div>
-
-                            {/* Max Requests Per Minute (Rate-Limit Guard) */}
-                            <div className="space-y-2 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
-                                <label className="text-xs font-black uppercase tracking-wider text-sky-400 block">
-                                    4. Rate-Limit Guard (Max Req / Min)
-                                </label>
-                                <div className="flex items-center gap-1.5">
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={120}
-                                        value={audiobookStudioConfig.maxRequestsPerMinute || 10}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, maxRequestsPerMinute: Math.max(1, parseInt(e.target.value) || 10) }))}
-                                        onBlur={() => saveAudiobookStudioConfig()}
-                                        className="w-20 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-sky-300 outline-none focus:border-sky-500"
-                                    />
-                                    <div className="flex gap-1 flex-wrap">
-                                        {[2, 5, 15, 30].map(rpm => (
-                                            <button
-                                                key={rpm}
-                                                type="button"
-                                                onClick={() => saveAudiobookStudioConfig({ maxRequestsPerMinute: rpm })}
-                                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black border cursor-pointer ${
-                                                    (audiobookStudioConfig.maxRequestsPerMinute || 10) === rpm
-                                                        ? 'bg-sky-500 text-black border-sky-400'
-                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
-                                                }`}
-                                            >
-                                                {rpm} RPM
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <p className="text-[11px] text-zinc-500">
-                                    Automatically paces API calls so free-tier keys never hit 429 rate limits.
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* 5. Dynamic AI Scene Prompt Toggle */}
-                        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-purple-950/35 via-zinc-950 to-zinc-950 border border-purple-500/35 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-base">✨</span>
-                                    <h3 className="text-sm font-black text-white">
-                                        5. Dynamic AI Scene Prompting (Context-Rich LLM Prompts)
-                                    </h3>
-                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
-                                        audiobookStudioConfig.dynamicPromptEnabled !== false
-                                            ? 'bg-purple-500 text-black'
-                                            : 'bg-zinc-800 text-zinc-400'
-                                    }`}>
-                                        {audiobookStudioConfig.dynamicPromptEnabled !== false ? 'Enabled' : 'Disabled'}
-                                    </span>
-                                </div>
-                                <p className="text-xs text-zinc-400 leading-relaxed">
-                                    When enabled, your AI model analyzes each chapter&apos;s transcript before painting and writes a bespoke visual prompt containing <strong>character names</strong>, <strong>locations</strong>, <strong>context highlights</strong>, and <strong>visual continuity from previous scene images</strong>.
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => saveAudiobookStudioConfig({ dynamicPromptEnabled: audiobookStudioConfig.dynamicPromptEnabled === false })}
-                                className={`px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer border ${
-                                    audiobookStudioConfig.dynamicPromptEnabled !== false
-                                        ? 'bg-purple-500 hover:bg-purple-400 text-black border-purple-400 shadow-lg shadow-purple-500/20'
-                                        : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700'
-                                }`}
-                            >
-                                {audiobookStudioConfig.dynamicPromptEnabled !== false ? 'Dynamic Prompt: ON' : 'Dynamic Prompt: OFF'}
-                            </button>
-                        </div>
-                    </div>
 
                     {/* Backup & Restore */}
                                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
@@ -3425,7 +2556,910 @@ export default function Settings() {
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════
-               SUBTOPIC 3: SYSTEM & DIAGNOSTICS
+               SUBTOPIC 3: AI STUDIO & MODELS
+               ═══════════════════════════════════════════════════════════════════ */}
+            {settingsSubtopic === 'ai' && (
+                <div className="space-y-8 animate-in fade-in duration-200">
+                    {/* Media Type Sub-Navigator */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+                        <div className="flex items-center gap-3">
+                            <Sparkles className="w-7 h-7 text-amber-400 shrink-0" />
+                            <div>
+                                <h2 className="text-xl font-black text-white">AI Studio &amp; Models</h2>
+                                <p className="text-xs text-zinc-400 font-medium">Neural engines, image providers, voice models &amp; automation</p>
+                            </div>
+                        </div>
+
+                        <div className="flex p-1 bg-zinc-950 rounded-xl border border-zinc-800 gap-1 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setAiMediaCategory('general')}
+                                className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                                    aiMediaCategory === 'general'
+                                        ? 'bg-amber-500 text-black shadow'
+                                        : 'text-zinc-400 hover:text-white'
+                                }`}
+                                title="API Keys, Key Pools, Image Providers & Schedule limits"
+                            >
+                                <Key size={14} />
+                                <span>General</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setAiMediaCategory('audiobooks')}
+                                className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                                    aiMediaCategory === 'audiobooks'
+                                        ? 'bg-amber-500 text-black shadow'
+                                        : 'text-zinc-400 hover:text-white'
+                                }`}
+                                title="Speech-to-Text, Scene Detection, Scene Artwork & Voice Narration"
+                            >
+                                <Headphones size={14} />
+                                <span>Audiobooks</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setAiMediaCategory('video')}
+                                className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                                    aiMediaCategory === 'video'
+                                        ? 'bg-amber-500 text-black shadow'
+                                        : 'text-zinc-400 hover:text-white'
+                                }`}
+                                title="Subtitles, Speech Sync & Visual Scene Tagging"
+                            >
+                                <Film size={14} />
+                                <span>Video</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* VIDEO SPECIFIC VIEW */}
+                    {aiMediaCategory === 'video' && (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                            <div className="flex items-center gap-3">
+                                <Film className="w-6 h-6 text-indigo-400" />
+                                <h3 className="text-lg font-black text-white">1. Movies &amp; TV Video AI Pipeline</h3>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2">
+                                    <span className="text-xs font-black uppercase text-indigo-400">Speech Subtitle Sync</span>
+                                    <p className="text-xs text-zinc-400">Uses local Whisper engine to extract dialog and auto-sync subtitles with audio waveforms.</p>
+                                    <div className="flex items-center justify-between pt-2">
+                                        <span className="text-xs font-bold text-white">Whisper Sync Engine</span>
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Active</span>
+                                    </div>
+                                </div>
+                                <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2">
+                                    <span className="text-xs font-black uppercase text-sky-400">Visual Scene Tagging</span>
+                                    <p className="text-xs text-zinc-400">Detects chapter breaks and key story moments from video keyframes.</p>
+                                    <div className="flex items-center justify-between pt-2">
+                                        <span className="text-xs font-bold text-white">Scene Tagging</span>
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">Standby</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* GENERAL OR AUDIOBOOKS: 1. AI ENGINE & API KEYS */}
+                    {(aiMediaCategory === 'general' || aiMediaCategory === 'audiobooks') && (
+                        <div className="bg-zinc-900 border border-amber-500/30 rounded-2xl p-6 space-y-6 shadow-xl">
+                            {/* Card 1: AI Engine & API Keys */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                                <div>
+                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                        <Key className="w-6 h-6 text-amber-400" />
+                                        <h2 className="text-xl font-black text-white">
+                                            1. AI Engine &amp; API Keys
+                                        </h2>
+                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                            audiobookStudioConfig.enabled
+                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                : 'bg-zinc-800 text-zinc-500 border-zinc-700'
+                                        }`}>
+                                            {audiobookStudioConfig.enabled ? 'Background Engine Active' : 'Paused'}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-zinc-400 mt-1">
+                                        Connect Google Gemini, Claude, OpenAI, Groq, or Local LLM. Auto-detects rate limits, tier, and capabilities.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                                    <a
+                                        href="/theater"
+                                        className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-amber-500/30 text-xs font-bold text-amber-300 transition-all"
+                                    >
+                                        📚 Open Shelf
+                                    </a>
+                                    <button
+                                        type="button"
+                                        onClick={() => saveAudiobookStudioConfig({ enabled: !audiobookStudioConfig.enabled })}
+                                        className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                                            audiobookStudioConfig.enabled
+                                                ? 'bg-amber-500 text-black border-amber-400'
+                                                : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                                        }`}
+                                    >
+                                        {audiobookStudioConfig.enabled ? 'Engine Active' : 'Paused'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Verified Key State OR Input State */}
+                            {(() => {
+                                const hasActiveKey = Boolean(
+                                    audiobookStudioConfig.lastKeyProbe?.valid ||
+                                    (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0) ||
+                                    audiobookStudioConfig.rawUnifiedApiKey ||
+                                    audiobookStudioConfig.geminiApiKey ||
+                                    audiobookStudioConfig.openaiApiKey ||
+                                    audiobookStudioConfig.anthropicApiKey ||
+                                    audiobookStudioConfig.groqApiKey
+                                );
+
+                                const activeProviderLabel =
+                                    audiobookStudioConfig.lastKeyProbe?.providerLabel ||
+                                    (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool[0]?.label) ||
+                                    (audiobookStudioConfig.geminiApiKey ? 'Google Gemini' :
+                                     audiobookStudioConfig.openaiApiKey ? 'OpenAI' :
+                                     audiobookStudioConfig.anthropicApiKey ? 'Anthropic Claude' :
+                                     audiobookStudioConfig.groqApiKey ? 'Groq Cloud' : 'Active AI Engine');
+
+                                const activeTier =
+                                    audiobookStudioConfig.lastKeyProbe?.tier ||
+                                    (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool[0]?.tier) ||
+                                    'Standard';
+
+                                const activeRpm =
+                                    audiobookStudioConfig.lastKeyProbe?.rateLimitRpm ||
+                                    (audiobookStudioConfig.maxRequestsPerMinute || 15);
+
+                                const maskedKeyStr =
+                                    (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0 && audiobookStudioConfig.keyPool[0].maskedKey) ||
+                                    (() => {
+                                        const raw = (audiobookStudioConfig.rawUnifiedApiKey || audiobookStudioConfig.geminiApiKey || audiobookStudioConfig.openaiApiKey || audiobookStudioConfig.anthropicApiKey || audiobookStudioConfig.groqApiKey || '').trim();
+                                        if (!raw) return '••••••••';
+                                        if (raw.length <= 8) return raw.slice(0, 3) + '••••';
+                                        return raw.slice(0, 6) + '••••' + raw.slice(-4);
+                                    })();
+
+                                const metrics = audiobookStudioConfig.apiMetrics || {
+                                    totalRequests: 0,
+                                    totalSuccess: 0,
+                                    totalErrors: 0,
+                                    transcriptionRequests: 0,
+                                    artPromptRequests: 0,
+                                    imagePaintRequests: 0,
+                                    structureSearchRequests: 0
+                                };
+
+                                if (hasActiveKey && !isEditingKey) {
+                                    return (
+                                        <div className="space-y-4">
+                                            {/* Green Confirmation State Card */}
+                                            <div className="p-6 bg-gradient-to-br from-emerald-950/45 via-zinc-950 to-zinc-950 rounded-2xl border-2 border-emerald-500/50 space-y-5 shadow-2xl">
+                                                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center gap-2.5 flex-wrap">
+                                                            <span className="px-3 py-1 rounded-xl bg-emerald-500 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md">
+                                                                <span>✓</span> Connected &amp; Active
+                                                            </span>
+                                                            <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                                                                {activeProviderLabel}
+                                                            </h3>
+                                                            <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 text-xs font-mono font-bold text-amber-300">
+                                                                Tier: {activeTier}
+                                                            </span>
+                                                            <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold border bg-zinc-900 text-emerald-300 border-emerald-500/30">
+                                                                Rate Limit: ~{activeRpm} req/min
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <code className="text-xs font-mono text-zinc-300 bg-black/70 px-3 py-1.5 rounded-lg border border-zinc-800">
+                                                                Key: {maskedKeyStr}
+                                                            </code>
+                                                            {Array.isArray(audiobookStudioConfig.lastKeyProbe?.capabilities) && (
+                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                    {audiobookStudioConfig.lastKeyProbe!.capabilities.map((cap, idx) => (
+                                                                        <span key={idx} className="px-2 py-0.5 rounded-md bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-semibold text-emerald-200">
+                                                                            ✓ {cap}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIsEditingKey(true)}
+                                                            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs uppercase border border-zinc-700 cursor-pointer"
+                                                        >
+                                                            ✏️ Change Key
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={probingApiKey}
+                                                            onClick={() => handleAutoDetectApiKey()}
+                                                            className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-black text-xs uppercase cursor-pointer disabled:opacity-50"
+                                                        >
+                                                            {probingApiKey ? 'Verifying...' : '🔄 Re-Verify'}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIsAddingBackupKey(prev => !prev)}
+                                                            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase cursor-pointer"
+                                                        >
+                                                            {isAddingBackupKey ? '✕ Close Form' : '＋ Add Backup Key'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* API Activity Metrics Counters */}
+                                                <div className="pt-4 border-t border-emerald-500/20 space-y-3">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                                        <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                                                            <span>📊</span> API Activity &amp; Live Counters
+                                                        </span>
+                                                        <span className="text-xs text-zinc-400 font-mono">
+                                                            Last: {metrics.lastRequestAt ? new Date(metrics.lastRequestAt).toLocaleTimeString() : 'None'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
+                                                            <span className="text-[10px] font-black uppercase text-zinc-500">Total Req</span>
+                                                            <div className="text-lg font-black text-white font-mono">{metrics.totalRequests || 0}</div>
+                                                        </div>
+                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
+                                                            <span className="text-[10px] font-black uppercase text-emerald-500">Success</span>
+                                                            <div className="text-lg font-black text-emerald-400 font-mono">{metrics.totalSuccess || 0}</div>
+                                                        </div>
+                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
+                                                            <span className="text-[10px] font-black uppercase text-rose-500">Errors</span>
+                                                            <div className="text-lg font-black text-rose-400 font-mono">{metrics.totalErrors || 0}</div>
+                                                        </div>
+                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
+                                                            <span className="text-[10px] font-black uppercase text-amber-500">Scene Analyzed</span>
+                                                            <div className="text-lg font-black text-amber-300 font-mono">{metrics.artPromptRequests || 0}</div>
+                                                        </div>
+                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
+                                                            <span className="text-[10px] font-black uppercase text-purple-500">Images Painted</span>
+                                                            <div className="text-lg font-black text-purple-300 font-mono">{metrics.imagePaintRequests || 0}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Key Routing & Backup Pool */}
+                                            <div className="p-4 bg-zinc-950/80 rounded-2xl border border-zinc-800 space-y-4">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                                    <div>
+                                                        <h4 className="text-sm font-black text-white flex items-center gap-2">
+                                                            <span>🔀</span> Key Routing &amp; Load Balancing Pool
+                                                        </h4>
+                                                        <p className="text-xs text-zinc-400">Multiple keys prevent rate-limiting halts across batch operations.</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSetKeyRoutingMode('failover')}
+                                                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase border cursor-pointer ${
+                                                                (audiobookStudioConfig.keyRoutingMode || 'failover') === 'failover'
+                                                                    ? 'bg-amber-500 text-black border-amber-400'
+                                                                    : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                                            }`}
+                                                        >
+                                                            Failover
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSetKeyRoutingMode('round_robin')}
+                                                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase border cursor-pointer ${
+                                                                audiobookStudioConfig.keyRoutingMode === 'round_robin'
+                                                                    ? 'bg-amber-500 text-black border-amber-400'
+                                                                    : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                                            }`}
+                                                        >
+                                                            Round-Robin
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Key Pool List */}
+                                                {audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        {audiobookStudioConfig.keyPool.map(k => (
+                                                            <div key={k.id} className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-between gap-3">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                                                        k.role === 'primary' ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-800 text-zinc-400'
+                                                                    }`}>{k.role}</span>
+                                                                    <span className="text-xs font-black text-white">{k.label}</span>
+                                                                    <code className="text-[11px] font-mono text-zinc-400">{k.maskedKey}</code>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-xs font-mono text-emerald-400 font-bold">{k.successCount} ok</span>
+                                                                    {k.role !== 'primary' && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleRemoveKey(k.id)}
+                                                                            className="p-1 rounded text-zinc-500 hover:text-rose-400 cursor-pointer"
+                                                                        >
+                                                                            <Trash2 size={14} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Backup Key Input Form */}
+                                                {isAddingBackupKey && (
+                                                    <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/30 space-y-3">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Label (e.g. Gemini Backup 2)"
+                                                                value={backupKeyLabel}
+                                                                onChange={e => setBackupKeyLabel(e.target.value)}
+                                                                className="bg-black/60 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
+                                                            />
+                                                            <input
+                                                                type="password"
+                                                                placeholder="Paste API Key here..."
+                                                                value={backupKeyInput}
+                                                                onChange={e => setBackupKeyInput(e.target.value)}
+                                                                className="sm:col-span-2 bg-black/60 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none"
+                                                            />
+                                                        </div>
+                                                        <div className="flex justify-end gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setIsAddingBackupKey(false)}
+                                                                className="px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white"
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={submittingBackupKey}
+                                                                onClick={handleAddBackupKey}
+                                                                className="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase cursor-pointer"
+                                                            >
+                                                                {submittingBackupKey ? 'Adding...' : 'Add Key to Pool'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-black uppercase tracking-wider text-amber-400 block">
+                                                Paste AI API Key
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="password"
+                                                    value={audiobookStudioConfig.rawUnifiedApiKey || audiobookStudioConfig.geminiApiKey || ''}
+                                                    onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: e.target.value }))}
+                                                    placeholder="Paste any Gemini (AIza...), OpenAI (sk-...), Claude, or Groq key..."
+                                                    className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none focus:border-amber-500"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    disabled={probingApiKey}
+                                                    onClick={() => handleAutoDetectApiKey()}
+                                                    className="px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase cursor-pointer disabled:opacity-50"
+                                                >
+                                                    {probingApiKey ? 'Probing...' : 'Detect & Verify'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {hasActiveKey && isEditingKey && (
+                                            <div className="flex justify-end gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsEditingKey(false)}
+                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white"
+                                                >
+                                                    Cancel Edit
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDisconnectKey}
+                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-400 hover:bg-rose-500/10"
+                                                >
+                                                    Disconnect Key
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    )}
+
+                    {/* AUDIOBOOKS: 2. AUTOMATED PIPELINE STAGES */}
+                    {(aiMediaCategory === 'general' || aiMediaCategory === 'audiobooks') && (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                            <div className="flex items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+                                <div className="flex items-center gap-2.5">
+                                    <Layers className="w-6 h-6 text-indigo-400" />
+                                    <h2 className="text-xl font-black text-white">2. Automated Pipeline Stages</h2>
+                                </div>
+                                <span className="text-xs font-bold text-zinc-400">Audiobook Processing Pipeline</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Stage 1: Transcription */}
+                                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Mic className="w-5 h-5 text-sky-400" />
+                                            <span className="text-xs font-black uppercase text-sky-400">Stage 1: Speech-to-Text</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => saveAudiobookStudioConfig({ transcribeEnabled: audiobookStudioConfig.transcribeEnabled === false })}
+                                            className={`px-3 py-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                                                audiobookStudioConfig.transcribeEnabled !== false ? 'bg-sky-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                            }`}
+                                        >
+                                            {audiobookStudioConfig.transcribeEnabled !== false ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
+                                    <select
+                                        value={audiobookStudioConfig.sttEngine || 'whisper_tiny_local'}
+                                        onChange={e => saveAudiobookStudioConfig({ sttEngine: e.target.value as any })}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
+                                    >
+                                        <option value="whisper_tiny_local">Whisper Tiny Local (Free, 0 Quota)</option>
+                                        <option value="openai_whisper">OpenAI Whisper-1 (API Key)</option>
+                                        <option value="gemini_audio">Google Gemini Audio (API Key)</option>
+                                        <option value="acoustic_cadence">Acoustic Cadence (DSP)</option>
+                                    </select>
+                                </div>
+
+                                {/* Stage 2: Scene Detection */}
+                                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Wand2 className="w-5 h-5 text-amber-400" />
+                                            <span className="text-xs font-black uppercase text-amber-400">Stage 2: Scene Detection</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => saveAudiobookStudioConfig({ sceningEnabled: audiobookStudioConfig.sceningEnabled === false })}
+                                            className={`px-3 py-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                                                audiobookStudioConfig.sceningEnabled !== false ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                            }`}
+                                        >
+                                            {audiobookStudioConfig.sceningEnabled !== false ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-zinc-400">Analyzes chapter narrative to extract character moments and vivid scene beats.</p>
+                                </div>
+
+                                {/* Stage 3: Scene Artwork */}
+                                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <ImageIcon className="w-5 h-5 text-purple-400" />
+                                            <span className="text-xs font-black uppercase text-purple-400">Stage 3: Scene Artwork</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => saveAudiobookStudioConfig({ imagingEnabled: audiobookStudioConfig.imagingEnabled === false })}
+                                            className={`px-3 py-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                                                audiobookStudioConfig.imagingEnabled !== false ? 'bg-purple-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                            }`}
+                                        >
+                                            {audiobookStudioConfig.imagingEnabled !== false ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-zinc-400">Daily Meter:</span>
+                                        <span className="font-mono font-bold text-amber-300">
+                                            {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* GENERAL OR AUDIOBOOKS: 3. IMAGE PROVIDERS & QUOTA SLIDERS */}
+                    {(aiMediaCategory === 'general' || aiMediaCategory === 'audiobooks') && (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+                                <div className="flex items-center gap-2.5">
+                                    <ImageIcon className="w-6 h-6 text-purple-400" />
+                                    <h2 className="text-xl font-black text-white">3. Image Providers &amp; Quotas</h2>
+                                </div>
+                                <span className="text-xs font-bold text-zinc-400">Reorder priority, toggle permanently, set daily limits</span>
+                            </div>
+
+                            <div className="space-y-3">
+                                {imageProvidersList.map((prov, idx) => (
+                                    <div
+                                        key={prov.id}
+                                        className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            {/* Priority reorder arrows */}
+                                            <div className="flex flex-col gap-1">
+                                                <button
+                                                    type="button"
+                                                    disabled={idx === 0}
+                                                    onClick={() => moveImageProvider(idx, -1)}
+                                                    className="p-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 disabled:opacity-30 cursor-pointer"
+                                                    title="Move Up in priority"
+                                                >
+                                                    <ArrowUp size={12} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={idx === imageProvidersList.length - 1}
+                                                    onClick={() => moveImageProvider(idx, 1)}
+                                                    className="p-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 disabled:opacity-30 cursor-pointer"
+                                                    title="Move Down in priority"
+                                                >
+                                                    <ArrowDown size={12} />
+                                                </button>
+                                            </div>
+
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-black text-white">{idx + 1}. {prov.name}</span>
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                                        {prov.badge}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-zinc-400 mt-0.5">{prov.description}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-4 shrink-0 flex-wrap">
+                                            {/* Daily quota slider & number input */}
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-black uppercase text-zinc-400">Quota:</span>
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="200"
+                                                    step="5"
+                                                    value={prov.dailyQuota}
+                                                    onChange={e => updateProviderQuota(prov.id, Number(e.target.value))}
+                                                    className="w-24 accent-purple-500 cursor-pointer"
+                                                />
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="500"
+                                                    value={prov.dailyQuota}
+                                                    onChange={e => updateProviderQuota(prov.id, Number(e.target.value))}
+                                                    className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs font-mono font-bold text-amber-300 text-center"
+                                                />
+                                                <span className="text-xs text-zinc-500">/day</span>
+                                            </div>
+
+                                            {/* Permanent Enable/Disable Switch */}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleImageProvider(prov.id)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase border cursor-pointer ${
+                                                    prov.enabled
+                                                        ? 'bg-emerald-500 text-black border-emerald-400'
+                                                        : 'bg-zinc-900 text-zinc-500 border-zinc-800'
+                                                }`}
+                                            >
+                                                {prov.enabled ? 'ON' : 'OFF'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* GENERAL OR AUDIOBOOKS: 4. BACKGROUND PROCESSING SCHEDULE & RATE LIMITS */}
+                    {(aiMediaCategory === 'general' || aiMediaCategory === 'audiobooks') && (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                            <div className="flex items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+                                <div className="flex items-center gap-2.5">
+                                    <Sliders className="w-6 h-6 text-amber-400" />
+                                    <h2 className="text-xl font-black text-white">4. Background Processing Schedule &amp; Limits</h2>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Schedule Mode */}
+                                <div className="space-y-3 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                    <label className="text-xs font-black uppercase tracking-wider text-amber-400 block">
+                                        Schedule Mode
+                                    </label>
+                                    <select
+                                        value={audiobookStudioConfig.scheduleMode}
+                                        onChange={e => saveAudiobookStudioConfig({ scheduleMode: e.target.value as any })}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                    >
+                                        <option value="continuous_low_cpu">Continuous 1-Thread (Low Unraid CPU)</option>
+                                        <option value="hourly">Hourly Batch</option>
+                                        <option value="overnight">Overnight Only (01:00–07:00)</option>
+                                        <option value="manual_only">Manual Trigger Only</option>
+                                    </select>
+                                    <p className="text-[11px] text-zinc-500">
+                                        Controls when ScheduleArr processes books in your Bookshelf Priority Queue.
+                                    </p>
+                                </div>
+
+                                {/* Daily API / Image Quota Limit (4-column grid, NO CURBING!) */}
+                                <div className="space-y-3 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                                            Daily API Quota
+                                        </label>
+                                        <span className="text-[11px] font-mono font-bold text-amber-300">
+                                            Used: {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
+                                        </span>
+                                    </div>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={1000}
+                                        value={audiobookStudioConfig.dailyImageQuota}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                        onBlur={() => saveAudiobookStudioConfig()}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-300 outline-none focus:border-amber-500"
+                                    />
+                                    {/* 4-column grid: Perfectly fits 4 presets in 1 row */}
+                                    <div className="grid grid-cols-4 gap-1.5 w-full">
+                                        {[5, 15, 50, 100].map(q => (
+                                            <button
+                                                key={q}
+                                                type="button"
+                                                onClick={() => saveAudiobookStudioConfig({ dailyImageQuota: q })}
+                                                className={`py-1.5 rounded-lg text-[10px] font-black border text-center cursor-pointer ${
+                                                    audiobookStudioConfig.dailyImageQuota === q
+                                                        ? 'bg-emerald-500 text-black border-emerald-400'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                {q}/day
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Rate-Limit Guard (RPM) (4-column grid, NO CURBING!) */}
+                                <div className="space-y-3 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                    <label className="text-xs font-black uppercase tracking-wider text-sky-400 block">
+                                        Rate-Limit (RPM)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={120}
+                                        value={audiobookStudioConfig.maxRequestsPerMinute || 10}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, maxRequestsPerMinute: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                        onBlur={() => saveAudiobookStudioConfig()}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-sky-300 outline-none focus:border-sky-500"
+                                    />
+                                    {/* 4-column grid: Perfectly fits 4 presets in 1 row */}
+                                    <div className="grid grid-cols-4 gap-1.5 w-full">
+                                        {[2, 5, 15, 30].map(rpm => (
+                                            <button
+                                                key={rpm}
+                                                type="button"
+                                                onClick={() => saveAudiobookStudioConfig({ maxRequestsPerMinute: rpm })}
+                                                className={`py-1.5 rounded-lg text-[10px] font-black border text-center cursor-pointer ${
+                                                    (audiobookStudioConfig.maxRequestsPerMinute || 10) === rpm
+                                                        ? 'bg-sky-500 text-black border-sky-400'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                {rpm} RPM
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* AUDIOBOOKS: 5. VOICE NARRATION & AUDIO MODELS */}
+                    {(aiMediaCategory === 'general' || aiMediaCategory === 'audiobooks') && (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+                                <div className="flex items-center gap-2.5">
+                                    <Headphones className="w-6 h-6 text-emerald-400" />
+                                    <h2 className="text-xl font-black text-white">5. Voice Narration &amp; Audio Models</h2>
+                                </div>
+                                <span className="text-xs font-bold text-zinc-400">RVC v2 Timbre Conversion &amp; Neural TTS Reread</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Transformation Method */}
+                                <div className="space-y-4 p-4 rounded-xl bg-zinc-950 border border-zinc-800">
+                                    <span className="text-xs font-black uppercase text-emerald-400 block">Audio Engine Mode</span>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setVoiceNarrationMode('rvc_filter')}
+                                            className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                                                voiceNarrationMode === 'rvc_filter'
+                                                    ? 'bg-emerald-500/20 text-white border-emerald-500/50'
+                                                    : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                            }`}
+                                        >
+                                            <div className="text-xs font-black uppercase text-emerald-300">Timbre Filter (RVC v2)</div>
+                                            <div className="text-[11px] text-zinc-400 mt-1">Converts vocal timbre over original audio while preserving acting, pacing &amp; pauses.</div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setVoiceNarrationMode('neural_tts')}
+                                            className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                                                voiceNarrationMode === 'neural_tts'
+                                                    ? 'bg-emerald-500/20 text-white border-emerald-500/50'
+                                                    : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                            }`}
+                                        >
+                                            <div className="text-xs font-black uppercase text-emerald-300">Neural TTS Reread</div>
+                                            <div className="text-[11px] text-zinc-400 mt-1">Rereads transcript with Kokoro-82M / Piper models from scratch.</div>
+                                        </button>
+                                    </div>
+
+                                    {/* Celebrity Voice Model Library */}
+                                    <div className="space-y-2 pt-2">
+                                        <span className="text-xs font-black uppercase text-zinc-400 block">Voice Model Timbre</span>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                            {[
+                                                { id: 'morgan_freeman', name: 'Morgan Freeman', desc: 'Deep cinematic' },
+                                                { id: 'barack_obama', name: 'Barack Obama', desc: 'Measured orator' },
+                                                { id: 'scarlett_johansson', name: 'Scarlett Johansson', desc: 'Warm intimate' },
+                                                { id: 'david_attenborough', name: 'David Attenborough', desc: 'Natural history' },
+                                                { id: 'original', name: 'Original Narrator', desc: 'Default audio' }
+                                            ].map(vm => (
+                                                <button
+                                                    key={vm.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedVoiceModel(vm.id);
+                                                        toast.success(`Voice set to ${vm.name}`);
+                                                    }}
+                                                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                                                        selectedVoiceModel === vm.id
+                                                            ? 'bg-emerald-500 text-black border-emerald-400 font-black'
+                                                            : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:border-zinc-600'
+                                                    }`}
+                                                >
+                                                    <div className="text-xs font-bold leading-tight">{vm.name}</div>
+                                                    <div className={`text-[10px] mt-0.5 ${selectedVoiceModel === vm.id ? 'text-black/80' : 'text-zinc-500'}`}>
+                                                        {vm.desc}
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* DSP Audio Enhancements & CPU Load */}
+                                <div className="space-y-4 p-4 rounded-xl bg-zinc-950 border border-zinc-800">
+                                    <span className="text-xs font-black uppercase text-zinc-400 block">Audio Enhancement Filter</span>
+                                    <select
+                                        value={audiobookStudioConfig.audioEnhancePreset}
+                                        onChange={e => saveAudiobookStudioConfig({ audioEnhancePreset: e.target.value as any })}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none"
+                                    >
+                                        <option value="denoise_clarity">Denoise &amp; Clarity (High Quality)</option>
+                                        <option value="vintage_restore">Vintage Audio Tape Restore</option>
+                                        <option value="crystal_voice">Crystal Voice Vocal Booster</option>
+                                    </select>
+
+                                    <div className="space-y-2 pt-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs font-black uppercase text-zinc-400">CPU Processing Threads</span>
+                                            <span className="text-xs font-mono font-bold text-amber-300">
+                                                {audiobookStudioConfig.cpuThreads} {audiobookStudioConfig.cpuThreads === 1 ? 'Thread (Low CPU)' : 'Threads'}
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="1"
+                                            max="4"
+                                            step="1"
+                                            value={audiobookStudioConfig.cpuThreads}
+                                            onChange={e => saveAudiobookStudioConfig({ cpuThreads: Number(e.target.value) })}
+                                            className="w-full accent-amber-500 cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* AUDIOBOOKS: 6. DYNAMIC AI SCENE PROMPTS */}
+                    {(aiMediaCategory === 'general' || aiMediaCategory === 'audiobooks') && (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+                                <div className="flex items-center gap-2.5">
+                                    <Wand2 className="w-6 h-6 text-purple-400" />
+                                    <h2 className="text-xl font-black text-white">6. Dynamic AI Scene Prompts</h2>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => saveAudiobookStudioConfig({ dynamicPromptEnabled: audiobookStudioConfig.dynamicPromptEnabled === false })}
+                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase border cursor-pointer ${
+                                        audiobookStudioConfig.dynamicPromptEnabled !== false
+                                            ? 'bg-purple-500 text-black border-purple-400'
+                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                    }`}
+                                >
+                                    {audiobookStudioConfig.dynamicPromptEnabled !== false ? 'Dynamic Prompt: ON' : 'Dynamic Prompt: OFF'}
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black uppercase tracking-wider text-zinc-400 block">
+                                        Art Resolution
+                                    </label>
+                                    <select
+                                        value={audiobookStudioConfig.artResolution}
+                                        onChange={e => saveAudiobookStudioConfig({ artResolution: e.target.value as any })}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
+                                    >
+                                        <option value="1280x720">1280x720 (16:9 Landscape / Theater TV)</option>
+                                        <option value="1024x1024">1024x1024 (1:1 Square Album Cover)</option>
+                                        <option value="1536x1024">1536x1024 (3:2 Cinema Ultra Wide)</option>
+                                        <option value="768x768">768x768 (Fast Low VRAM)</option>
+                                    </select>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black uppercase tracking-wider text-zinc-400 block">
+                                        Art Focus Subject
+                                    </label>
+                                    <select
+                                        value={audiobookStudioConfig.artFocus}
+                                        onChange={e => saveAudiobookStudioConfig({ artFocus: e.target.value as any })}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
+                                    >
+                                        <option value="auto-choice">Auto-Choice (Dynamic Per-Scene)</option>
+                                        <option value="characters">Characters &amp; Figures Primary</option>
+                                        <option value="ambient">Ambient Atmospheric Mood</option>
+                                        <option value="landscapes">Epic Landscapes &amp; Architecture</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-xs font-black uppercase tracking-wider text-zinc-400 block">
+                                    Scene Prompt Template
+                                </label>
+                                <textarea
+                                    rows={3}
+                                    value={audiobookStudioConfig.customPromptTemplate}
+                                    onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, customPromptTemplate: e.target.value }))}
+                                    onBlur={() => saveAudiobookStudioConfig()}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs font-mono text-zinc-200 outline-none focus:border-purple-500"
+                                    placeholder="Rich atmospheric book illustration, detailed lighting, no text or watermarks..."
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════════════
+               SUBTOPIC 4: SYSTEM & DIAGNOSTICS
                ═══════════════════════════════════════════════════════════════════ */}
             {settingsSubtopic === 'system' && (
                 <div className="space-y-8 animate-in fade-in duration-200">

@@ -7,6 +7,7 @@ import {
     Pause, Play, Trash2, Sparkles, FileText, Mic, Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 function formatCompactNumber(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
@@ -149,6 +150,15 @@ export function AiApiAnalyticsPanel() {
     const [detectingLimits, setDetectingLimits] = useState(false);
     const [togglingPause, setTogglingPause] = useState(false);
     const [cleaningTarget, setCleaningTarget] = useState<string | null>(null);
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        description: React.ReactNode;
+        confirmText?: string;
+        cancelText?: string;
+        variant?: 'danger' | 'warning' | 'primary';
+        onConfirm: () => void | Promise<void>;
+    } | null>(null);
 
     const [data, setData] = useState<{
         range: string;
@@ -263,37 +273,48 @@ export function AiApiAnalyticsPanel() {
         }
     };
 
-    const handleCleanup = async (
+    const handleCleanup = (
         target: 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all',
         label: string
     ) => {
-        if (!window.confirm(`Clean ${label}? This will permanently remove the selected generated data.`)) return;
-        setCleaningTarget(target);
-        try {
-            const res = await fetch('/api/analytics/ai-usage', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'clean_generated_data',
-                    target,
-                    pauseAiFirst: target === 'all'
-                })
-            });
-            if (res.ok) {
-                const json = await res.json();
-                const r = json.result || json || {};
-                toast.success(
-                    `Cleaned ${label}: ${r.deletedFilesCount || 0} files deleted, ${r.booksAffected || 0} books updated`
-                );
-                fetchAnalytics(false);
-            } else {
-                toast.error(`Failed to clean ${label}`);
+        setConfirmModal({
+            isOpen: true,
+            title: `Clean ${label}`,
+            description: target === 'all'
+                ? 'This will pause the AI engine and permanently wipe all generated scene images, prompts, transcripts, and voice exports.'
+                : `Are you sure you want to clean ${label.toLowerCase()}? This will permanently remove the selected generated data.`,
+            confirmText: 'Clean',
+            variant: target === 'all' ? 'danger' : 'warning',
+            onConfirm: async () => {
+                setConfirmModal(null);
+                setCleaningTarget(target);
+                try {
+                    const res = await fetch('/api/analytics/ai-usage', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'clean_generated_data',
+                            target,
+                            pauseAiFirst: target === 'all'
+                        })
+                    });
+                    if (res.ok) {
+                        const json = await res.json();
+                        const r = json.result || json || {};
+                        toast.success(
+                            `Cleaned ${label}: ${r.deletedFilesCount || 0} files deleted, ${r.booksAffected || 0} books updated`
+                        );
+                        fetchAnalytics(false);
+                    } else {
+                        toast.error(`Failed to clean ${label}`);
+                    }
+                } catch {
+                    toast.error(`Error cleaning ${label}`);
+                } finally {
+                    setCleaningTarget(null);
+                }
             }
-        } catch {
-            toast.error(`Error cleaning ${label}`);
-        } finally {
-            setCleaningTarget(null);
-        }
+        });
     };
 
     const handleStartEditProvider = (p: any) => {
@@ -1006,6 +1027,19 @@ export function AiApiAnalyticsPanel() {
                     })}
                 </div>
             </div>
+
+            {confirmModal && (
+                <ConfirmModal
+                    isOpen={confirmModal.isOpen}
+                    onClose={() => setConfirmModal(null)}
+                    onConfirm={confirmModal.onConfirm}
+                    title={confirmModal.title}
+                    description={confirmModal.description}
+                    confirmText={confirmModal.confirmText}
+                    cancelText={confirmModal.cancelText}
+                    variant={confirmModal.variant}
+                />
+            )}
         </div>
     );
 }

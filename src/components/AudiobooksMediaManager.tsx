@@ -7,6 +7,7 @@ import {
     Search, User, Layers, Wrench, X, Plus, Headphones, ChevronDown, ChevronUp, Wand2, ArrowUp, Save
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 const CLIENT_BOOK_CATALOG: Array<{ pattern: RegExp; cleanTitle: string; collection: string; bookNumber: number; releaseYear: string; summary?: string }> = [
     // Alastair Reynolds — Poseidon's Children
@@ -268,6 +269,15 @@ export function AudiobooksMediaManager() {
     const [showFullBookTranscript, setShowFullBookTranscript] = useState(false);
     const [loading, setLoading] = useState(true);
     const [rescanning, setRescanning] = useState(false);
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        description: React.ReactNode;
+        confirmText?: string;
+        cancelText?: string;
+        variant?: 'danger' | 'warning' | 'primary';
+        onConfirm: () => void | Promise<void>;
+    } | null>(null);
 
     // Filtering & Sorting (identical to Theater tab)
     const [searchQuery, setSearchQuery] = useState('');
@@ -2064,37 +2074,48 @@ export function AudiobooksMediaManager() {
         }
     };
 
-    const handleCleanGeneratedData = async (
+    const handleCleanGeneratedData = (
         target: 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history' | 'all',
         label: string,
         bookKey?: string
     ) => {
-        if (!window.confirm(`Clean ${label}?`)) return;
-        setSavingConfig(true);
-        try {
-            const res = await fetch('/api/theater/audiobooks/studio', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'clean_generated_data',
-                    target,
-                    bookKey,
-                    pauseAiFirst: target === 'all' && !bookKey
-                })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                const r = data.result || {};
-                toast.success(`Cleaned ${label} (${r.deletedFilesCount || 0} files deleted)`);
-                fetchAll();
-            } else {
-                toast.error(`Failed to clean ${label}`);
+        setConfirmModal({
+            isOpen: true,
+            title: `Clean ${label}`,
+            description: target === 'all'
+                ? 'This will pause the AI engine and permanently wipe all generated scene images, prompts, transcripts, and voice exports.'
+                : `Are you sure you want to clean ${label.toLowerCase()}? This will permanently remove the selected generated data.`,
+            confirmText: 'Clean',
+            variant: target === 'all' ? 'danger' : 'warning',
+            onConfirm: async () => {
+                setConfirmModal(null);
+                setSavingConfig(true);
+                try {
+                    const res = await fetch('/api/theater/audiobooks/studio', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'clean_generated_data',
+                            target,
+                            bookKey,
+                            pauseAiFirst: target === 'all' && !bookKey
+                        })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const r = data.result || {};
+                        toast.success(`Cleaned ${label} (${r.deletedFilesCount || 0} files deleted)`);
+                        fetchAll();
+                    } else {
+                        toast.error(`Failed to clean ${label}`);
+                    }
+                } catch {
+                    toast.error(`Error cleaning ${label}`);
+                } finally {
+                    setSavingConfig(false);
+                }
             }
-        } catch {
-            toast.error(`Error cleaning ${label}`);
-        } finally {
-            setSavingConfig(false);
-        }
+        });
     };
 
     return (
@@ -5626,6 +5647,20 @@ export function AudiobooksMediaManager() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Custom Confirm Modal */}
+            {confirmModal && (
+                <ConfirmModal
+                    isOpen={confirmModal.isOpen}
+                    onClose={() => setConfirmModal(null)}
+                    onConfirm={confirmModal.onConfirm}
+                    title={confirmModal.title}
+                    description={confirmModal.description}
+                    confirmText={confirmModal.confirmText}
+                    cancelText={confirmModal.cancelText}
+                    variant={confirmModal.variant}
+                />
             )}
         </div>
     );
