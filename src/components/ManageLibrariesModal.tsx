@@ -50,6 +50,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
 
     // Delete Confirmation State
     const [deletingLib, setDeletingLib] = useState<TheaterLibrary | null>(null);
+    const [deleteGeneratedData, setDeleteGeneratedData] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
     // Rescanning states per library
@@ -356,7 +357,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
         const deletedName = deletingLib.name;
         setIsDeleting(true);
         try {
-            const res = await fetch(`/api/theater/libraries?id=${deletedId}`, {
+            const res = await fetch(`/api/theater/libraries?id=${deletedId}&deleteGeneratedData=${deleteGeneratedData}`, {
                 method: 'DELETE'
             });
 
@@ -1265,15 +1266,35 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                             <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mx-auto">
                                 <AlertCircle size={24} />
                             </div>
-                            <div className="text-center space-y-1">
+                            <div className="text-center space-y-2">
                                 <h3 className="text-lg font-black text-white">Delete "${deletingLib.name}"?</h3>
                                 <p className="text-xs text-zinc-400">
                                     This removes the library from Schedulearr and stops scanning. Your physical media files on disk will NOT be deleted.
                                 </p>
+
+                                <label
+                                    className="flex items-start gap-3 p-3.5 bg-zinc-950/80 rounded-2xl border border-zinc-800 cursor-pointer hover:border-red-500/40 transition-colors text-left"
+                                    title="Purges all AI-generated transcripts, scene images, subtitle translations, and voice enhancements created for this library"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={deleteGeneratedData}
+                                        onChange={e => setDeleteGeneratedData(e.target.checked)}
+                                        className="w-5 h-5 mt-0.5 rounded accent-red-500 cursor-pointer shrink-0"
+                                    />
+                                    <div className="space-y-0.5">
+                                        <span className="block text-xs font-black text-red-300 uppercase tracking-wider">
+                                            Also Delete Generated AI Data
+                                        </span>
+                                        <span className="block text-[11px] text-zinc-400 leading-snug">
+                                            Purge generated transcripts, scene art, voice mastering & subtitle files linked to this library.
+                                        </span>
+                                    </div>
+                                </label>
                             </div>
                             <div className="flex items-center gap-2 pt-2">
                                 <button
-                                    onClick={() => setDeletingLib(null)}
+                                    onClick={() => { setDeletingLib(null); setDeleteGeneratedData(false); }}
                                     className="flex-1 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-bold text-xs rounded-xl cursor-pointer"
                                 >
                                     Cancel

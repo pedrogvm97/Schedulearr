@@ -420,6 +420,17 @@ function initializeSchema(d: any) {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS audiobook_authors_meta (
+        author_key TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        bio TEXT,
+        photo_url TEXT,
+        birth_date TEXT,
+        death_date TEXT,
+        source TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS audiobook_chapters_meta (
         chapter_key TEXT PRIMARY KEY,
         book_key TEXT NOT NULL,
@@ -590,6 +601,20 @@ function initializeSchema(d: any) {
             WHERE path LIKE '%/app/recordings%'
                OR path LIKE '%/app/data/recordings%'
                OR path LIKE '%\\recordings';
+        `);
+    } catch (e) { }
+    try {
+        d.exec(`
+            CREATE TABLE IF NOT EXISTS audiobook_authors_meta (
+                author_key TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                bio TEXT,
+                photo_url TEXT,
+                birth_date TEXT,
+                death_date TEXT,
+                source TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
         `);
     } catch (e) { }
     try { d.pragma(`user_version = ${CURRENT_SCHEMA_VER}`); } catch (e) { }
@@ -1060,8 +1085,20 @@ export const createTheaterLibrary = (id: string, name: string, type: string, fol
     }
 };
 
-export const deleteTheaterLibrary = (id: string) => {
+export const deleteTheaterLibrary = (id: string, deleteGeneratedData?: boolean) => {
     try {
+        if (deleteGeneratedData) {
+            try {
+                // Find all books belonging to this library to purge generated AI data
+                const books = db.prepare('SELECT book_key FROM audiobook_books_meta WHERE library_id = ?').all(id) as any[];
+                for (const b of books) {
+                    db.prepare('DELETE FROM audiobook_chapters_meta WHERE book_key = ?').run(b.book_key);
+                    db.prepare('DELETE FROM audiobook_books_meta WHERE book_key = ?').run(b.book_key);
+                }
+            } catch (cleanupErr) {
+                console.warn('Error purging associated generated data for library:', cleanupErr);
+            }
+        }
         db.prepare('DELETE FROM iptv_channels WHERE library_id = ?').run(id);
         db.prepare('DELETE FROM iptv_epg WHERE library_id = ?').run(id);
         db.prepare('DELETE FROM iptv_shortlists WHERE library_id = ?').run(id);
@@ -2940,6 +2977,60 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
     );
 
     return merged;
+};
+
+export interface AudiobookAuthorMeta {
+    author_key: string;
+    name: string;
+    bio?: string;
+    photo_url?: string;
+    birth_date?: string;
+    death_date?: string;
+    source?: string;
+    updated_at?: string;
+}
+
+export const getAudiobookAuthorMeta = (name: string): AudiobookAuthorMeta | null => {
+    try {
+        const key = name.toLowerCase().trim();
+        const row = db.prepare('SELECT * FROM audiobook_authors_meta WHERE author_key = ?').get(key) as any;
+        return row || null;
+    } catch {
+        return null;
+    }
+};
+
+export const upsertAudiobookAuthorMeta = (meta: Partial<AudiobookAuthorMeta> & { name: string }): AudiobookAuthorMeta | null => {
+    try {
+        const key = meta.author_key || meta.name.toLowerCase().trim();
+        const existing = getAudiobookAuthorMeta(meta.name);
+        const merged: AudiobookAuthorMeta = {
+            author_key: key,
+            name: meta.name.trim(),
+            bio: meta.bio !== undefined ? meta.bio : existing?.bio,
+            photo_url: meta.photo_url !== undefined ? meta.photo_url : existing?.photo_url,
+            birth_date: meta.birth_date !== undefined ? meta.birth_date : existing?.birth_date,
+            death_date: meta.death_date !== undefined ? meta.death_date : existing?.death_date,
+            source: meta.source !== undefined ? meta.source : existing?.source,
+            updated_at: new Date().toISOString()
+        };
+        db.prepare(`
+            INSERT INTO audiobook_authors_meta (author_key, name, bio, photo_url, birth_date, death_date, source, updated_at)
+            VALUES (@author_key, @name, @bio, @photo_url, @birth_date, @death_date, @source, @updated_at)
+            ON CONFLICT(author_key) DO UPDATE SET
+                name = excluded.name,
+                bio = excluded.bio,
+                photo_url = excluded.photo_url,
+                birth_date = excluded.birth_date,
+                death_date = excluded.death_date,
+                source = excluded.source,
+                updated_at = excluded.updated_at
+        `).run(merged);
+        return merged;
+    } catch (e) {
+        console.error('Error upserting audiobook author meta:', e);
+        return null;
+    }
 };
 
 export const reorderAudiobookQueue = (orderedBookKeys: string[]) => {

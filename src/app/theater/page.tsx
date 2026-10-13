@@ -28,6 +28,7 @@ import { ConfirmModal } from '@/components/ConfirmModal';
 import { smartMatchScore, normalizeSearchTerm, cleanTrackForMatching, findMatchingLocalTrack } from '@/lib/searchUtils';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 import { logClientEvent } from '@/lib/clientLogger';
+import { AuthorDetailsModal } from '@/components/AuthorDetailsModal';
 
 interface TheaterLibrary {
     id: string;
@@ -916,6 +917,8 @@ function TheaterPageContent() {
     const [availableSubtitles, setAvailableSubtitles] = useState<SubtitleTrack[]>([]);
     const [selectedSubtitle, setSelectedSubtitle] = useState<SubtitleTrack | null>(null);
     const [subOffsetMs, setSubOffsetMs] = useState(0);
+    const [autoSubLang, setAutoSubLang] = useState('en');
+    const [isAutoTranscribingMovie, setIsAutoTranscribingMovie] = useState(false);
     const [diagnosticsData, setDiagnosticsData] = useState<StreamDiagnosticsInfo | null>(null);
 
     // Subtitle TextTrack Mode Activator
@@ -1781,6 +1784,38 @@ function TheaterPageContent() {
         }
     };
 
+    const handleAutoTranscribeMovie = async (video: MediaItem | null, targetLang: string) => {
+        if (!video?.path) {
+            toast.error('No video currently loaded');
+            return;
+        }
+        setIsAutoTranscribingMovie(true);
+        toast.info(`Extracting audio & transcribing with local Whisper (Target: ${targetLang.toUpperCase()})...`);
+        try {
+            const res = await fetch('/api/theater/subtitles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'auto_transcribe',
+                    videoPath: video.path,
+                    targetLang
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.subtitle) {
+                toast.success(`Generated ${data.subtitle.language} subtitle track!`);
+                setAvailableSubtitles(prev => [data.subtitle, ...prev.filter(s => s.id !== data.subtitle.id)]);
+                setSelectedSubtitle(data.subtitle);
+            } else {
+                toast.error(data.error || 'Failed to auto-transcribe movie');
+            }
+        } catch {
+            toast.error('Failed to auto-transcribe movie audio');
+        } finally {
+            setIsAutoTranscribingMovie(false);
+        }
+    };
+
     // Online YouTube & Spotify Music Search
     const handleSearchOnlineMusic = async (q: string) => {
         if (!q.trim()) return;
@@ -2152,7 +2187,8 @@ function TheaterPageContent() {
         }
     ];
 
-    const [bookModalAiSubTab, setBookModalAiSubTab] = useState<'illustration' | 'transcription' | 'voice'>('illustration');
+    const [bookModalAiSubTab, setBookModalAiSubTab] = useState<'transcription' | 'scening' | 'illustration'>('transcription');
+    const [selectedAuthorForModal, setSelectedAuthorForModal] = useState<string | null>(null);
     const [theaterScenePromptDrafts, setTheaterScenePromptDrafts] = useState<Record<string, string>>({});
     const [theaterRepaintingSceneKey, setTheaterRepaintingSceneKey] = useState<string | null>(null);
     const [theaterExpandedChapters, setTheaterExpandedChapters] = useState<Record<number, boolean>>({ 0: true });
@@ -6112,8 +6148,12 @@ function TheaterPageContent() {
                                                     {book.cleanTitle}
                                                 </h3>
                                                 <p
-                                                    className="text-sm sm:text-base text-amber-200/90 truncate font-bold"
-                                                    title={book.translator ? `${book.author} (Trans. ${book.translator})` : book.author}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedAuthorForModal(book.author);
+                                                    }}
+                                                    className="text-sm sm:text-base text-amber-200/90 hover:text-amber-300 hover:underline truncate font-bold cursor-pointer"
+                                                    title={book.translator ? `View ${book.author} profile (Trans. ${book.translator})` : `View ${book.author} profile & books`}
                                                 >
                                                     {book.author}
                                                 </p>
@@ -8003,9 +8043,14 @@ function TheaterPageContent() {
                                     {selectedAudiobook.title}
                                 </h2>
 
-                                <p className="text-base sm:text-lg font-bold text-orange-400">
-                                    {selectedAudiobook.author}
-                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedAuthorForModal(selectedAudiobook.author)}
+                                    title={`View ${selectedAudiobook.author} biography & library books`}
+                                    className="text-base sm:text-lg font-bold text-orange-400 hover:text-orange-300 hover:underline flex items-center gap-1.5 cursor-pointer text-left"
+                                >
+                                    <span>{selectedAudiobook.author}</span>
+                                </button>
 
                                 {/* Primary Consumption Actions */}
                                 <div className="pt-2 flex items-center justify-center sm:justify-start gap-2.5 flex-wrap">
@@ -8299,21 +8344,40 @@ function TheaterPageContent() {
 
                                     <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
                                         <div className="flex items-center justify-between gap-2">
-                                            <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                                <User size={16} className="text-amber-400" />
-                                                Author
-                                            </h3>
                                             <button
                                                 type="button"
-                                                onClick={() => setShowTheaterBookCustomize(prev => !prev)}
-                                                title="Edit author bio"
-                                                className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 cursor-pointer"
+                                                onClick={() => setSelectedAuthorForModal(selectedAudiobook.author)}
+                                                title={`View ${selectedAudiobook.author} biography & books`}
+                                                className="text-sm font-black text-zinc-400 hover:text-amber-400 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer text-left"
                                             >
-                                                <Sliders size={14} />
+                                                <User size={16} className="text-amber-400" />
+                                                <span>Author</span>
                                             </button>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedAuthorForModal(selectedAudiobook.author)}
+                                                    title={`Open ${selectedAudiobook.author} profile & all works`}
+                                                    className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 cursor-pointer"
+                                                >
+                                                    <User size={14} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowTheaterBookCustomize(prev => !prev)}
+                                                    title="Edit author bio"
+                                                    className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 cursor-pointer"
+                                                >
+                                                    <Sliders size={14} />
+                                                </button>
+                                            </div>
                                         </div>
                                         {audiobookDetails?.authorBio ? (
-                                            <p className="text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-line">
+                                            <p
+                                                onClick={() => setSelectedAuthorForModal(selectedAudiobook.author)}
+                                                title={`Click to open full profile & books by ${selectedAudiobook.author}`}
+                                                className="text-sm text-zinc-300 hover:text-white leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-line cursor-pointer"
+                                            >
                                                 {audiobookDetails.authorBio}
                                             </p>
                                         ) : audiobookDetails?.loading ? (
@@ -8414,25 +8478,15 @@ function TheaterPageContent() {
                         )}
 
                         {/* ═══════════════════════════════════════════════════════════════════
-                            TAB 2: AI FEATURES (ONLY Illustration | Transcription | Voice)
+                            TAB 2: AI FEATURES (1. Transcription -> 2. Scening -> 3. Illustration & Voice)
                            ═══════════════════════════════════════════════════════════════════ */}
                         {bookModalTab === 'generate' && (
                             <div className="space-y-6">
-                                {/* 3 AI Subtabs */}
+                                {/* 3 AI Subtabs strictly in order */}
                                 <div className="grid grid-cols-3 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
                                     <button
-                                        onClick={() => setBookModalAiSubTab('illustration')}
-                                        className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
-                                            bookModalAiSubTab === 'illustration'
-                                                ? 'bg-purple-500 text-black shadow-lg'
-                                                : 'text-zinc-300 hover:text-white'
-                                        }`}
-                                    >
-                                        <ImageIcon size={20} />
-                                        <span>Illustration</span>
-                                    </button>
-                                    <button
                                         onClick={() => setBookModalAiSubTab('transcription')}
+                                        title="Stage 1: Generate full book timestamped transcripts from audio"
                                         className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                                             bookModalAiSubTab === 'transcription'
                                                 ? 'bg-amber-500 text-black shadow-lg'
@@ -8440,29 +8494,302 @@ function TheaterPageContent() {
                                         }`}
                                     >
                                         <FileText size={20} />
-                                        <span>Transcription</span>
+                                        <span>1. Transcription</span>
                                     </button>
                                     <button
-                                        onClick={() => setBookModalAiSubTab('voice')}
+                                        onClick={() => setBookModalAiSubTab('scening')}
+                                        title="Stage 2: LLM analyzes transcripts to detect scene transitions"
                                         className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
-                                            bookModalAiSubTab === 'voice'
-                                                ? 'bg-emerald-500 text-black shadow-lg'
+                                            bookModalAiSubTab === 'scening'
+                                                ? 'bg-cyan-500 text-black shadow-lg'
                                                 : 'text-zinc-300 hover:text-white'
                                         }`}
                                     >
-                                        <Headphones size={20} />
-                                        <span>Voice</span>
+                                        <Wand2 size={20} />
+                                        <span>2. Scening</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setBookModalAiSubTab('illustration')}
+                                        title="Stage 3: Paint raster scene artwork and generate voice audio"
+                                        className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                                            bookModalAiSubTab === 'illustration'
+                                                ? 'bg-purple-500 text-black shadow-lg'
+                                                : 'text-zinc-300 hover:text-white'
+                                        }`}
+                                    >
+                                        <Sparkles size={20} />
+                                        <span>3. Illustration &amp; Voice</span>
                                     </button>
                                 </div>
 
-                                {/* SUBTAB 1: ILLUSTRATION */}
+                                {/* SUBTAB 1: TRANSCRIPTION (ALWAYS FIRST - FULL BOOK TIMESTAMPED TRANSCRIPTS ONLY) */}
+                                {bookModalAiSubTab === 'transcription' && (
+                                    <div className="space-y-5">
+                                        <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-950/40 via-zinc-900 to-zinc-950 border-2 border-amber-500/50 space-y-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                                                <button
+                                                    onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
+                                                    disabled={runningBookModalTask !== null}
+                                                    title="Transcribe full book timestamped audio across all chapters"
+                                                    className="sm:col-span-9 py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                                                >
+                                                    <Sparkles size={20} />
+                                                    <span>Transcribe All Chapters</span>
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'transcriptions', redoNow: false })
+                                                        });
+                                                        toast.success('Deleted transcripts');
+                                                        loadBookStudioChapters(selectedAudiobook);
+                                                    }}
+                                                    title="Delete all transcripts for this book"
+                                                    className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Trash2 size={16} />
+                                                    <span>Delete All</span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                                const cKey = `${bKey}::ch${idx + 1}`;
+                                                const cMeta =
+                                                    audiobookChaptersStudioMap[cKey] ||
+                                                    audiobookChaptersStudioMap[(ch as any).chapterKey] ||
+                                                    audiobookChaptersStudioMap[ch.id] ||
+                                                    Object.values(audiobookChaptersStudioMap).find(
+                                                        (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
+                                                    );
+                                                const lines = String(cMeta?.synced_lyrics || '').split('\n').filter(Boolean);
+                                                const isTranscribing = runningBookModalTask === `${cKey}:transcribe`;
+
+                                                return (
+                                                    <div key={cKey} className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            <span className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 font-mono text-sm font-black flex items-center justify-center">
+                                                                {idx + 1}
+                                                            </span>
+                                                            <div className="min-w-0">
+                                                                <h5 className="font-bold text-white text-base truncate">{ch.title || ch.name}</h5>
+                                                                <span className={`text-xs font-bold ${lines.length > 0 ? 'text-amber-300' : 'text-zinc-500'}`}>
+                                                                    {lines.length > 0 ? `${lines.length} Synced Lines` : 'Not Transcribed'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'transcribe')}
+                                                                disabled={runningBookModalTask !== null}
+                                                                title="Generate timestamped transcription"
+                                                                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer shadow"
+                                                            >
+                                                                <RefreshCw size={14} className={isTranscribing ? 'animate-spin' : ''} />
+                                                                <span>{lines.length > 0 ? 'Redo' : 'Transcribe'}</span>
+                                                            </button>
+                                                            {lines.length > 0 && (
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                                            method: 'POST',
+                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, chapterKey: cKey, target: 'transcriptions', redoNow: false })
+                                                                        });
+                                                                        loadBookStudioChapters(selectedAudiobook);
+                                                                    }}
+                                                                    title="Delete chapter transcript"
+                                                                    className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
+                                                                >
+                                                                    <Trash2 size={15} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* SUBTAB 2: SCENING (STAGE 2 - DETECT SCENE BREAKDOWNS) */}
+                                {bookModalAiSubTab === 'scening' && (
+                                    <div className="space-y-5">
+                                        <div className="p-5 rounded-3xl bg-gradient-to-br from-cyan-950/40 via-zinc-900 to-zinc-950 border-2 border-cyan-500/50 space-y-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-black text-cyan-300 uppercase mb-1.5">Narrative Focus</label>
+                                                    <select
+                                                        value={bMeta?.art_focus || 'auto-choice'}
+                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { artFocus: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-cyan-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                    >
+                                                        <option value="auto-choice">Auto Story Focus</option>
+                                                        <option value="characters">Characters &amp; Faces</option>
+                                                        <option value="landscapes">World &amp; Architecture</option>
+                                                        <option value="ambient">Mood &amp; Atmosphere</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black text-cyan-300 uppercase mb-1.5">Target Scenes / Ch</label>
+                                                    <select
+                                                        value={bMeta?.images_per_chapter || 3}
+                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { imagesPerChapter: parseInt(e.target.value) || 3 })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-cyan-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                    >
+                                                        <option value={2}>2 Scenes (Key Moments)</option>
+                                                        <option value={3}>3 Scenes (Standard Story Arc)</option>
+                                                        <option value={5}>5 Scenes (Rich Progression)</option>
+                                                        <option value={8}>8 Scenes (Dense Visual Novel)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+                                                <button
+                                                    disabled={transCh === 0 || runningBookModalTask !== null}
+                                                    onClick={async () => {
+                                                        toast.info('Detecting scene transitions from transcripts...');
+                                                        for (let i = 0; i < selectedAudiobook.chapters.length; i++) {
+                                                            const ch = selectedAudiobook.chapters[i];
+                                                            const cKey = `${bKey}::ch${i + 1}`;
+                                                            await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'detect_scenes');
+                                                        }
+                                                    }}
+                                                    title={transCh === 0 ? 'Requires Stage 1 (Transcription) first' : 'Detect scene transitions across all chapters'}
+                                                    className="py-3 px-6 rounded-2xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-35 text-black font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow cursor-pointer"
+                                                >
+                                                    <Wand2 size={18} />
+                                                    <span>Detect All Scenes</span>
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'art', redoNow: false })
+                                                        });
+                                                        toast.success('Cleared all detected scenes');
+                                                        loadBookStudioChapters(selectedAudiobook);
+                                                    }}
+                                                    title="Clear all detected scene transitions"
+                                                    className="py-3 px-4 rounded-2xl bg-red-500/15 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Trash2 size={16} />
+                                                    <span>Delete All</span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Chapters & Detected Scene Intervals */}
+                                        <div className="space-y-4">
+                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                                const cKey = `${bKey}::ch${idx + 1}`;
+                                                const cMeta =
+                                                    audiobookChaptersStudioMap[cKey] ||
+                                                    audiobookChaptersStudioMap[(ch as any).chapterKey] ||
+                                                    audiobookChaptersStudioMap[ch.id] ||
+                                                    Object.values(audiobookChaptersStudioMap).find(
+                                                        (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
+                                                    );
+                                                const detectedScenes = (cMeta?.images || []).filter((im: any) => im.kept !== false && !String(im.url || '').toLowerCase().includes('.svg'));
+                                                const hasTranscript = Boolean(cMeta?.synced_lyrics && String(cMeta.synced_lyrics).trim().length > 20);
+                                                const durSec = Number(cMeta?.duration_sec) > 0 && Number(cMeta?.duration_sec) !== 300
+                                                    ? Number(cMeta.duration_sec)
+                                                    : (ch.durationMs ? Math.round(ch.durationMs / 1000) : 300);
+                                                const isExpanded = Boolean(theaterExpandedChapters[idx]);
+                                                const isDetecting = runningBookModalTask === `${cKey}:detect_scenes`;
+
+                                                return (
+                                                    <div key={cKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
+                                                        <div
+                                                            onClick={() => setTheaterExpandedChapters(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                                                            className="p-4 bg-zinc-900/90 flex items-center justify-between gap-3 cursor-pointer flex-wrap"
+                                                        >
+                                                            <div className="flex items-center gap-3 min-w-0 flex-wrap">
+                                                                <span className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-300 font-mono text-sm font-black flex items-center justify-center">
+                                                                    {idx + 1}
+                                                                </span>
+                                                                <span className="font-bold text-white text-base truncate">{ch.title || ch.name}</span>
+                                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${hasTranscript ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                                                                    {hasTranscript ? 'Text ✓' : 'No Text'}
+                                                                </span>
+                                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${detectedScenes.length > 0 ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                                                                    {detectedScenes.length} Scenes
+                                                                </span>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                                                <button
+                                                                    disabled={!hasTranscript || runningBookModalTask !== null}
+                                                                    onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'detect_scenes')}
+                                                                    title={hasTranscript ? 'Detect scene transitions' : 'Requires transcription first'}
+                                                                    className="px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-35 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer shadow"
+                                                                >
+                                                                    <Wand2 size={14} className={isDetecting ? 'animate-spin' : ''} />
+                                                                    <span>{detectedScenes.length > 0 ? 'Redetect' : 'Detect Scenes'}</span>
+                                                                </button>
+                                                                {detectedScenes.length > 0 && (
+                                                                    <button
+                                                                        onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'art', cKey)}
+                                                                        className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
+                                                                        title="Reset Chapter Scenes"
+                                                                    >
+                                                                        <Trash2 size={15} />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {isExpanded && (
+                                                            <div className="p-4 border-t border-zinc-800 space-y-3">
+                                                                {detectedScenes.length === 0 ? (
+                                                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 text-center">
+                                                                        <span className="text-sm font-bold text-zinc-400">
+                                                                            {!hasTranscript ? 'Transcribe audio in Stage 1 first to unlock scene detection' : 'No scenes detected yet. Click "Detect Scenes" above.'}
+                                                                        </span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                                        {detectedScenes.map((s: any, sIdx: number) => {
+                                                                            const startSec = s?.timestampSec ?? 0;
+                                                                            const endSec = s?.endTimestampSec ?? durSec;
+                                                                            return (
+                                                                                <div key={s?.id || sIdx} className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-1.5">
+                                                                                    <div className="flex items-center justify-between text-xs font-mono font-bold text-cyan-300">
+                                                                                        <span>Scene #{sIdx + 1}</span>
+                                                                                        <span>{Math.floor(startSec / 60)}:{String(Math.floor(startSec % 60)).padStart(2, '0')} - {Math.floor(endSec / 60)}:{String(Math.floor(endSec % 60)).padStart(2, '0')}</span>
+                                                                                    </div>
+                                                                                    {s?.sceneTitle && (
+                                                                                        <p className="text-sm font-bold text-white truncate">{s.sceneTitle}</p>
+                                                                                    )}
+                                                                                    {s?.transitionReason && (
+                                                                                        <p className="text-xs text-zinc-400 line-clamp-2">{s.transitionReason}</p>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* SUBTAB 3: ILLUSTRATION + VOICE */}
                                 {bookModalAiSubTab === 'illustration' && (
                                     <div className="space-y-5">
-                                        {/* Prominent Top Creation Menu */}
                                         <div className="p-5 rounded-3xl bg-gradient-to-br from-purple-950/40 via-zinc-900 to-zinc-950 border-2 border-purple-500/50 space-y-4">
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div>
-                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Style</label>
+                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Art Style</label>
                                                     <select
                                                         value={bMeta?.art_style || 'Cinematic Concept Art'}
                                                         onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { artStyle: e.target.value })}
@@ -8479,47 +8806,25 @@ function TheaterPageContent() {
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Focus</label>
+                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">Voice Style</label>
                                                     <select
-                                                        value={bMeta?.art_focus || 'auto-choice'}
-                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { artFocus: e.target.value })}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-purple-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                        value={bMeta?.voice_preset || 'clear_voice'}
+                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
                                                     >
-                                                        <option value="auto-choice">Auto Story Focus</option>
-                                                        <option value="characters">Characters &amp; Faces</option>
-                                                        <option value="landscapes">World &amp; Architecture</option>
-                                                        <option value="ambient">Mood &amp; Atmosphere</option>
+                                                        <option value="clear_voice">Clear Voice (Vocal Presence)</option>
+                                                        <option value="warm_bass">Warm Studio Narrator</option>
+                                                        <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
+                                                        <option value="crisp_treble">Crisp Articulation</option>
+                                                        <option value="bright_pitch">Brighter Voice (+6% Pitch)</option>
+                                                        <option value="night_compress">Night Leveler</option>
+                                                        <option value="original">Original Voice</option>
                                                     </select>
                                                 </div>
                                             </div>
 
                                             <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
                                                 <div className="flex flex-wrap items-center gap-2">
-                                                    <button
-                                                        onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
-                                                        disabled={runningBookModalTask !== null}
-                                                        title="Stage 1: Transcribe audio to timestamped text across all chapters"
-                                                        className="py-2.5 px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
-                                                    >
-                                                        <FileText size={16} />
-                                                        <span>1. Transcribe</span>
-                                                    </button>
-                                                    <button
-                                                        disabled={transCh === 0 || runningBookModalTask !== null}
-                                                        onClick={async () => {
-                                                            toast.info('Detecting scene transitions from transcripts...');
-                                                            for (let i = 0; i < selectedAudiobook.chapters.length; i++) {
-                                                                const ch = selectedAudiobook.chapters[i];
-                                                                const cKey = `${bKey}::ch${i + 1}`;
-                                                                await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'detect_scenes');
-                                                            }
-                                                        }}
-                                                        title={transCh === 0 ? 'Requires Stage 1 (Transcribe) first' : 'Stage 2: LLM divides timestamped transcript into scene transitions & prompts'}
-                                                        className="py-2.5 px-4 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
-                                                    >
-                                                        <Wand2 size={16} />
-                                                        <span>2. Detect Scenes</span>
-                                                    </button>
                                                     <button
                                                         disabled={totalBookScenes === 0 || runningBookModalTask !== null}
                                                         onClick={async () => {
@@ -8530,11 +8835,27 @@ function TheaterPageContent() {
                                                                 await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'paint_scenes');
                                                             }
                                                         }}
-                                                        title={totalBookScenes === 0 ? 'Requires Stage 2 (Detect Scenes) first' : 'Stage 3: Paint artwork for detected scenes'}
+                                                        title={totalBookScenes === 0 ? 'Requires Stage 2 (Scening) first' : 'Paint artwork for detected scenes'}
                                                         className="py-2.5 px-4 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 shadow cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
                                                     >
                                                         <Sparkles size={16} />
-                                                        <span>3. Paint Art</span>
+                                                        <span>Paint All Scenes</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleToggleCustomCoverForBook(selectedAudiobook)}
+                                                        title="Generate or toggle AI Book Cover"
+                                                        className="py-2.5 px-4 rounded-xl bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                                                    >
+                                                        <Sparkles size={16} />
+                                                        <span>AI Book Cover</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'voices')}
+                                                        title="Process DSP audio voice enhancement across all chapters"
+                                                        className="py-2.5 px-4 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                                                    >
+                                                        <Headphones size={16} />
+                                                        <span>Enhance Voices</span>
                                                     </button>
                                                 </div>
                                                 <button
@@ -8551,12 +8872,12 @@ function TheaterPageContent() {
                                                     className="py-2.5 px-3.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
                                                 >
                                                     <Trash2 size={15} />
-                                                    <span>Clear</span>
+                                                    <span>Clear Art</span>
                                                 </button>
                                             </div>
                                         </div>
 
-                                        {/* Chapters & Scenes Division Below */}
+                                        {/* Chapters & Scenes Artwork */}
                                         <div className="space-y-4">
                                             {selectedAudiobook.chapters.map((ch, idx) => {
                                                 const cKey = `${bKey}::ch${idx + 1}`;
@@ -8569,7 +8890,7 @@ function TheaterPageContent() {
                                                     );
                                                 const detectedScenes = (cMeta?.images || []).filter((im: any) => im.kept !== false && !String(im.url || '').toLowerCase().includes('.svg'));
                                                 const paintedScenes = detectedScenes.filter((im: any) => Boolean(im.url));
-                                                const hasTranscript = Boolean(cMeta?.synced_lyrics && String(cMeta.synced_lyrics).trim().length > 20);
+                                                const isEnhDone = cMeta?.audio_enhance_status === 'completed' || Boolean(cMeta?.enhanced_audio_path);
                                                 const durSec = Number(cMeta?.duration_sec) > 0 && Number(cMeta?.duration_sec) !== 300
                                                     ? Number(cMeta.duration_sec)
                                                     : (ch.durationMs ? Math.round(ch.durationMs / 1000) : 300);
@@ -8586,83 +8907,43 @@ function TheaterPageContent() {
                                                                     {idx + 1}
                                                                 </span>
                                                                 <span className="font-bold text-white text-base truncate">{ch.title || ch.name}</span>
-                                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${hasTranscript ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
-                                                                    {hasTranscript ? 'Text ✓' : 'No Text'}
-                                                                </span>
-                                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${detectedScenes.length > 0 ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
-                                                                    {detectedScenes.length} Scenes
-                                                                </span>
                                                                 <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${paintedScenes.length > 0 ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
                                                                     {paintedScenes.length}/{detectedScenes.length} Art
                                                                 </span>
+                                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${isEnhDone ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                                                                    {isEnhDone ? 'Enhanced Voice ✓' : 'Original Voice'}
+                                                                </span>
                                                             </div>
+
                                                             <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                                                {!hasTranscript && (
-                                                                    <button
-                                                                        onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'transcribe')}
-                                                                        title="Stage 1: Transcribe audio to timestamped text first"
-                                                                        className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
-                                                                    >
-                                                                        <FileText size={14} className={runningBookModalTask === `${cKey}:transcribe` ? 'animate-spin' : ''} />
-                                                                        <span>1. Transcribe</span>
-                                                                    </button>
-                                                                )}
-                                                                {hasTranscript && (
-                                                                    <button
-                                                                        onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'detect_scenes')}
-                                                                        title="Stage 2: LLM divides timestamped transcript into scene transitions"
-                                                                        className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
-                                                                    >
-                                                                        <Wand2 size={14} className={runningBookModalTask === `${cKey}:detect_scenes` ? 'animate-spin' : ''} />
-                                                                        <span>{detectedScenes.length > 0 ? 'Redetect' : '2. Scenes'}</span>
-                                                                    </button>
-                                                                )}
                                                                 {detectedScenes.length > 0 && (
                                                                     <button
                                                                         onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'paint_scenes')}
-                                                                        title="Stage 3: Paint images for detected scenes"
+                                                                        title="Paint images for detected scenes"
                                                                         className="px-3 py-1.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
                                                                     >
                                                                         <Sparkles size={14} className={runningBookModalTask === `${cKey}:paint_scenes` ? 'animate-spin' : ''} />
-                                                                        <span>{paintedScenes.length < detectedScenes.length ? '3. Paint' : 'Repaint'}</span>
+                                                                        <span>{paintedScenes.length < detectedScenes.length ? 'Paint' : 'Repaint'}</span>
                                                                     </button>
                                                                 )}
-                                                                {detectedScenes.length > 0 && (
-                                                                    <button
-                                                                        onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'art', cKey)}
-                                                                        className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
-                                                                        title="Reset Chapter Art"
-                                                                    >
-                                                                        <Trash2 size={15} />
-                                                                    </button>
-                                                                )}
+                                                                <button
+                                                                    onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'enhance')}
+                                                                    title="Apply DSP audio voice enhancement"
+                                                                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                >
+                                                                    <Headphones size={14} className={runningBookModalTask === `${cKey}:enhance` ? 'animate-spin' : ''} />
+                                                                    <span>{isEnhDone ? 'Revoice' : 'Voice'}</span>
+                                                                </button>
                                                             </div>
                                                         </div>
 
                                                         {isExpanded && (
                                                             <div className="p-4 border-t border-zinc-800">
                                                                 {detectedScenes.length === 0 ? (
-                                                                    <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4 flex-wrap">
+                                                                    <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 text-center">
                                                                         <span className="text-sm font-bold text-zinc-400">
-                                                                            {!hasTranscript ? 'Stage 1 required: Transcribe audio to timestamped text first' : 'Stage 2 required: Detect scene transitions from transcript'}
+                                                                            Stage 2 required: Detect scene transitions in Tab 2 before painting artwork.
                                                                         </span>
-                                                                        {!hasTranscript ? (
-                                                                            <button
-                                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'transcribe')}
-                                                                                className="px-4 py-2 rounded-xl bg-amber-500 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
-                                                                            >
-                                                                                <FileText size={14} />
-                                                                                <span>1. Transcribe</span>
-                                                                            </button>
-                                                                        ) : (
-                                                                            <button
-                                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'detect_scenes')}
-                                                                                className="px-4 py-2 rounded-xl bg-cyan-500 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
-                                                                            >
-                                                                                <Wand2 size={14} />
-                                                                                <span>2. Detect Scenes</span>
-                                                                            </button>
-                                                                        )}
                                                                     </div>
                                                                 ) : (
                                                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -8797,194 +9078,7 @@ function TheaterPageContent() {
                                             })}
                                         </div>
                                     </div>
-                                )}
-
-                                {/* SUBTAB 2: TRANSCRIPTION */}
-                                {bookModalAiSubTab === 'transcription' && (
-                                    <div className="space-y-5">
-                                        <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-950/40 via-zinc-900 to-zinc-950 border-2 border-amber-500/50 space-y-4">
-                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                                                <button
-                                                    onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
-                                                    className="sm:col-span-9 py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-                                                >
-                                                    <Sparkles size={20} />
-                                                    <span>Gen All Transcriptions</span>
-                                                </button>
-                                                <button
-                                                    onClick={async () => {
-                                                        await fetch('/api/theater/audiobooks/studio', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'transcriptions', redoNow: false })
-                                                        });
-                                                        toast.success('Deleted transcripts');
-                                                        loadBookStudioChapters(selectedAudiobook);
-                                                    }}
-                                                    className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer"
-                                                >
-                                                    <Trash2 size={16} />
-                                                    <span>Delete All</span>
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            {selectedAudiobook.chapters.map((ch, idx) => {
-                                                const cKey = `${bKey}::ch${idx + 1}`;
-                                                const cMeta =
-                                                    audiobookChaptersStudioMap[cKey] ||
-                                                    audiobookChaptersStudioMap[(ch as any).chapterKey] ||
-                                                    audiobookChaptersStudioMap[ch.id] ||
-                                                    Object.values(audiobookChaptersStudioMap).find(
-                                                        (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
-                                                    );
-                                                const lines = String(cMeta?.synced_lyrics || '').split('\n').filter(Boolean);
-                                                return (
-                                                    <div key={cKey} className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between gap-3">
-                                                        <div className="flex items-center gap-3 min-w-0">
-                                                            <span className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 font-mono text-sm font-black flex items-center justify-center">
-                                                                {idx + 1}
-                                                            </span>
-                                                            <div>
-                                                                <h5 className="font-bold text-white text-base truncate">{ch.title || ch.name}</h5>
-                                                                <span className="text-xs font-bold text-amber-300">
-                                                                    {lines.length > 0 ? `${lines.length} Synced Lines` : 'Not Transcribed'}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'transcribe')}
-                                                                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
-                                                            >
-                                                                <RefreshCw size={14} className={runningBookModalTask === `${cKey}:transcribe` ? 'animate-spin' : ''} />
-                                                                <span>{lines.length > 0 ? 'Regen' : 'Gen'}</span>
-                                                            </button>
-                                                            {lines.length > 0 && (
-                                                                <button
-                                                                    onClick={async () => {
-                                                                        await fetch('/api/theater/audiobooks/studio', {
-                                                                            method: 'POST',
-                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, chapterKey: cKey, target: 'transcriptions', redoNow: false })
-                                                                        });
-                                                                        loadBookStudioChapters(selectedAudiobook);
-                                                                    }}
-                                                                    className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
-                                                                >
-                                                                    <Trash2 size={15} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* SUBTAB 3: VOICE */}
-                                {bookModalAiSubTab === 'voice' && (
-                                    <div className="space-y-5">
-                                        <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-950 border-2 border-emerald-500/50 space-y-4">
-                                            <div>
-                                                <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">Voice Style</label>
-                                                <select
-                                                    value={bMeta?.voice_preset || 'clear_voice'}
-                                                    onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
-                                                    className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
-                                                >
-                                                    <option value="clear_voice">Clear Voice (Vocal Presence)</option>
-                                                    <option value="warm_bass">Warm Studio Narrator</option>
-                                                    <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
-                                                    <option value="crisp_treble">Crisp Articulation</option>
-                                                    <option value="bright_pitch">Brighter Voice (+6% Pitch)</option>
-                                                    <option value="night_compress">Night Leveler</option>
-                                                    <option value="original">Original Voice</option>
-                                                </select>
-                                            </div>
-                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                                                <button
-                                                    onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'voices')}
-                                                    className="sm:col-span-9 py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-                                                >
-                                                    <Sparkles size={20} />
-                                                    <span>Gen All Voice Tracks</span>
-                                                </button>
-                                                <button
-                                                    onClick={async () => {
-                                                        await fetch('/api/theater/audiobooks/studio', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'voices', redoNow: false })
-                                                        });
-                                                        toast.success('Deleted enhanced voices');
-                                                        loadBookStudioChapters(selectedAudiobook);
-                                                    }}
-                                                    className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer"
-                                                >
-                                                    <Trash2 size={16} />
-                                                    <span>Delete All</span>
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            {selectedAudiobook.chapters.map((ch, idx) => {
-                                                const cKey = `${bKey}::ch${idx + 1}`;
-                                                const cMeta =
-                                                    audiobookChaptersStudioMap[cKey] ||
-                                                    audiobookChaptersStudioMap[(ch as any).chapterKey] ||
-                                                    audiobookChaptersStudioMap[ch.id] ||
-                                                    Object.values(audiobookChaptersStudioMap).find(
-                                                        (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
-                                                    );
-                                                const isEnhDone = cMeta?.audio_enhance_status === 'completed' || Boolean(cMeta?.enhanced_audio_path);
-                                                return (
-                                                    <div key={cKey} className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between gap-3">
-                                                        <div className="flex items-center gap-3 min-w-0">
-                                                            <span className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-300 font-mono text-sm font-black flex items-center justify-center">
-                                                                {idx + 1}
-                                                            </span>
-                                                            <div>
-                                                                <h5 className="font-bold text-white text-base truncate">{ch.title || ch.name}</h5>
-                                                                <span className="text-xs font-bold text-emerald-300">
-                                                                    {isEnhDone ? 'Enhanced Voice' : 'Original Audio'}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'enhance')}
-                                                                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
-                                                            >
-                                                                <RefreshCw size={14} className={runningBookModalTask === `${cKey}:enhance` ? 'animate-spin' : ''} />
-                                                                <span>{isEnhDone ? 'Regen' : 'Gen'}</span>
-                                                            </button>
-                                                            {isEnhDone && (
-                                                                <button
-                                                                    onClick={async () => {
-                                                                        await fetch('/api/theater/audiobooks/studio', {
-                                                                            method: 'POST',
-                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, chapterKey: cKey, target: 'voices', redoNow: false })
-                                                                        });
-                                                                        loadBookStudioChapters(selectedAudiobook);
-                                                                    }}
-                                                                    className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
-                                                                >
-                                                                    <Trash2 size={15} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+                                )}</div>
                         )}
                     </div>
                 </div>
@@ -10824,6 +10918,45 @@ function TheaterPageContent() {
                                         </div>
                                     </div>
 
+                                    {/* Auto-Transcribe Subtitles with Whisper */}
+                                    <div className="space-y-2 pt-2.5 border-t border-zinc-900">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
+                                                <Sparkles size={14} /> Auto Transcribe
+                                            </label>
+                                            <span className="text-[10px] font-bold text-zinc-500 uppercase">Whisper CPU</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <select
+                                                value={autoSubLang}
+                                                onChange={e => setAutoSubLang(e.target.value)}
+                                                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none cursor-pointer"
+                                                title="Select target language for transcription & translation"
+                                            >
+                                                <option value="en">English (Original / Translate)</option>
+                                                <option value="pt">Portuguese (Português)</option>
+                                                <option value="es">Spanish (Español)</option>
+                                                <option value="fr">French (Français)</option>
+                                                <option value="de">German (Deutsch)</option>
+                                                <option value="it">Italian (Italiano)</option>
+                                                <option value="nl">Dutch (Nederlands)</option>
+                                                <option value="ja">Japanese (日本語)</option>
+                                                <option value="ko">Korean (한국어)</option>
+                                                <option value="zh">Chinese (中文)</option>
+                                            </select>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleAutoTranscribeMovie(playingVideo, autoSubLang)}
+                                                disabled={isAutoTranscribingMovie}
+                                                title="Auto-transcribe movie audio using Whisper and translate to chosen language"
+                                                className="py-2 px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer shadow transition-all shrink-0"
+                                            >
+                                                <Sparkles size={14} className={isAutoTranscribingMovie ? 'animate-spin' : ''} />
+                                                <span>{isAutoTranscribingMovie ? 'Gen...' : 'Gen'}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
                                     {/* Subtitle Timing Sync */}
                                     <div className="space-y-2 pt-2 border-t border-zinc-900">
                                         <div className="flex items-center justify-between">
@@ -12294,6 +12427,18 @@ function TheaterPageContent() {
 
 
 
+
+            {/* Author Details & Showcase Modal */}
+            <AuthorDetailsModal
+                authorName={selectedAuthorForModal}
+                isOpen={Boolean(selectedAuthorForModal)}
+                onClose={() => setSelectedAuthorForModal(null)}
+                onSelectBook={(b) => {
+                    setSelectedAuthorForModal(null);
+                    openAudiobookModal(b, false);
+                }}
+                allBooks={audiobooks}
+            />
 
             {/* Custom Delete File / Album Confirmation Modal */}
             <ConfirmModal

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
-import { getAudiobookMeta, upsertAudiobookMeta } from '@/lib/db';
-import { parseCleanBookTitleAndNumber, getAudiobookCollectionsState } from '@/lib/audiobookStudio';
+import { getAudiobookMeta, upsertAudiobookMeta, getAudiobookAuthorMeta, upsertAudiobookAuthorMeta } from '@/lib/db';
+import { parseCleanBookTitleAndNumber, getAudiobookCollectionsState, parseAndCanonicalizeAuthor } from '@/lib/audiobookStudio';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,6 +186,34 @@ export async function GET(req: Request) {
                 authorBio = savedEnrich.authorBio;
             }
         } catch {}
+
+        // If authorBio is still missing or a short stub (< 120 chars, e.g. "Chinese science fiction writer"), enrich it
+        const effectiveAuthor = author || existingDb?.canonical_author || existingDb?.author || '';
+        if (effectiveAuthor && (!authorBio || authorBio.length < 120)) {
+            try {
+                const canon = parseAndCanonicalizeAuthor(effectiveAuthor).canonicalAuthor || effectiveAuthor;
+                const cachedAuthor = getAudiobookAuthorMeta(canon);
+                if (cachedAuthor?.bio && cachedAuthor.bio.length > 120) {
+                    authorBio = cachedAuthor.bio;
+                } else {
+                    try {
+                        const wikiRes = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(canon.replace(/\s+/g, '_'))}`, {
+                            timeout: 3500,
+                            headers: { 'User-Agent': 'ScheduleArr/0.6.24' }
+                        });
+                        if (wikiRes.data?.extract && wikiRes.data.extract.length > 120) {
+                            authorBio = wikiRes.data.extract;
+                            upsertAudiobookAuthorMeta({
+                                name: canon,
+                                bio: authorBio || undefined,
+                                photo_url: wikiRes.data.thumbnail?.source || undefined,
+                                source: 'Wikipedia'
+                            });
+                        }
+                    } catch {}
+                }
+            } catch {}
+        }
 
         // Automatically persist discovered coverUrl, releaseYear, genre, and narrator to SQLite so Theater and Media share identical metadata
         if (title && (coverUrl || releaseYear || genre || narrator)) {

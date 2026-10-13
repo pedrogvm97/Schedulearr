@@ -254,6 +254,9 @@ export default function Settings() {
     // Curated Audiobook AI Studio, Unified API Auto-Detect, Quotas & Schedules Config
     const [audiobookStudioConfig, setAudiobookStudioConfig] = useState<{
         enabled: boolean;
+        transcribeEnabled?: boolean;
+        sceningEnabled?: boolean;
+        imagingEnabled?: boolean;
         scheduleMode: 'continuous_low_cpu' | 'hourly' | 'overnight' | 'manual_only';
         sttEngine: 'whisper_tiny_local' | 'openai_whisper' | 'gemini_audio' | 'acoustic_cadence';
         cpuThreads: number;
@@ -324,6 +327,9 @@ export default function Settings() {
         } | null;
     }>({
         enabled: true,
+        transcribeEnabled: true,
+        sceningEnabled: true,
+        imagingEnabled: true,
         scheduleMode: 'continuous_low_cpu',
         sttEngine: 'whisper_tiny_local',
         cpuThreads: 1,
@@ -362,6 +368,7 @@ export default function Settings() {
         lastKeyProbe: null
     });
     const [savingStudioConfig, setSavingStudioConfig] = useState(false);
+    const [audiobookStudioStatus, setAudiobookStudioStatus] = useState<any>(null);
     const [probingApiKey, setProbingApiKey] = useState(false);
     const [showApiFinderHelper, setShowApiFinderHelper] = useState(false);
     const [selectedHelperProvider, setSelectedHelperProvider] = useState<'gemini' | 'claude' | 'openai' | 'groq'>('gemini');
@@ -672,15 +679,23 @@ export default function Settings() {
         fetchCandidates();
         // Fetch disk info on mount
         fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
-        // Fetch Audiobook AI Studio & Artwork Quota config
-        fetch('/api/theater/audiobooks/studio')
-            .then(r => r.ok ? r.json() : null)
-            .then(d => {
-                if (d?.config) {
-                    setAudiobookStudioConfig(prev => ({ ...prev, ...d.config }));
-                }
-            })
-            .catch(() => {});
+        // Fetch Audiobook AI Studio & Artwork Quota config & live status
+        const pollStudio = () => {
+            fetch('/api/theater/audiobooks/studio')
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (d?.config) {
+                        setAudiobookStudioConfig(prev => ({ ...prev, ...d.config }));
+                    }
+                    if (d?.status) {
+                        setAudiobookStudioStatus(d.status);
+                    }
+                })
+                .catch(() => {});
+        };
+        pollStudio();
+        const studioPollInterval = setInterval(pollStudio, 4000);
+        return () => clearInterval(studioPollInterval);
     }, []);
 
     // Sync disk settings from allSettings when loaded
@@ -2192,6 +2207,192 @@ export default function Settings() {
                             );
                         })()}
 
+                        {/* 1. Automated Pipeline Stages */}
+                        <div className="space-y-4 bg-zinc-950/80 p-5 rounded-2xl border border-zinc-800">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-3">
+                                <div>
+                                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                                        <span className="text-xl">⚙️</span> 1. Automated Pipeline Stages
+                                    </h3>
+                                    <p className="text-xs text-zinc-400 mt-0.5">
+                                        Toggle autonomous background stages across all queued audiobooks. Each stage respects quotas and rate limits.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Stage 1: Auto Transcription */}
+                                <div className="p-4 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-3 flex flex-col justify-between">
+                                    <div className="space-y-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-lg">🎙️</span>
+                                                <span className="text-sm font-black text-white">Transcription</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => saveAudiobookStudioConfig({ transcribeEnabled: audiobookStudioConfig.transcribeEnabled === false })}
+                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border cursor-pointer transition-all ${
+                                                    audiobookStudioConfig.transcribeEnabled !== false
+                                                        ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
+                                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                                                }`}
+                                                title="Toggle automated Speech-to-Text transcription of queued audiobooks"
+                                            >
+                                                {audiobookStudioConfig.transcribeEnabled !== false ? 'ON' : 'OFF'}
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <select
+                                                value={audiobookStudioConfig.sttEngine || 'whisper_tiny_local'}
+                                                onChange={e => saveAudiobookStudioConfig({ sttEngine: e.target.value as any })}
+                                                className="w-full bg-black/60 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-400"
+                                                title="Speech-to-Text engine. Local Whisper runs offline on CPU and consumes zero API credits."
+                                            >
+                                                <option value="whisper_tiny_local">🖥️ Local Whisper CPU (0 Credits · Offline)</option>
+                                                <option value="gemini_audio">✨ Google Gemini Flash Audio (Cloud API)</option>
+                                                <option value="openai_whisper">🎙️ OpenAI Whisper API (Cloud API)</option>
+                                                <option value="acoustic_cadence">⚡ Acoustic Cadence (Cloud Free)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Live Telemetry */}
+                                    <div className="p-3 rounded-xl bg-black/50 border border-zinc-800/80 space-y-1 text-xs">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider">Status</span>
+                                            {audiobookStudioConfig.transcribeEnabled === false ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">Paused</span>
+                                            ) : audiobookStudioStatus?.activeTask === 'transcribing' ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">Processing</span>
+                                            ) : (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-950/40 text-emerald-400 border border-emerald-500/20">Idle</span>
+                                            )}
+                                        </div>
+                                        <p className="text-zinc-300 line-clamp-2" title={audiobookStudioStatus?.activeTask === 'transcribing' ? (audiobookStudioStatus?.currentStep || audiobookStudioStatus?.lastLog) : undefined}>
+                                            {audiobookStudioConfig.transcribeEnabled === false
+                                                ? 'Stage paused. Manual triggers only.'
+                                                : audiobookStudioStatus?.activeTask === 'transcribing'
+                                                    ? `${audiobookStudioStatus.activeBookTitle || 'Audiobook'}${audiobookStudioStatus.activeChapterTitle ? ` — ${audiobookStudioStatus.activeChapterTitle}` : ''} (${audiobookStudioStatus.progress || 0}%)`
+                                                    : 'All audiobooks transcribed. Waiting for new audio.'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Stage 2: Auto Scening */}
+                                <div className="p-4 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-3 flex flex-col justify-between">
+                                    <div className="space-y-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-lg">🧠</span>
+                                                <span className="text-sm font-black text-white">Scening</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => saveAudiobookStudioConfig({ sceningEnabled: audiobookStudioConfig.sceningEnabled === false })}
+                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border cursor-pointer transition-all ${
+                                                    audiobookStudioConfig.sceningEnabled !== false
+                                                        ? 'bg-cyan-500 text-black border-cyan-400 shadow-sm'
+                                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                                                }`}
+                                                title="Toggle automated 3-minute scene detection from transcripts"
+                                            >
+                                                {audiobookStudioConfig.sceningEnabled !== false ? 'ON' : 'OFF'}
+                                            </button>
+                                        </div>
+                                        <div className="text-xs text-zinc-400">
+                                            Analyzes transcripts into scene intervals for illustration.
+                                        </div>
+                                    </div>
+
+                                    {/* Live Telemetry */}
+                                    <div className="p-3 rounded-xl bg-black/50 border border-zinc-800/80 space-y-1 text-xs">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider">Status</span>
+                                            {audiobookStudioConfig.sceningEnabled === false ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">Paused</span>
+                                            ) : audiobookStudioStatus?.activeTask === 'llm_scene_analysis' ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">Processing</span>
+                                            ) : audiobookStudioStatus?.activeTask === 'transcribing' ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-sky-950/40 text-sky-400 border border-sky-500/20">Waiting</span>
+                                            ) : (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-950/40 text-emerald-400 border border-emerald-500/20">Idle</span>
+                                            )}
+                                        </div>
+                                        <p className="text-zinc-300 line-clamp-2" title={audiobookStudioStatus?.activeTask === 'llm_scene_analysis' ? (audiobookStudioStatus?.currentStep || audiobookStudioStatus?.lastLog) : undefined}>
+                                            {audiobookStudioConfig.sceningEnabled === false
+                                                ? 'Stage paused. Manual triggers only.'
+                                                : audiobookStudioStatus?.activeTask === 'llm_scene_analysis'
+                                                    ? `${audiobookStudioStatus.activeBookTitle || 'Audiobook'}${audiobookStudioStatus.activeChapterTitle ? ` — ${audiobookStudioStatus.activeChapterTitle}` : ''} (${audiobookStudioStatus.progress || 0}%)`
+                                                    : audiobookStudioStatus?.activeTask === 'transcribing'
+                                                        ? 'Waiting for chapter transcription to complete...'
+                                                        : 'All transcripts processed into scenes.'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Stage 3: Auto Illustration */}
+                                <div className="p-4 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-3 flex flex-col justify-between">
+                                    <div className="space-y-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-lg">🎨</span>
+                                                <span className="text-sm font-black text-white">Illustration</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => saveAudiobookStudioConfig({ imagingEnabled: audiobookStudioConfig.imagingEnabled === false })}
+                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border cursor-pointer transition-all ${
+                                                    audiobookStudioConfig.imagingEnabled !== false
+                                                        ? 'bg-purple-500 text-black border-purple-400 shadow-sm'
+                                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                                                }`}
+                                                title="Toggle automated scene artwork and cover illustration"
+                                            >
+                                                {audiobookStudioConfig.imagingEnabled !== false ? 'ON' : 'OFF'}
+                                            </button>
+                                        </div>
+                                        <div className="flex items-center justify-between text-xs">
+                                            <span className="text-zinc-400">Daily Quota Meter:</span>
+                                            <span className="font-mono font-bold text-amber-300">
+                                                {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Live Telemetry */}
+                                    <div className="p-3 rounded-xl bg-black/50 border border-zinc-800/80 space-y-1 text-xs">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider">Status</span>
+                                            {audiobookStudioConfig.imagingEnabled === false ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">Paused</span>
+                                            ) : (audiobookStudioConfig.imagesGeneratedToday >= audiobookStudioConfig.dailyImageQuota) ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-rose-950/50 text-rose-300 border border-rose-500/30">Quota Reached</span>
+                                            ) : (audiobookStudioStatus?.activeTask === 'illustrating' || audiobookStudioStatus?.activeTask === 'cover_art') ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">Processing</span>
+                                            ) : (audiobookStudioStatus?.activeTask === 'transcribing' || audiobookStudioStatus?.activeTask === 'llm_scene_analysis') ? (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-sky-950/40 text-sky-400 border border-sky-500/20">Waiting</span>
+                                            ) : (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-950/40 text-emerald-400 border border-emerald-500/20">Idle</span>
+                                            )}
+                                        </div>
+                                        <p className="text-zinc-300 line-clamp-2" title={(audiobookStudioStatus?.activeTask === 'illustrating' || audiobookStudioStatus?.activeTask === 'cover_art') ? (audiobookStudioStatus?.currentStep || audiobookStudioStatus?.lastLog) : undefined}>
+                                            {audiobookStudioConfig.imagingEnabled === false
+                                                ? 'Stage paused. Manual triggers only.'
+                                                : (audiobookStudioConfig.imagesGeneratedToday >= audiobookStudioConfig.dailyImageQuota)
+                                                    ? `Quota reached (${audiobookStudioConfig.imagesGeneratedToday}/${audiobookStudioConfig.dailyImageQuota}). Resets at 00:00 UTC.`
+                                                    : (audiobookStudioStatus?.activeTask === 'illustrating' || audiobookStudioStatus?.activeTask === 'cover_art')
+                                                        ? `${audiobookStudioStatus.activeBookTitle || 'Audiobook'} — Painting scene artwork...`
+                                                        : (audiobookStudioStatus?.activeTask === 'transcribing' || audiobookStudioStatus?.activeTask === 'llm_scene_analysis')
+                                                            ? 'Waiting for scene detection before painting...'
+                                                            : 'All scenes illustrated. Waiting for new chapters.'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         {/* 2. API Usage Limits, Rate Limits & Background Schedules */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {/* Schedule Mode */}
@@ -2294,13 +2495,13 @@ export default function Settings() {
                             </div>
                         </div>
 
-                        {/* 3. Dynamic AI Scene Prompt Toggle */}
+                        {/* 5. Dynamic AI Scene Prompt Toggle */}
                         <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-purple-950/35 via-zinc-950 to-zinc-950 border border-purple-500/35 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div className="space-y-1">
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-base">✨</span>
                                     <h3 className="text-sm font-black text-white">
-                                        Dynamic AI Scene Prompting (Allow Gemini / Claude / OpenAI to Write Context-Rich Scene Prompts)
+                                        5. Dynamic AI Scene Prompting (Context-Rich LLM Prompts)
                                     </h3>
                                     <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
                                         audiobookStudioConfig.dynamicPromptEnabled !== false

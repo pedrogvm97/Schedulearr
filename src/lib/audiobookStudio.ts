@@ -27,6 +27,8 @@ import {
     AudiobookChapterSceneImage
 } from './db';
 
+export { parseAndCanonicalizeAuthor } from './db';
+
 export interface ApiKeyProbeResult {
     provider: 'gemini' | 'claude' | 'openai' | 'groq' | 'huggingface' | 'custom' | 'free';
     label: string;
@@ -192,7 +194,7 @@ const DEFAULT_STUDIO_CONFIG: AudiobookStudioConfig = {
     sceningEnabled: true,
     imagingEnabled: true,
     scheduleMode: 'continuous_low_cpu',
-    sttEngine: 'gemini_audio',
+    sttEngine: 'whisper_tiny_local',
     cpuThreads: 1,
     audioEnhancePreset: 'denoise_clarity',
     defaultVoicePreset: 'original',
@@ -1040,12 +1042,13 @@ export const detectAndVerifyAiApiKey = async (
                 checkedAt: nowIso
             };
 
+            const existingConfig = getAudiobookStudioConfig();
             const updated = registerKeyInPool({
                 detectedProvider: 'gemini',
                 rawUnifiedApiKey: key,
                 geminiApiKey: key,
                 artProvider: hasImagen ? 'gemini' : 'pollinations_flux',
-                sttEngine: 'gemini_audio',
+                sttEngine: existingConfig.sttEngine || 'whisper_tiny_local',
                 dynamicPromptEnabled: true,
                 maxRequestsPerMinute: recommendedRpm
             }, probe);
@@ -1168,11 +1171,12 @@ export const detectAndVerifyAiApiKey = async (
                 message: 'Verified Groq API key! Whisper Large v3 STT & Llama 3.3 dynamic prompts unlocked.',
                 checkedAt: nowIso
             };
+            const existingGroqConfig = getAudiobookStudioConfig();
             const updated = registerKeyInPool({
                 detectedProvider: 'groq',
                 rawUnifiedApiKey: key,
                 groqApiKey: key,
-                sttEngine: 'openai_whisper',
+                sttEngine: existingGroqConfig.sttEngine || 'whisper_tiny_local',
                 artProvider: 'pollinations_flux',
                 dynamicPromptEnabled: true,
                 maxRequestsPerMinute: 25
@@ -1227,11 +1231,12 @@ export const detectAndVerifyAiApiKey = async (
                 checkedAt: nowIso
             };
 
+            const existingOpenAiConfig = getAudiobookStudioConfig();
             const updated = registerKeyInPool({
                 detectedProvider: 'openai',
                 rawUnifiedApiKey: key,
                 openaiApiKey: key,
-                sttEngine: hasWhisper ? 'openai_whisper' : 'whisper_tiny_local',
+                sttEngine: existingOpenAiConfig.sttEngine || 'whisper_tiny_local',
                 artProvider: hasDalle ? 'openai' : 'pollinations_flux',
                 dynamicPromptEnabled: true,
                 maxRequestsPerMinute: 30
@@ -2290,7 +2295,7 @@ const detectSpeechCadenceTimestamps = async (
 
 let whisperModelDownloadPromise: Promise<string | null> | null = null;
 
-const ensureLocalWhisperModel = async (): Promise<string | null> => {
+export const ensureLocalWhisperModel = async (): Promise<string | null> => {
     const modelsDir = path.join(getDataDir(), 'whisper-models');
     if (!fs.existsSync(modelsDir)) {
         fs.mkdirSync(modelsDir, { recursive: true });

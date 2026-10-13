@@ -108,12 +108,13 @@ export async function DELETE(req: Request) {
     try {
         const { searchParams } = new URL(req.url);
         const id = searchParams.get('id');
+        const deleteGeneratedData = searchParams.get('deleteGeneratedData') === 'true' || searchParams.get('deleteGenerated') === 'true';
 
         if (!id) {
             return NextResponse.json({ error: 'id is required' }, { status: 400 });
         }
 
-        const success = deleteTheaterLibrary(id);
+        const success = deleteTheaterLibrary(id, deleteGeneratedData);
         if (success) {
             console.log(`[${new Date().toISOString()}] 🗑️ [THEATER-LIBRARIES] Deleted library "${id}"`);
             return NextResponse.json({ success: true });
