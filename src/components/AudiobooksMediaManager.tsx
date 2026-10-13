@@ -288,10 +288,10 @@ export function AudiobooksMediaManager() {
 
     // Book Modal state:
     // Top-level tabs: 'book' (Book data, fetched metadata, chapters) | 'ai' (AI Features)
-    // Inside 'ai', ONLY 3 subtabs: 'illustration' | 'transcription' | 'voice'
+    // Inside 'ai', strictly 3 subtabs in pipeline order: 'transcription' -> 'scening' -> 'illustration' (Illustration + Voice)
     const [editingBook, setEditingBook] = useState<any | null>(null);
     const [bookModalMainTab, setBookModalMainTab] = useState<'book' | 'ai'>('book');
-    const [aiSubTab, setAiSubTab] = useState<'illustration' | 'transcription' | 'voice'>('illustration');
+    const [aiSubTab, setAiSubTab] = useState<'transcription' | 'scening' | 'illustration'>('transcription');
     const [expandedChapterIndices, setExpandedChapterIndices] = useState<Record<number, boolean>>({ 0: true });
     const [showBookCustomizePanel, setShowBookCustomizePanel] = useState(false);
 
@@ -328,10 +328,6 @@ export function AudiobooksMediaManager() {
     const [editBookTranscribeEnabled, setEditBookTranscribeEnabled] = useState(true);
     const [editBookSceningEnabled, setEditBookSceningEnabled] = useState(true);
     const [editBookIllustrateEnabled, setEditBookIllustrateEnabled] = useState(true);
-
-    // Transcription Gen Options
-    const [editSttEngine, setEditSttEngine] = useState('gemini_audio');
-    const [editTranscriptAlternatives, setEditTranscriptAlternatives] = useState('synced_lines');
 
     // Voice Gen Options
     const [editVoicePreset, setEditVoicePreset] = useState('clear_voice');
@@ -1076,7 +1072,7 @@ export function AudiobooksMediaManager() {
     const openBookModal = useCallback((
         book: any,
         mainTab: 'book' | 'ai' = 'book',
-        initialAiSubTab: 'illustration' | 'transcription' | 'voice' = 'illustration',
+        initialAiSubTab: 'transcription' | 'scening' | 'illustration' = 'transcription',
         openCustomize = false
     ) => {
         const meta = studioBooksMap[book.bookKey] || book.meta || {};
@@ -1137,7 +1133,7 @@ export function AudiobooksMediaManager() {
                      (b.title.length > 2 && normParam.includes(normalizeSearchText(b.title)))
             );
             if (target) {
-                openBookModal(target, 'ai', 'illustration');
+                openBookModal(target, 'ai', 'transcription');
             }
             setDidHandleInitialUrlParams(true);
         }
@@ -2321,7 +2317,7 @@ export function AudiobooksMediaManager() {
                             {groupedBooks.map((book) => (
                                 <div
                                     key={book.id}
-                                    onClick={() => openBookModal(book, 'book', 'illustration')}
+                                    onClick={() => openBookModal(book, 'book', 'transcription')}
                                     className="p-5 rounded-3xl bg-zinc-900/70 hover:bg-zinc-900 border-2 border-zinc-800/90 hover:border-amber-500/60 flex flex-col justify-between gap-4 transition-all cursor-pointer shadow-xl group"
                                 >
                                     <div className="flex items-start gap-4">
@@ -2329,7 +2325,7 @@ export function AudiobooksMediaManager() {
                                         <div
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                openBookModal(book, 'book', 'illustration');
+                                                openBookModal(book, 'book', 'transcription');
                                             }}
                                             title="Open Expanded Book View"
                                             className="w-28 h-40 rounded-2xl bg-gradient-to-br from-amber-950/80 via-zinc-900 to-zinc-950 border-2 border-amber-700/40 group-hover:border-amber-400 overflow-hidden shrink-0 flex flex-col items-center justify-center relative shadow-lg transition-all"
@@ -2350,7 +2346,7 @@ export function AudiobooksMediaManager() {
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    openBookModal(book, 'book', 'illustration', true);
+                                                    openBookModal(book, 'book', 'transcription', true);
                                                 }}
                                                 title="Swap Cover Art & Edit Synopsis"
                                                 className="absolute top-1.5 right-1.5 p-1.5 rounded-xl bg-black/80 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 shadow-lg transition-all cursor-pointer"
@@ -2383,19 +2379,28 @@ export function AudiobooksMediaManager() {
                                                 )}
                                             </div>
 
-                                            {/* AI Asset Counters */}
+                                            {/* AI Asset Counters (Strictly ordered: 1. Transcription -> 2. Scening -> 3. Illustration + Voice) */}
                                             <div className="pt-1 flex items-center gap-2 flex-wrap">
-                                                <span className="px-2.5 py-1 rounded-xl bg-purple-500/15 border border-purple-500/35 text-purple-300 text-xs font-black flex items-center gap-1.5">
-                                                    <ImageIcon size={13} />
-                                                    {book.illustratedScenes}
-                                                </span>
-                                                <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-300 text-xs font-black flex items-center gap-1.5">
+                                                <span
+                                                    title="1. Timestamped Transcription Progress"
+                                                    className="px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-300 text-xs font-black flex items-center gap-1.5"
+                                                >
                                                     <FileText size={13} />
                                                     {book.transCh}/{book.totalCh}
                                                 </span>
-                                                <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 text-xs font-black flex items-center gap-1.5">
-                                                    <Headphones size={13} />
-                                                    {book.enhCh}/{book.totalCh}
+                                                <span
+                                                    title="2. Detected Scenes"
+                                                    className="px-2.5 py-1 rounded-xl bg-purple-500/15 border border-purple-500/35 text-purple-300 text-xs font-black flex items-center gap-1.5"
+                                                >
+                                                    <Wand2 size={13} />
+                                                    {book.detectedScenesCount || 0}
+                                                </span>
+                                                <span
+                                                    title="3. Painted Illustrations & Voice Presets"
+                                                    className="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 text-xs font-black flex items-center gap-1.5"
+                                                >
+                                                    <ImageIcon size={13} />
+                                                    {book.paintedScenesCount || 0} • <Headphones size={12} /> {book.enhCh}/{book.totalCh}
                                                 </span>
                                             </div>
                                         </div>
@@ -2404,7 +2409,7 @@ export function AudiobooksMediaManager() {
                                     {/* Card Bottom Action Bar: Book Info vs AI Features */}
                                     <div className="pt-3 border-t border-zinc-800/80 grid grid-cols-2 gap-2.5" onClick={e => e.stopPropagation()}>
                                         <button
-                                            onClick={() => openBookModal(book, 'book', 'illustration')}
+                                            onClick={() => openBookModal(book, 'book', 'transcription')}
                                             title="Open Book Details, Cover & Synopsis"
                                             className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-sm font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
                                         >
@@ -2412,8 +2417,8 @@ export function AudiobooksMediaManager() {
                                             <span>Book</span>
                                         </button>
                                         <button
-                                            onClick={() => openBookModal(book, 'ai', 'illustration')}
-                                            title="Open AI Features (Illustration, Transcription, Voice)"
+                                            onClick={() => openBookModal(book, 'ai', 'transcription')}
+                                            title="Open AI Features (1. Transcription -> 2. Scening -> 3. Illustration + Voice)"
                                             className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg cursor-pointer"
                                         >
                                             <Sparkles size={17} />
@@ -2507,7 +2512,7 @@ export function AudiobooksMediaManager() {
                                                         coverPreviews.map((b: any, cIdx: number) => (
                                                             <div
                                                                 key={b.bookKey || cIdx}
-                                                                onClick={() => openBookModal(b, 'book', 'illustration')}
+                                                                onClick={() => openBookModal(b, 'book', 'transcription')}
                                                                 title={b.title}
                                                                 style={{ zIndex: 10 - cIdx }}
                                                                 className="w-16 h-24 rounded-xl bg-gradient-to-b from-[#2e1d11] to-[#120b07] border-2 border-amber-500/40 hover:border-amber-300 overflow-hidden shadow-lg flex items-center justify-center shrink-0 cursor-pointer transition-transform hover:-translate-y-1"
@@ -2571,7 +2576,7 @@ export function AudiobooksMediaManager() {
                                             {seriesBooks.map((book: any, bIdx: number) => (
                                                 <div
                                                     key={book.bookKey}
-                                                    onClick={() => openBookModal(book, 'book', 'illustration')}
+                                                    onClick={() => openBookModal(book, 'book', 'transcription')}
                                                     className="p-3 rounded-2xl bg-zinc-950/90 hover:bg-zinc-900 border border-zinc-800/90 hover:border-amber-500/40 flex items-center justify-between gap-3 cursor-pointer transition-all group"
                                                 >
                                                     <div className="flex items-center gap-3.5 min-w-0 flex-1">
@@ -2632,14 +2637,14 @@ export function AudiobooksMediaManager() {
                                                             </>
                                                         )}
                                                         <button
-                                                            onClick={() => openBookModal(book, 'book', 'illustration')}
+                                                            onClick={() => openBookModal(book, 'book', 'transcription')}
                                                             title="Book Details"
                                                             className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-black uppercase cursor-pointer"
                                                         >
                                                             Book
                                                         </button>
                                                         <button
-                                                            onClick={() => openBookModal(book, 'ai', 'illustration')}
+                                                            onClick={() => openBookModal(book, 'ai', 'transcription')}
                                                             title="AI Features"
                                                             className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase cursor-pointer"
                                                         >
@@ -3072,7 +3077,7 @@ export function AudiobooksMediaManager() {
                                                 e.preventDefault();
                                                 handleDropBookOnQueue(book.bookKey);
                                             }}
-                                            onClick={() => openBookModal(book, 'ai', 'illustration')}
+                                            onClick={() => openBookModal(book, 'ai', 'transcription')}
                                             className={`p-5 sm:p-6 rounded-3xl border-2 transition-all cursor-pointer shadow-xl flex flex-col xl:flex-row items-stretch xl:items-center gap-6 group ${
                                                 isDragOver
                                                     ? 'bg-amber-500/15 border-amber-400 scale-[1.01]'
@@ -3352,7 +3357,7 @@ export function AudiobooksMediaManager() {
                                     </div>
 
                                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                                        {/* STEP 1: TRANSCRIPTION SETTINGS */}
+                                        {/* STEP 1: TRANSCRIPTION SETTINGS (ZERO OPTIONS - FULL BOOK TIMESTAMPED TRANSCRIPTION) */}
                                         <div className={`p-5 rounded-3xl border-2 space-y-4 ${
                                             transEnabled ? 'bg-amber-950/20 border-amber-500/50' : 'bg-zinc-950/60 border-zinc-800 opacity-60'
                                         }`}>
@@ -3371,38 +3376,13 @@ export function AudiobooksMediaManager() {
                                                 </button>
                                             </div>
 
-                                            <div className="space-y-3">
-                                                <div>
-                                                    <label className="block text-xs font-black text-amber-300 uppercase mb-1.5">
-                                                        Speech-to-Text Engine
-                                                    </label>
-                                                    <select
-                                                        value={studioConfig?.sttProvider || 'gemini_audio'}
-                                                        onChange={e => handleSaveConfig({ sttProvider: e.target.value })}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer"
-                                                    >
-                                                        <option value="gemini_audio">Gemini Audio + Whisper Local (Synced)</option>
-                                                        <option value="whisper_tiny_local">Whisper Local C++ (Offline Free)</option>
-                                                        <option value="openai_whisper">OpenAI / Groq Whisper</option>
-                                                    </select>
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-xs font-black text-amber-300 uppercase mb-1.5">
-                                                        Default Voice Preset
-                                                    </label>
-                                                    <select
-                                                        value={studioConfig?.defaultVoicePreset || 'clear_voice'}
-                                                        onChange={e => handleSaveConfig({ defaultVoicePreset: e.target.value })}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer"
-                                                    >
-                                                        <option value="clear_voice">Clear Voice (Vocal Presence)</option>
-                                                        <option value="warm_bass">Warm Studio Narrator</option>
-                                                        <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
-                                                        <option value="night_compress">Night Leveler</option>
-                                                        <option value="original">Original Voice</option>
-                                                    </select>
-                                                </div>
+                                            <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2">
+                                                <p className="text-sm font-bold text-amber-200">
+                                                    Full Book Speech-to-Text
+                                                </p>
+                                                <p className="text-xs text-zinc-400 leading-relaxed font-mono">
+                                                    Verbatim audio transcript with exact [MM:SS] timestamps across all chapters. Zero manual input needed.
+                                                </p>
                                             </div>
                                         </div>
 
@@ -3471,14 +3451,14 @@ export function AudiobooksMediaManager() {
                                             </div>
                                         </div>
 
-                                        {/* STEP 3: IMAGING SETTINGS */}
+                                        {/* STEP 3: IMAGING & VOICE SETTINGS */}
                                         <div className={`p-5 rounded-3xl border-2 space-y-4 ${
                                             imgEnabled ? 'bg-emerald-950/20 border-emerald-500/50' : 'bg-zinc-950/60 border-zinc-800 opacity-60'
                                         }`}>
                                             <div className="flex items-center justify-between gap-2">
                                                 <div className="flex items-center gap-2.5">
                                                     <ImageIcon size={22} className="text-emerald-400" />
-                                                    <span className="text-lg font-black text-white uppercase">3. Imaging</span>
+                                                    <span className="text-lg font-black text-white uppercase">3. Illustration + Voice</span>
                                                 </div>
                                                 <button
                                                     onClick={() => {
@@ -3517,6 +3497,23 @@ export function AudiobooksMediaManager() {
                                                         <option value="Graphic Novel">Graphic Novel Ink</option>
                                                         <option value="Anime">Anime Masterpiece</option>
                                                         <option value="Vintage Book Plate">Vintage Book Engraving</option>
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">
+                                                        Default Voice Preset
+                                                    </label>
+                                                    <select
+                                                        value={studioConfig?.defaultVoicePreset || 'clear_voice'}
+                                                        onChange={e => handleSaveConfig({ defaultVoicePreset: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                    >
+                                                        <option value="clear_voice">Clear Voice (Vocal Presence)</option>
+                                                        <option value="warm_bass">Warm Studio Narrator</option>
+                                                        <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
+                                                        <option value="night_compress">Night Leveler</option>
+                                                        <option value="original">Original Voice</option>
                                                     </select>
                                                 </div>
 
@@ -4489,20 +4486,8 @@ export function AudiobooksMediaManager() {
                                         </div>
                                     </div>
 
-                                    {/* ── THE 3 AI SUBTABS ── */}
+                                    {/* ── THE 3 AI SUBTABS (PIPELINE ORDER: 1. TRANSCRIPTION -> 2. SCENING -> 3. ILLUSTRATION + VOICE) ── */}
                                     <div className="grid grid-cols-3 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
-                                        <button
-                                            onClick={() => setAiSubTab('illustration')}
-                                            className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
-                                                aiSubTab === 'illustration'
-                                                    ? 'bg-purple-500 text-black shadow-xl shadow-purple-500/25'
-                                                    : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
-                                            }`}
-                                        >
-                                            <ImageIcon size={22} />
-                                            <span>Illustration</span>
-                                        </button>
-
                                         <button
                                             onClick={() => setAiSubTab('transcription')}
                                             className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
@@ -4516,15 +4501,27 @@ export function AudiobooksMediaManager() {
                                         </button>
 
                                         <button
-                                            onClick={() => setAiSubTab('voice')}
+                                            onClick={() => setAiSubTab('scening')}
                                             className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
-                                                aiSubTab === 'voice'
+                                                aiSubTab === 'scening'
+                                                    ? 'bg-purple-500 text-black shadow-xl shadow-purple-500/25'
+                                                    : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
+                                            }`}
+                                        >
+                                            <Wand2 size={22} />
+                                            <span>Scening</span>
+                                        </button>
+
+                                        <button
+                                            onClick={() => setAiSubTab('illustration')}
+                                            className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
+                                                aiSubTab === 'illustration'
                                                     ? 'bg-emerald-500 text-black shadow-xl shadow-emerald-500/25'
                                                     : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
                                             }`}
                                         >
-                                            <Headphones size={22} />
-                                            <span>Voice</span>
+                                            <Sparkles size={22} />
+                                            <span>Illustration + Voice</span>
                                         </button>
                                     </div>
 
@@ -4571,55 +4568,289 @@ export function AudiobooksMediaManager() {
                                     )}
 
                                     {/* ═══════════════════════════════════════════════════════════
-                                        SUBTAB 1: ILLUSTRATION
-                                        1. PROMINENT TOP MENU: Gen Options (Style, Alternatives, Focus) + AUTO GEN SCENES + GEN ALL
-                                        2. BELOW: Book Cover + Chapters/Scenes division with Delete / Add / Regen on each
+                                        TAB 1: TRANSCRIPTION (ALWAYS FIRST, NO OPTIONS, FULL BOOK TIMESTAMPED TEXT)
                                        ═══════════════════════════════════════════════════════════ */}
-                                    {aiSubTab === 'illustration' && (
+                                    {aiSubTab === 'transcription' && (
                                         <div className="space-y-6">
-                                            {/* ── TOP PROMINENT CREATION MENU ── */}
+                                            {/* ── TOP PROMINENT ACTION BAR (ZERO OPTIONS) ── */}
+                                            <div className="p-6 rounded-3xl bg-gradient-to-br from-amber-950/40 via-zinc-900 to-zinc-950 border-2 border-amber-500/50 shadow-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                                                <div className="flex items-center gap-3.5 min-w-0">
+                                                    <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0">
+                                                        <FileText size={24} />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <h4 className="text-lg sm:text-xl font-black text-white uppercase tracking-wider">
+                                                            Full Book Transcription
+                                                        </h4>
+                                                        <p className="text-xs sm:text-sm font-bold text-amber-300/90 truncate">
+                                                            Exact [MM:SS] timestamps across all chapters • {currentModalBook.transCh || 0}/{currentModalBook.totalCh} Transcribed
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-3 flex-wrap">
+                                                    <button
+                                                        onClick={() => setShowFullBookTranscript(prev => !prev)}
+                                                        title={showFullBookTranscript ? 'View transcripts chapter by chapter' : 'View continuous full-book transcript across all chapters'}
+                                                        className={`px-5 py-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer border transition-all ${
+                                                            showFullBookTranscript
+                                                                ? 'bg-amber-500 text-black border-amber-400 shadow-lg'
+                                                                : 'bg-zinc-950 hover:bg-zinc-800 text-amber-300 border-amber-500/40'
+                                                        }`}
+                                                    >
+                                                        <FileText size={18} />
+                                                        <span>{showFullBookTranscript ? 'By Chapter' : 'Full Transcript'}</span>
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => handleGenAllForSubTab('transcription')}
+                                                        disabled={runningStudioAction !== null}
+                                                        title="Transcribe all chapters with timestamps"
+                                                        className="px-6 py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-amber-500/30 cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        <Mic2 size={18} className={runningStudioAction === 'gen_all_transcription' ? 'animate-spin' : ''} />
+                                                        <span>Transcribe All</span>
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => handleResetAssets('transcripts', undefined, false)}
+                                                        disabled={runningStudioAction !== null}
+                                                        title="Delete all transcripts for this book"
+                                                        className="px-4 py-3.5 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        <Trash2 size={18} />
+                                                        <span>Delete All</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* ── FULL BOOK CONTINUOUS VIEW OR PER-CHAPTER DIVISION ── */}
+                                            {showFullBookTranscript ? (
+                                                <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <span className="text-sm font-black text-white uppercase tracking-wider">
+                                                            Continuous Book Transcript
+                                                        </span>
+                                                        <span className="text-xs font-mono font-bold text-amber-300">
+                                                            {currentModalBook.chapters.reduce((acc: number, ch: any, idx: number) => {
+                                                                const cm = resolveChapterMeta(currentModalBook.bookKey, ch, idx);
+                                                                const count = (cm.synced_lyrics || '').split('\n').filter((l: string) => l.trim()).length;
+                                                                return acc + count;
+                                                            }, 0)} Total Synced Lines
+                                                        </span>
+                                                    </div>
+                                                    <div className="max-h-[550px] overflow-y-auto space-y-2 pr-1">
+                                                        {currentModalBook.chapters.map((ch: any, chIdx: number) => {
+                                                            const cm = resolveChapterMeta(currentModalBook.bookKey, ch, chIdx);
+                                                            const rawLyrics: string = cm.synced_lyrics || '';
+                                                            const chLines = rawLyrics.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                                                            if (chLines.length === 0) return null;
+                                                            return (
+                                                                <div key={chIdx} className="space-y-1.5 pt-2">
+                                                                    <div className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-black text-amber-300 uppercase flex items-center justify-between">
+                                                                        <span>Chapter {chIdx + 1}: {ch.title || ch.name || `Chapter ${chIdx + 1}`}</span>
+                                                                        <span className="font-mono">{chLines.length} Lines</span>
+                                                                    </div>
+                                                                    {chLines.map((line: string, lIdx: number) => {
+                                                                        const match = line.match(/^\[(\d+:\d+(?:\.\d+)?)\]\s*(.*)$/);
+                                                                        const timeTag = match ? match[1] : '';
+                                                                        const textBody = match ? match[2] : line;
+                                                                        return (
+                                                                            <div key={lIdx} className="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80 flex items-start gap-3">
+                                                                                {timeTag && (
+                                                                                    <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-xs font-bold shrink-0">
+                                                                                        {timeTag}
+                                                                                    </span>
+                                                                                )}
+                                                                                <p className="text-sm sm:text-base text-zinc-200 leading-relaxed">
+                                                                                    {textBody}
+                                                                                </p>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    <div className="flex items-center justify-between gap-3 px-2">
+                                                        <span className="text-sm font-black text-zinc-300 uppercase tracking-wider">
+                                                            Chapters ({currentModalBook.chapters.length})
+                                                        </span>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => {
+                                                                    const allOpen: Record<number, boolean> = {};
+                                                                    currentModalBook.chapters.forEach((_: any, i: number) => {
+                                                                        allOpen[i] = true;
+                                                                    });
+                                                                    setExpandedChapterIndices(allOpen);
+                                                                }}
+                                                                title="Expand all chapter transcripts"
+                                                                className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-zinc-800 font-black text-xs uppercase tracking-wider cursor-pointer"
+                                                            >
+                                                                Expand All
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setExpandedChapterIndices({})}
+                                                                title="Collapse all chapter transcripts"
+                                                                className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-black text-xs uppercase tracking-wider cursor-pointer"
+                                                            >
+                                                                Collapse
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {currentModalBook.chapters.map((chTrack: any, chIdx: number) => {
+                                                        const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
+                                                        const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${chIdx + 1}`;
+                                                        const durSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : (chMeta.duration_sec || 300);
+                                                        const rawLyrics: string = chMeta.synced_lyrics || '';
+                                                        const lines = rawLyrics.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                                                        const isExpanded = Boolean(expandedChapterIndices[chIdx]);
+                                                        const isTranscribing = chMeta.transcription_status === 'processing' || runningChapterTaskKey === `${chapterKey}::transcribe`;
+                                                        const transProgress = Number(chMeta.transcription_progress || 0);
+                                                        const transcribedSec = Number(chMeta.transcribed_seconds || 0);
+
+                                                        return (
+                                                            <div key={chapterKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
+                                                                <div
+                                                                    onClick={() => setExpandedChapterIndices(prev => ({ ...prev, [chIdx]: !prev[chIdx] }))}
+                                                                    className="p-4 sm:p-5 bg-zinc-900/90 hover:bg-zinc-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
+                                                                >
+                                                                    <div className="flex items-center gap-3.5 min-w-0">
+                                                                        <span className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-sm font-black flex items-center justify-center shrink-0">
+                                                                            {chIdx + 1}
+                                                                        </span>
+                                                                        <div className="min-w-0">
+                                                                            <h5 className="text-base sm:text-lg font-black text-white truncate">
+                                                                                {chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`}
+                                                                            </h5>
+                                                                            <div className="flex items-center gap-2.5 text-xs font-bold text-zinc-400 flex-wrap">
+                                                                                <span className="font-mono">{formatMMSS(durSec)}</span>
+                                                                                <span>•</span>
+                                                                                <span className={lines.length > 0 ? 'text-amber-300 font-black' : 'text-zinc-500'}>
+                                                                                    {lines.length > 0 ? `${lines.length} Synced Lines` : 'Not Transcribed'}
+                                                                                </span>
+                                                                                {isTranscribing && (
+                                                                                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-200 font-mono font-black animate-pulse">
+                                                                                        Transcribing {transProgress > 0 ? `${transProgress}%` : '...'}
+                                                                                        {transcribedSec > 0 ? ` (${formatMMSS(transcribedSec)} / ${formatMMSS(durSec)})` : ''}
+                                                                                    </span>
+                                                                                )}
+                                                                                {chMeta.transcription_status === 'failed' && chMeta.error_message && (
+                                                                                    <span className="px-2.5 py-0.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 font-bold">
+                                                                                        {chMeta.error_message}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                                                        <button
+                                                                            onClick={() => handleRunChapterTask(chTrack, chIdx, 'transcribe')}
+                                                                            disabled={isTranscribing}
+                                                                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                        >
+                                                                            <RefreshCw size={15} className={isTranscribing ? 'animate-spin' : ''} />
+                                                                            <span>{isTranscribing ? 'Working...' : lines.length > 0 ? 'Regen' : 'Gen'}</span>
+                                                                        </button>
+
+                                                                        {lines.length > 0 && (
+                                                                            <button
+                                                                                onClick={() => handleResetAssets('transcripts', chapterKey, false)}
+                                                                                title="Delete transcript for this chapter"
+                                                                                className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
+                                                                            >
+                                                                                <Trash2 size={16} />
+                                                                            </button>
+                                                                        )}
+
+                                                                        <span className="p-1.5 text-zinc-400">
+                                                                            {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {isExpanded && (
+                                                                    <div className="p-5 border-t border-zinc-800/80 space-y-3">
+                                                                        {isTranscribing && (
+                                                                            <div className="w-full bg-zinc-950 rounded-full h-2.5 overflow-hidden border border-zinc-800">
+                                                                                <div
+                                                                                    className="bg-amber-400 h-full transition-all duration-500"
+                                                                                    style={{ width: `${Math.max(4, Math.min(100, transProgress))}%` }}
+                                                                                />
+                                                                            </div>
+                                                                        )}
+
+                                                                        {lines.length === 0 ? (
+                                                                            <div className="py-8 text-center">
+                                                                                <button
+                                                                                    onClick={() => handleRunChapterTask(chTrack, chIdx, 'transcribe')}
+                                                                                    disabled={isTranscribing}
+                                                                                    className="px-6 py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider inline-flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50"
+                                                                                >
+                                                                                    <Mic2 size={18} className={isTranscribing ? 'animate-spin' : ''} />
+                                                                                    <span>{isTranscribing ? 'Transcribing...' : 'Transcribe Chapter'}</span>
+                                                                                </button>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                                                                                {lines.map((line: string, lIdx: number) => {
+                                                                                    const match = line.match(/^\[(\d+:\d+(?:\.\d+)?)\]\s*(.*)$/);
+                                                                                    const timeTag = match ? match[1] : '';
+                                                                                    const textBody = match ? match[2] : line;
+                                                                                    return (
+                                                                                        <div
+                                                                                            key={lIdx}
+                                                                                            className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 flex items-center justify-between gap-3 group"
+                                                                                        >
+                                                                                            <div className="flex items-start gap-3 min-w-0">
+                                                                                                {timeTag && (
+                                                                                                    <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-xs font-bold shrink-0">
+                                                                                                        {timeTag}
+                                                                                                    </span>
+                                                                                                )}
+                                                                                                <p className="text-sm sm:text-base text-zinc-200 leading-relaxed">
+                                                                                                    {textBody}
+                                                                                                </p>
+                                                                                            </div>
+                                                                                            <button
+                                                                                                onClick={() => handleDeleteSingleTranscriptLine(chTrack, chIdx, lIdx, lines)}
+                                                                                                title="Delete this synced line"
+                                                                                                className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                                                                                            >
+                                                                                                <Trash2 size={15} />
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* ═══════════════════════════════════════════════════════════
+                                        TAB 2: SCENING (SECOND, CREATES SCENE WINDOWS & PROMPTS FROM TRANSCRIPT)
+                                       ═══════════════════════════════════════════════════════════ */}
+                                    {aiSubTab === 'scening' && (
+                                        <div className="space-y-6">
+                                            {/* ── TOP PROMINENT SCENING CREATION MENU ── */}
                                             <div className="p-6 rounded-3xl bg-gradient-to-br from-purple-950/40 via-zinc-900 to-zinc-950 border-2 border-purple-500/50 shadow-2xl space-y-5">
-                                                {/* Gen Options Row (No forced Scenes/Chapter selector — LLM discovers natural scene transitions!) */}
-                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                     <div>
                                                         <label className="block text-xs font-black text-purple-300 uppercase tracking-wider mb-1.5">
-                                                            Style
-                                                        </label>
-                                                        <select
-                                                            value={editArtStyle}
-                                                            onChange={e => setEditArtStyle(e.target.value)}
-                                                            className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-purple-500/40 text-base font-bold text-white cursor-pointer"
-                                                        >
-                                                            <option value="Cinematic Concept Art">Cinematic Concept Art</option>
-                                                            <option value="Oil Painting">Classic Oil Painting</option>
-                                                            <option value="Dark Fantasy">Dark Atmospheric Painting</option>
-                                                            <option value="Watercolor">Storybook Watercolor</option>
-                                                            <option value="Graphic Novel">Graphic Novel Ink</option>
-                                                            <option value="Anime">Anime Masterpiece</option>
-                                                            <option value="Vintage Book Plate">Vintage Book Engraving</option>
-                                                            <option value="Photorealistic">Photorealistic Film Still</option>
-                                                        </select>
-                                                    </div>
-
-                                                    <div>
-                                                        <label className="block text-xs font-black text-purple-300 uppercase tracking-wider mb-1.5">
-                                                            Alternatives / Scene
-                                                        </label>
-                                                        <select
-                                                            value={editNumAlternatives}
-                                                            onChange={e => setEditNumAlternatives(Number(e.target.value))}
-                                                            className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-purple-500/40 text-base font-bold text-white cursor-pointer"
-                                                        >
-                                                            <option value={1}>1 Image</option>
-                                                            <option value={2}>2 Alternatives</option>
-                                                            <option value={3}>3 Alternatives</option>
-                                                            <option value={4}>4 Alternatives</option>
-                                                        </select>
-                                                    </div>
-
-                                                    <div>
-                                                        <label className="block text-xs font-black text-purple-300 uppercase tracking-wider mb-1.5">
-                                                            Focus
+                                                            Scene Focus
                                                         </label>
                                                         <select
                                                             value={editSceneFocus}
@@ -4632,98 +4863,53 @@ export function AudiobooksMediaManager() {
                                                             <option value="ambient">Dramatic Lighting &amp; Mood</option>
                                                         </select>
                                                     </div>
+
+                                                    <div>
+                                                        <label className="block text-xs font-black text-purple-300 uppercase tracking-wider mb-1.5">
+                                                            Target Scenes / Chapter
+                                                        </label>
+                                                        <select
+                                                            value={editScenesPerChapter}
+                                                            onChange={e => setEditScenesPerChapter(Number(e.target.value))}
+                                                            className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-purple-500/40 text-base font-bold text-white cursor-pointer"
+                                                        >
+                                                            <option value={2}>2 Scenes / Chapter</option>
+                                                            <option value={3}>3 Scenes / Chapter (Auto Natural Windows)</option>
+                                                            <option value={4}>4 Scenes / Chapter</option>
+                                                            <option value={5}>5 Scenes / Chapter</option>
+                                                            <option value={6}>6 Scenes / Chapter</option>
+                                                        </select>
+                                                    </div>
                                                 </div>
 
-                                                {/* SEQUENTIAL 3-STAGE PIPELINE CONTROLS: 1. TRANSCRIBE -> 2. DETECT SCENES (LLM) -> 3. PAINT SCENES (API) */}
-                                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 pt-1">
-                                                    <button
-                                                        onClick={() => handleGenAllForSubTab('transcription')}
-                                                        disabled={runningStudioAction !== null}
-                                                        title="Stage 1: Transcribe audio to timestamped text across all chapters"
-                                                        className="sm:col-span-3 py-3 px-4 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                                                    >
-                                                        <Mic2 size={18} className={runningStudioAction === 'gen_all_transcription' ? 'animate-spin text-amber-400' : 'text-amber-400'} />
-                                                        <span>1. Transcribe</span>
-                                                    </button>
-
+                                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
                                                     <button
                                                         onClick={handleAutoGenScenes}
                                                         disabled={(currentModalBook.transCh || 0) === 0 || runningStudioAction !== null}
                                                         title={
                                                             (currentModalBook.transCh || 0) === 0
-                                                                ? 'Requires Stage 1 (Transcribe Audio) first before LLM can detect scene transitions'
-                                                                : 'Stage 2: Feed timestamped transcript into LLM to create scene transition timestamps and prompts'
+                                                                ? 'Requires Stage 1 (Transcription) first before LLM can detect scene transitions'
+                                                                : 'Feed timestamped transcript into LLM to create scene transition timestamps and prompts across all chapters'
                                                         }
-                                                        className="sm:col-span-4 py-3 px-4 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-purple-200 border border-purple-500/50 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                                        className="sm:col-span-9 py-4 px-6 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-xl shadow-purple-500/30 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                                     >
-                                                        <Wand2 size={18} className={runningStudioAction === 'auto_gen_scenes' ? 'animate-spin text-purple-400' : 'text-purple-400'} />
-                                                        <span>2. Detect Scenes</span>
+                                                        <Wand2 size={22} className={runningStudioAction === 'auto_gen_scenes' ? 'animate-spin' : ''} />
+                                                        <span>Detect All Scenes</span>
                                                     </button>
 
                                                     <button
-                                                        onClick={handlePaintAllScenes}
-                                                        disabled={(currentModalBook.detectedScenesCount || 0) === 0 || runningStudioAction !== null}
-                                                        title={
-                                                            (currentModalBook.detectedScenesCount || 0) === 0
-                                                                ? 'Requires Stage 2 (Detect Scenes) first before painting artwork'
-                                                                : 'Stage 3: Paint artwork for all LLM-detected scenes using Image API'
-                                                        }
-                                                        className="sm:col-span-3 py-3 px-4 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-purple-500/25 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                                    >
-                                                        <Sparkles size={18} className={runningStudioAction === 'paint_all_scenes' ? 'animate-spin' : ''} />
-                                                        <span>3. Paint Art</span>
-                                                    </button>
-
-                                                    <button
-                                                        onClick={() => handleResetAssets('illustrations', undefined, false)}
+                                                        onClick={() => handleCleanGeneratedData('scenes', `Scenes for "${currentModalBook.title}"`, currentModalBook.bookKey)}
                                                         disabled={runningStudioAction !== null}
-                                                        title="Delete all scenes and illustrations for this book"
-                                                        className="sm:col-span-2 py-3 px-3 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                        title="Delete all detected scenes for this book"
+                                                        className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                                                     >
-                                                        <Trash2 size={16} />
-                                                        <span>Clear</span>
+                                                        <Trash2 size={18} />
+                                                        <span>Delete All</span>
                                                     </button>
                                                 </div>
                                             </div>
 
-                                            {/* ── BOOK COVER ILLUSTRATION CARD ── */}
-                                            <div className="p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-4">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-20 h-28 rounded-xl bg-zinc-950 border border-zinc-800 overflow-hidden flex items-center justify-center shrink-0">
-                                                        {(currentModalBook.customCoverUrl || currentModalBook.posterUrl) ? (
-                                                            <img src={currentModalBook.customCoverUrl || currentModalBook.posterUrl} alt="Cover" className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <BookOpen size={24} className="text-zinc-600" />
-                                                        )}
-                                                    </div>
-                                                    <div>
-                                                        <h5 className="text-lg font-black text-white">Book Cover</h5>
-                                                        <p className="text-sm font-bold text-zinc-400">
-                                                            {currentModalBook.meta?.use_custom_cover ? 'Active: AI Cover' : 'Active: Standard Cover'}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2.5 flex-wrap">
-                                                    <button
-                                                        onClick={() => handleToggleCustomBookCover(true)}
-                                                        disabled={runningStudioAction === 'cover'}
-                                                        className="px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-sm uppercase flex items-center gap-2 cursor-pointer"
-                                                    >
-                                                        <Sparkles size={16} />
-                                                        <span>{currentModalBook.customCoverUrl ? 'Regen Cover' : 'Gen Cover'}</span>
-                                                    </button>
-                                                    {currentModalBook.customCoverUrl && (
-                                                        <button
-                                                            onClick={() => handleToggleCustomBookCover(false)}
-                                                            className="px-4 py-2.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 font-bold text-sm cursor-pointer"
-                                                        >
-                                                            {currentModalBook.meta?.use_custom_cover ? 'Use Original' : 'Use AI Cover'}
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* ── BELOW: CHAPTERS & CREATED SCENES DIVISION (SEQUENTIAL PIPELINE: 1. TRANSCRIBE -> 2. DETECT SCENES -> 3. PAINT) ── */}
+                                            {/* ── CHAPTERS & DETECTED SCENE WINDOWS DIVISION ── */}
                                             <div className="space-y-4">
                                                 {currentModalBook.chapters.map((chTrack: any, chIdx: number) => {
                                                     const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
@@ -4732,21 +4918,15 @@ export function AudiobooksMediaManager() {
                                                     const rawLyrics: string = chMeta.synced_lyrics || '';
                                                     const transcriptLinesCount = rawLyrics.split('\n').map((l: string) => l.trim()).filter(Boolean).length;
                                                     const isTranscribed = chMeta.transcription_status === 'completed' && transcriptLinesCount > 0;
-                                                    const isTranscribing = chMeta.transcription_status === 'processing' || runningChapterTaskKey === `${chapterKey}::transcribe`;
 
                                                     const detectedScenes: any[] = (chMeta.images || []).filter(
                                                         (i: any) => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg')
                                                     );
-                                                    const paintedScenesCount = detectedScenes.filter((i: any) => Boolean(i.url)).length;
                                                     const isExpanded = Boolean(expandedChapterIndices[chIdx]);
                                                     const isDetectingScenes = runningChapterTaskKey === `${chapterKey}::detect_scenes` || chMeta.illustration_status === 'scenes_detected';
-                                                    const isPaintingScenes = runningChapterTaskKey === `${chapterKey}::paint_scenes`;
-                                                    const isIllProcessing = chMeta.illustration_status === 'processing' || runningChapterTaskKey === `${chapterKey}::illustrate` || runningChapterTaskKey === `${chapterKey}::detect_scenes` || runningChapterTaskKey === `${chapterKey}::paint_scenes`;
-                                                    const illProgress = Number(chMeta.illustration_progress || 0);
 
                                                     return (
                                                         <div key={chapterKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
-                                                            {/* Chapter Division Header */}
                                                             <div
                                                                 onClick={() => setExpandedChapterIndices(prev => ({ ...prev, [chIdx]: !prev[chIdx] }))}
                                                                 className="p-4 sm:p-5 bg-zinc-900/90 hover:bg-zinc-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
@@ -4763,70 +4943,29 @@ export function AudiobooksMediaManager() {
                                                                             <span className="font-mono">{formatMMSS(durSec)}</span>
                                                                             <span>•</span>
                                                                             <span className={isTranscribed ? 'text-amber-300 font-black' : 'text-zinc-500'}>
-                                                                                {isTranscribed ? `1. Text (${transcriptLinesCount} lines)` : '1. No Transcript'}
+                                                                                {isTranscribed ? `1. Text (${transcriptLinesCount} lines)` : '1. Needs Transcript'}
                                                                             </span>
                                                                             <span>•</span>
                                                                             <span className={detectedScenes.length > 0 ? 'text-purple-300 font-black' : 'text-zinc-500'}>
                                                                                 2. {detectedScenes.length} {detectedScenes.length === 1 ? 'Scene' : 'Scenes'}
                                                                             </span>
-                                                                            <span>•</span>
-                                                                            <span className={paintedScenesCount > 0 ? 'text-emerald-300 font-black' : 'text-zinc-500'}>
-                                                                                3. {paintedScenesCount}/{detectedScenes.length} Painted
-                                                                            </span>
-                                                                            {isIllProcessing && (
-                                                                                <span className="px-2.5 py-0.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-purple-200 font-mono font-black animate-pulse">
-                                                                                    Working {illProgress > 0 ? `${illProgress}%` : '...'}
-                                                                                </span>
-                                                                            )}
-                                                                            {chMeta.illustration_status === 'failed' && chMeta.error_message && (
-                                                                                <span className="px-2.5 py-0.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 font-bold">
-                                                                                    {chMeta.error_message}
-                                                                                </span>
-                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                 </div>
 
-                                                                {/* Individual Chapter Sequential Tools: 1. Transcribe | 2. Detect Scenes | 3. Paint | + Scene */}
                                                                 <div className="flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
-                                                                    {!isTranscribed && (
-                                                                        <button
-                                                                            onClick={() => handleRunChapterTask(chTrack, chIdx, 'transcribe')}
-                                                                            disabled={isTranscribing}
-                                                                            title="Stage 1: Transcribe chapter audio to timestamped text first"
-                                                                            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                                        >
-                                                                            <Mic2 size={15} className={isTranscribing ? 'animate-spin' : ''} />
-                                                                            <span>{isTranscribing ? 'Transcribing...' : '1. Transcribe'}</span>
-                                                                        </button>
-                                                                    )}
-
                                                                     <button
                                                                         onClick={() => handleRunChapterTask(chTrack, chIdx, 'detect_scenes')}
-                                                                        disabled={!isTranscribed || isIllProcessing}
+                                                                        disabled={!isTranscribed || isDetectingScenes}
                                                                         title={
                                                                             !isTranscribed
-                                                                                ? 'Requires Stage 1 (Timestamped Transcript) before LLM can detect scene transitions'
-                                                                                : 'Stage 2: Feed timestamped transcript to LLM in 3-minute windows to create scenes with transition timestamps'
+                                                                                ? 'Requires Stage 1 (Transcription) before detecting scenes'
+                                                                                : 'Feed transcript to LLM to create scenes with transition timestamps'
                                                                         }
                                                                         className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-purple-200 border border-purple-500/50 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
                                                                     >
-                                                                        <Wand2 size={15} className={runningChapterTaskKey === `${chapterKey}::detect_scenes` ? 'animate-spin text-purple-400' : 'text-purple-400'} />
-                                                                        <span>{detectedScenes.length > 0 ? '2. Redetect' : '2. Scenes'}</span>
-                                                                    </button>
-
-                                                                    <button
-                                                                        onClick={() => handleRunChapterTask(chTrack, chIdx, 'paint_scenes')}
-                                                                        disabled={detectedScenes.length === 0 || isIllProcessing}
-                                                                        title={
-                                                                            detectedScenes.length === 0
-                                                                                ? 'Requires Stage 2 (Detected Scenes with timestamps) before painting images'
-                                                                                : 'Stage 3: Paint images for all detected scenes in this chapter'
-                                                                        }
-                                                                        className="px-3.5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
-                                                                    >
-                                                                        <Sparkles size={15} className={isPaintingScenes ? 'animate-spin' : ''} />
-                                                                        <span>3. Paint</span>
+                                                                        <Wand2 size={15} className={isDetectingScenes ? 'animate-spin text-purple-400' : 'text-purple-400'} />
+                                                                        <span>{detectedScenes.length > 0 ? 'Redetect' : 'Detect Scenes'}</span>
                                                                     </button>
 
                                                                     <button
@@ -4845,13 +4984,9 @@ export function AudiobooksMediaManager() {
                                                                                 artType: 'scene'
                                                                             });
                                                                         }}
-                                                                        disabled={!isTranscribed || isIllProcessing || isTranscribing}
-                                                                        title={
-                                                                            !isTranscribed
-                                                                                ? 'Requires Stage 1 (Transcribe Audio) before adding scenes'
-                                                                                : 'Manually add a custom scene window to this chapter'
-                                                                        }
-                                                                        className="px-3 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-xs font-black uppercase flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                                                        disabled={!isTranscribed}
+                                                                        title="Manually add a custom scene window to this chapter"
+                                                                        className="px-3 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-xs font-black uppercase flex items-center gap-1 cursor-pointer disabled:opacity-40"
                                                                     >
                                                                         <Plus size={14} />
                                                                         <span>Scene</span>
@@ -4873,72 +5008,21 @@ export function AudiobooksMediaManager() {
                                                                 </div>
                                                             </div>
 
-                                                            {/* Expanded Chapter Content: Either Sequential Pipeline Status (when 0 scenes) or Real Detected Scenes Grid */}
                                                             {isExpanded && (
-                                                                <div className="p-5 border-t border-zinc-800/80">
+                                                                <div className="p-5 border-t border-zinc-800/80 space-y-4">
                                                                     {detectedScenes.length === 0 ? (
-                                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                                                                            {/* Step 1 Card */}
-                                                                            <div className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 ${isTranscribed ? 'bg-amber-500/10 border-amber-500/40' : 'bg-zinc-950 border-zinc-800'}`}>
-                                                                                <div className="flex items-center justify-between">
-                                                                                    <span className="text-xs font-black uppercase tracking-wider text-amber-300">
-                                                                                        Stage 1 • Audio → Text
-                                                                                    </span>
-                                                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${isTranscribed ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}>
-                                                                                        {isTranscribed ? `${transcriptLinesCount} Timestamped Lines` : 'Pending'}
-                                                                                    </span>
-                                                                                </div>
-                                                                                <button
-                                                                                    onClick={() => handleRunChapterTask(chTrack, chIdx, 'transcribe')}
-                                                                                    disabled={isTranscribing}
-                                                                                    title="Extract verbatim text with [MM:SS] timestamps from chapter audio"
-                                                                                    className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                                                                                >
-                                                                                    <Mic2 size={16} className={isTranscribing ? 'animate-spin' : ''} />
-                                                                                    <span>{isTranscribing ? 'Transcribing...' : isTranscribed ? 'Redo Transcript' : '1. Transcribe Audio'}</span>
-                                                                                </button>
-                                                                            </div>
-
-                                                                            {/* Step 2 Card */}
-                                                                            <div className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 ${isTranscribed ? 'bg-purple-500/10 border-purple-500/40' : 'bg-zinc-950/60 border-zinc-800/60 opacity-60'}`}>
-                                                                                <div className="flex items-center justify-between">
-                                                                                    <span className="text-xs font-black uppercase tracking-wider text-purple-300">
-                                                                                        Stage 2 • Text → Scenes (LLM)
-                                                                                    </span>
-                                                                                    <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-xs font-bold">
-                                                                                        {isTranscribed ? 'Ready' : 'Needs Stage 1'}
-                                                                                    </span>
-                                                                                </div>
-                                                                                <button
-                                                                                    onClick={() => handleRunChapterTask(chTrack, chIdx, 'detect_scenes')}
-                                                                                    disabled={!isTranscribed || isIllProcessing}
-                                                                                    title="Feed timestamped transcript to LLM to identify scene transition timestamps, characters, and prompts"
-                                                                                    className="w-full py-2.5 px-4 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
-                                                                                >
-                                                                                    <Wand2 size={16} className={runningChapterTaskKey === `${chapterKey}::detect_scenes` ? 'animate-spin' : ''} />
-                                                                                    <span>{runningChapterTaskKey === `${chapterKey}::detect_scenes` ? 'Detecting Scenes...' : '2. Detect Scenes (LLM)'}</span>
-                                                                                </button>
-                                                                            </div>
-
-                                                                            {/* Step 3 Card */}
-                                                                            <div className="p-4 rounded-2xl border bg-zinc-950/60 border-zinc-800/60 opacity-60 flex flex-col justify-between gap-3">
-                                                                                <div className="flex items-center justify-between">
-                                                                                    <span className="text-xs font-black uppercase tracking-wider text-emerald-300">
-                                                                                        Stage 3 • Scenes → Art (API)
-                                                                                    </span>
-                                                                                    <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-xs font-bold">
-                                                                                        Needs Stage 2
-                                                                                    </span>
-                                                                                </div>
-                                                                                <button
-                                                                                    disabled
-                                                                                    title="Requires Stage 2 (LLM Scene Detection) first"
-                                                                                    className="w-full py-2.5 px-4 rounded-xl bg-zinc-800 text-zinc-400 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
-                                                                                >
-                                                                                    <Sparkles size={16} />
-                                                                                    <span>3. Paint Scenes</span>
-                                                                                </button>
-                                                                            </div>
+                                                                        <div className="py-8 text-center space-y-3">
+                                                                            <p className="text-sm font-bold text-zinc-400">
+                                                                                {isTranscribed ? 'Transcript is ready. Run Scene Detection to create scene windows.' : 'Complete Stage 1 (Transcription) before detecting scenes.'}
+                                                                            </p>
+                                                                            <button
+                                                                                onClick={() => handleRunChapterTask(chTrack, chIdx, 'detect_scenes')}
+                                                                                disabled={!isTranscribed || isDetectingScenes}
+                                                                                className="px-6 py-3.5 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-sm uppercase tracking-wider inline-flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-40"
+                                                                            >
+                                                                                <Wand2 size={18} className={isDetectingScenes ? 'animate-spin' : ''} />
+                                                                                <span>{isDetectingScenes ? 'Detecting Scenes...' : 'Detect Chapter Scenes'}</span>
+                                                                            </button>
                                                                         </div>
                                                                     ) : (
                                                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -4949,134 +5033,65 @@ export function AudiobooksMediaManager() {
                                                                                 const promptVal = scenePromptDrafts[draftKey] !== undefined
                                                                                     ? scenePromptDrafts[draftKey]
                                                                                     : (existingImg?.prompt || '');
-                                                                                const isSceneBusy = repaintingSceneKey === draftKey;
                                                                                 const sceneCharacters: string[] = Array.isArray(existingImg?.characters) ? existingImg.characters : [];
 
                                                                                 return (
                                                                                     <div
-                                                                                        key={existingImg?.id || `slot-${sIdx}`}
-                                                                                        className="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between"
+                                                                                        key={existingImg?.id || `scene-${sIdx}`}
+                                                                                        className="rounded-2xl bg-zinc-950 border border-zinc-800 p-4 flex flex-col justify-between gap-3"
                                                                                     >
-                                                                                        {/* 16:9 Scene Artwork or Stage 3 Paint Button */}
-                                                                                        <div className="aspect-video bg-zinc-900 relative flex items-center justify-center overflow-hidden border-b border-zinc-800">
-                                                                                            {existingImg?.url ? (
-                                                                                                <img
-                                                                                                    src={existingImg.url}
-                                                                                                    alt={existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
-                                                                                                    className="w-full h-full object-cover"
-                                                                                                />
-                                                                                            ) : (
-                                                                                                <button
-                                                                                                    onClick={() =>
-                                                                                                        handleRepaintSingleScene(chTrack, chIdx, {
-                                                                                                            imageId: existingImg?.id,
-                                                                                                            sceneIndex: sIdx,
-                                                                                                            customPrompt: promptVal.trim() || undefined,
-                                                                                                            sceneTitle: existingImg?.sceneTitle || `Scene ${sIdx + 1}`,
-                                                                                                            startSec,
-                                                                                                            endSec,
-                                                                                                            artType: sIdx === 0 ? 'chapter_header' : 'scene'
-                                                                                                        })
-                                                                                                    }
-                                                                                                    disabled={isSceneBusy}
-                                                                                                    title="Stage 3: Paint this LLM-detected scene using Image API"
-                                                                                                    className="px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50"
-                                                                                                >
-                                                                                                    <Sparkles size={16} className={isSceneBusy ? 'animate-spin' : ''} />
-                                                                                                    <span>{isSceneBusy ? 'Painting...' : '3. Paint Scene'}</span>
-                                                                                                </button>
-                                                                                            )}
-
-                                                                                            <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg bg-black/85 text-white text-xs font-black max-w-[62%] truncate">
+                                                                                        <div className="flex items-center justify-between gap-2">
+                                                                                            <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-200 text-xs font-black">
                                                                                                 {existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
-                                                                                            </div>
-                                                                                            <div className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/85 text-amber-300 text-xs font-mono font-bold">
+                                                                                            </span>
+                                                                                            <span className="px-2.5 py-1 rounded-lg bg-zinc-900 text-amber-300 font-mono text-xs font-bold border border-zinc-800">
                                                                                                 {formatMMSS(startSec)} – {formatMMSS(endSec)}
-                                                                                            </div>
+                                                                                            </span>
                                                                                         </div>
 
-                                                                                        {/* Scene Transition Metadata, Characters, Prompt & Individual Controls */}
-                                                                                        <div className="p-3.5 space-y-2.5">
-                                                                                            {(existingImg?.transitionReason || sceneCharacters.length > 0) && (
-                                                                                                <div className="space-y-1.5">
-                                                                                                    {existingImg?.transitionReason && (
-                                                                                                        <p className="text-xs font-bold text-purple-300 leading-snug line-clamp-2">
-                                                                                                            {existingImg.transitionReason}
-                                                                                                        </p>
-                                                                                                    )}
-                                                                                                    {sceneCharacters.length > 0 && (
-                                                                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                                                                            {sceneCharacters.map((charName: string, cIdx: number) => (
-                                                                                                                <span
-                                                                                                                    key={cIdx}
-                                                                                                                    className="px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-purple-200 text-[11px] font-bold"
-                                                                                                                >
-                                                                                                                    {charName}
-                                                                                                                </span>
-                                                                                                            ))}
-                                                                                                        </div>
-                                                                                                    )}
-                                                                                                </div>
-                                                                                            )}
-
-                                                                                            <textarea
-                                                                                                rows={3}
-                                                                                                value={promptVal}
-                                                                                                onChange={e => setScenePromptDrafts(prev => ({ ...prev, [draftKey]: e.target.value }))}
-                                                                                                placeholder={`Scene ${sIdx + 1} character & action prompt...`}
-                                                                                                className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs sm:text-sm text-zinc-200 focus:outline-none focus:border-purple-500 resize-none"
-                                                                                            />
-
-                                                                                            <div className="flex items-center justify-between gap-2">
-                                                                                                <button
-                                                                                                    onClick={() =>
-                                                                                                        handleRepaintSingleScene(chTrack, chIdx, {
-                                                                                                            imageId: existingImg?.id,
-                                                                                                            sceneIndex: sIdx,
-                                                                                                            customPrompt: promptVal.trim() || undefined,
-                                                                                                            sceneTitle: existingImg?.sceneTitle || `Scene ${sIdx + 1}`,
-                                                                                                            startSec,
-                                                                                                            endSec,
-                                                                                                            artType: sIdx === 0 ? 'chapter_header' : 'scene'
-                                                                                                        })
-                                                                                                    }
-                                                                                                    disabled={isSceneBusy}
-                                                                                                    title="Paint or regenerate this scene illustration"
-                                                                                                    className="flex-1 py-2 px-3 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/40 text-xs font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                                                                >
-                                                                                                    <RefreshCw size={14} className={isSceneBusy ? 'animate-spin' : ''} />
-                                                                                                    <span>{existingImg?.url ? 'Regen' : 'Paint'}</span>
-                                                                                                </button>
-
-                                                                                                <button
-                                                                                                    onClick={() =>
-                                                                                                        handleRepaintSingleScene(chTrack, chIdx, {
-                                                                                                            sceneIndex: detectedScenes.length,
-                                                                                                            customPrompt: promptVal.trim() || undefined,
-                                                                                                            sceneTitle: `${existingImg?.sceneTitle || `Scene ${sIdx + 1}`} (Alt)`,
-                                                                                                            startSec,
-                                                                                                            endSec,
-                                                                                                            artType: 'scene'
-                                                                                                        })
-                                                                                                    }
-                                                                                                    disabled={isSceneBusy}
-                                                                                                    title="Generate an alternative version for this scene"
-                                                                                                    className="py-2 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-black uppercase flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                                                                                >
-                                                                                                    <Plus size={14} />
-                                                                                                    <span>Alt</span>
-                                                                                                </button>
-
-                                                                                                {existingImg?.id && (
-                                                                                                    <button
-                                                                                                        onClick={() => handleCurateSceneImage(chapterKey, existingImg.id, 'delete')}
-                                                                                                        title="Delete this scene"
-                                                                                                        className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
-                                                                                                    >
-                                                                                                        <Trash2 size={15} />
-                                                                                                    </button>
+                                                                                        {(existingImg?.transitionReason || sceneCharacters.length > 0) && (
+                                                                                            <div className="space-y-1.5">
+                                                                                                {existingImg?.transitionReason && (
+                                                                                                    <p className="text-xs font-bold text-purple-300 leading-snug line-clamp-2">
+                                                                                                        {existingImg.transitionReason}
+                                                                                                    </p>
+                                                                                                )}
+                                                                                                {sceneCharacters.length > 0 && (
+                                                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                                        {sceneCharacters.map((charName: string, cIdx: number) => (
+                                                                                                            <span
+                                                                                                                key={cIdx}
+                                                                                                                className="px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-purple-200 text-[11px] font-bold"
+                                                                                                            >
+                                                                                                                {charName}
+                                                                                                            </span>
+                                                                                                        ))}
+                                                                                                    </div>
                                                                                                 )}
                                                                                             </div>
+                                                                                        )}
+
+                                                                                        <textarea
+                                                                                            rows={3}
+                                                                                            value={promptVal}
+                                                                                            onChange={e => setScenePromptDrafts(prev => ({ ...prev, [draftKey]: e.target.value }))}
+                                                                                            placeholder={`Scene ${sIdx + 1} character & action prompt...`}
+                                                                                            className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs sm:text-sm text-zinc-200 focus:outline-none focus:border-purple-500 resize-none"
+                                                                                        />
+
+                                                                                        <div className="flex items-center justify-between gap-2 pt-1">
+                                                                                            <span className="text-xs font-mono text-zinc-500">
+                                                                                                Window: {Math.max(1, Math.round(endSec - startSec))}s
+                                                                                            </span>
+                                                                                            {existingImg?.id && (
+                                                                                                <button
+                                                                                                    onClick={() => handleCurateSceneImage(chapterKey, existingImg.id, 'delete')}
+                                                                                                    title="Delete this scene window"
+                                                                                                    className="p-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
+                                                                                                >
+                                                                                                    <Trash2 size={14} />
+                                                                                                </button>
+                                                                                            )}
                                                                                         </div>
                                                                                     </div>
                                                                                 );
@@ -5093,464 +5108,516 @@ export function AudiobooksMediaManager() {
                                     )}
 
                                     {/* ═══════════════════════════════════════════════════════════
-                                        SUBTAB 2: TRANSCRIPTION
-                                        1. PROMINENT TOP MENU: Gen Options (Engine/Style & Mode) + AUTO GEN SCENES + GEN ALL
-                                        2. BELOW: Chapters & Synced Lines division with Regen / Delete (Zero manual typing)
+                                        TAB 3: ILLUSTRATION + VOICE (THIRD, PAINTS SCENES & BOOK COVER + GENERATES VOICE)
                                        ═══════════════════════════════════════════════════════════ */}
-                                    {aiSubTab === 'transcription' && (
-                                        <div className="space-y-6">
-                                            {/* ── TOP PROMINENT CREATION MENU ── */}
-                                            <div className="p-6 rounded-3xl bg-gradient-to-br from-amber-950/40 via-zinc-900 to-zinc-950 border-2 border-amber-500/50 shadow-2xl space-y-5">
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                    <div>
-                                                        <label className="block text-xs font-black text-amber-300 uppercase tracking-wider mb-1.5">
-                                                            Engine / Style
-                                                        </label>
-                                                        <select
-                                                            value={editSttEngine}
-                                                            onChange={e => setEditSttEngine(e.target.value)}
-                                                            className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-amber-500/40 text-base font-bold text-white cursor-pointer"
-                                                        >
-                                                            <option value="gemini_audio">Gemini Audio + Whisper Local (Synced Karaoke)</option>
-                                                            <option value="whisper_tiny_local">Whisper Local C++ (Offline)</option>
-                                                            <option value="openai_whisper">OpenAI / Groq Whisper</option>
-                                                        </select>
-                                                    </div>
-
-                                                    <div>
-                                                        <label className="block text-xs font-black text-amber-300 uppercase tracking-wider mb-1.5">
-                                                            Segmentation / Alternatives
-                                                        </label>
-                                                        <select
-                                                            value={editTranscriptAlternatives}
-                                                            onChange={e => setEditTranscriptAlternatives(e.target.value)}
-                                                            className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-amber-500/40 text-base font-bold text-white cursor-pointer"
-                                                        >
-                                                            <option value="synced_lines">Live Karaoke Timestamped Lines</option>
-                                                            <option value="scene_aligned">Scene-Aligned Paragraphs</option>
-                                                            <option value="detailed">High-Density Timestamps</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-
-                                                {/* HUGE PRIMARY ACTION BUTTONS: AUTO GEN SCENES + GEN ALL */}
-                                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
-                                                    <button
-                                                        onClick={handleAutoGenScenes}
-                                                        disabled={(currentModalBook.transCh || 0) === 0 || runningStudioAction !== null}
-                                                        title={
-                                                            (currentModalBook.transCh || 0) === 0
-                                                                ? 'Requires Stage 1 (Transcribe Audio) before LLM can detect scenes'
-                                                                : 'Detect chapter & scene time windows from transcript'
-                                                        }
-                                                        className="sm:col-span-5 py-4 px-6 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-amber-200 border-2 border-amber-500/50 font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-lg cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                                    >
-                                                        <Wand2 size={22} className="text-amber-400" />
-                                                        <span>Auto Gen Scenes</span>
-                                                    </button>
-
-                                                    <button
-                                                        onClick={() => handleGenAllForSubTab('transcription')}
-                                                        disabled={runningStudioAction !== null}
-                                                        title="Transcribe all chapters in this book"
-                                                        className="sm:col-span-5 py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-xl shadow-amber-500/30 cursor-pointer disabled:opacity-50"
-                                                    >
-                                                        <Sparkles size={22} className={runningStudioAction === 'gen_all_transcription' ? 'animate-spin' : ''} />
-                                                        <span>Gen All</span>
-                                                    </button>
-
-                                                    <button
-                                                        onClick={() => handleResetAssets('transcripts', undefined, false)}
-                                                        disabled={runningStudioAction !== null}
-                                                        title="Delete all transcripts for this book"
-                                                        className="sm:col-span-2 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                                                    >
-                                                        <Trash2 size={18} />
-                                                        <span>Delete All</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* ── BELOW: CHAPTERS & SYNCED TRANSCRIPT LINES DIVISION ── */}
-                                            <div className="space-y-4">
-                                                <div className="flex items-center justify-between gap-3 px-2">
-                                                    <span className="text-sm font-black text-zinc-300 uppercase tracking-wider">
-                                                        Chapters ({currentModalBook.chapters.length})
-                                                    </span>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => {
-                                                                const allOpen: Record<number, boolean> = {};
-                                                                currentModalBook.chapters.forEach((_: any, i: number) => {
-                                                                    allOpen[i] = true;
-                                                                });
-                                                                setExpandedChapterIndices(allOpen);
-                                                            }}
-                                                            title="Expand and view the full transcript across all chapters of this book"
-                                                            className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer"
-                                                        >
-                                                            <FileText size={16} />
-                                                            <span>Full Transcript</span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setExpandedChapterIndices({})}
-                                                            title="Collapse all chapter transcripts"
-                                                            className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-black text-xs uppercase tracking-wider cursor-pointer"
-                                                        >
-                                                            Collapse
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {currentModalBook.chapters.map((chTrack: any, chIdx: number) => {
-                                                    const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
-                                                    const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${chIdx + 1}`;
-                                                    const durSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : (chMeta.duration_sec || 300);
-                                                    const rawLyrics: string = chMeta.synced_lyrics || '';
-                                                    const lines = rawLyrics.split('\n').map((l: string) => l.trim()).filter(Boolean);
-                                                    const isExpanded = Boolean(expandedChapterIndices[chIdx]);
-                                                    const isTranscribing = chMeta.transcription_status === 'processing' || runningChapterTaskKey === `${chapterKey}::transcribe`;
-                                                    const transProgress = Number(chMeta.transcription_progress || 0);
-                                                    const transcribedSec = Number(chMeta.transcribed_seconds || 0);
-
-                                                    return (
-                                                        <div key={chapterKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
-                                                            <div
-                                                                onClick={() => setExpandedChapterIndices(prev => ({ ...prev, [chIdx]: !prev[chIdx] }))}
-                                                                className="p-4 sm:p-5 bg-zinc-900/90 hover:bg-zinc-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
+                                    {aiSubTab === 'illustration' && (
+                                        <div className="space-y-8">
+                                            {/* ── PART 1: ILLUSTRATION SECTION ── */}
+                                            <div className="space-y-6">
+                                                {/* Top Artwork Bar */}
+                                                <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-950 border-2 border-emerald-500/50 shadow-2xl space-y-5">
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="block text-xs font-black text-emerald-300 uppercase tracking-wider mb-1.5">
+                                                                Art Style
+                                                            </label>
+                                                            <select
+                                                                value={editArtStyle}
+                                                                onChange={e => setEditArtStyle(e.target.value)}
+                                                                className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-base font-bold text-white cursor-pointer"
                                                             >
-                                                                <div className="flex items-center gap-3.5 min-w-0">
-                                                                    <span className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-sm font-black flex items-center justify-center shrink-0">
-                                                                        {chIdx + 1}
-                                                                    </span>
-                                                                    <div className="min-w-0">
-                                                                        <h5 className="text-base sm:text-lg font-black text-white truncate">
-                                                                            {chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`}
-                                                                        </h5>
-                                                                        <div className="flex items-center gap-2.5 text-xs font-bold text-zinc-400 flex-wrap">
-                                                                            <span className="font-mono">{formatMMSS(durSec)}</span>
-                                                                            <span>•</span>
-                                                                            <span className={lines.length > 0 ? 'text-amber-300 font-black' : 'text-zinc-500'}>
-                                                                                {lines.length > 0 ? `${lines.length} Synced Lines` : 'Not Transcribed'}
-                                                                            </span>
-                                                                            {isTranscribing && (
-                                                                                <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-200 font-mono font-black animate-pulse">
-                                                                                    Transcribing {transProgress > 0 ? `${transProgress}%` : '...'}
-                                                                                    {transcribedSec > 0 ? ` (${formatMMSS(transcribedSec)} / ${formatMMSS(durSec)})` : ''}
+                                                                <option value="Cinematic Concept Art">Cinematic Concept Art</option>
+                                                                <option value="Oil Painting">Classic Oil Painting</option>
+                                                                <option value="Dark Fantasy">Dark Atmospheric Painting</option>
+                                                                <option value="Watercolor">Storybook Watercolor</option>
+                                                                <option value="Graphic Novel">Graphic Novel Ink</option>
+                                                                <option value="Anime">Anime Masterpiece</option>
+                                                                <option value="Vintage Book Plate">Vintage Book Engraving</option>
+                                                                <option value="Photorealistic">Photorealistic Film Still</option>
+                                                            </select>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="block text-xs font-black text-emerald-300 uppercase tracking-wider mb-1.5">
+                                                                Alternatives / Scene
+                                                            </label>
+                                                            <select
+                                                                value={editNumAlternatives}
+                                                                onChange={e => setEditNumAlternatives(Number(e.target.value))}
+                                                                className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-base font-bold text-white cursor-pointer"
+                                                            >
+                                                                <option value={1}>1 Image</option>
+                                                                <option value={2}>2 Alternatives</option>
+                                                                <option value={3}>3 Alternatives</option>
+                                                                <option value={4}>4 Alternatives</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+                                                        <button
+                                                            onClick={handlePaintAllScenes}
+                                                            disabled={(currentModalBook.detectedScenesCount || 0) === 0 || runningStudioAction !== null}
+                                                            title={
+                                                                (currentModalBook.detectedScenesCount || 0) === 0
+                                                                    ? 'Requires Stage 2 (Scening) first before painting artwork'
+                                                                    : 'Paint artwork for all LLM-detected scenes using Image API'
+                                                            }
+                                                            className="sm:col-span-9 py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-xl shadow-emerald-500/30 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                                        >
+                                                            <Sparkles size={22} className={runningStudioAction === 'paint_all_scenes' ? 'animate-spin' : ''} />
+                                                            <span>Paint All Scenes</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => handleCleanGeneratedData('images', `Images for "${currentModalBook.title}"`, currentModalBook.bookKey)}
+                                                            disabled={runningStudioAction !== null}
+                                                            title="Delete all generated scene images for this book"
+                                                            className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                            <span>Delete Images</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* ── BOOK COVER ILLUSTRATION CARD ── */}
+                                                <div className="p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-20 h-28 rounded-xl bg-zinc-950 border border-zinc-800 overflow-hidden flex items-center justify-center shrink-0">
+                                                            {(currentModalBook.customCoverUrl || currentModalBook.posterUrl) ? (
+                                                                <img src={currentModalBook.customCoverUrl || currentModalBook.posterUrl} alt="Cover" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <BookOpen size={24} className="text-zinc-600" />
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            <h5 className="text-lg font-black text-white">Book Cover</h5>
+                                                            <p className="text-sm font-bold text-zinc-400">
+                                                                {currentModalBook.meta?.use_custom_cover ? 'Active: AI Cover' : 'Active: Standard Cover'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                                        <button
+                                                            onClick={() => handleToggleCustomBookCover(true)}
+                                                            disabled={runningStudioAction === 'cover'}
+                                                            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm uppercase flex items-center gap-2 cursor-pointer"
+                                                        >
+                                                            <Sparkles size={16} />
+                                                            <span>{currentModalBook.customCoverUrl ? 'Regen Cover' : 'Gen Cover'}</span>
+                                                        </button>
+                                                        {currentModalBook.customCoverUrl && (
+                                                            <button
+                                                                onClick={() => handleToggleCustomBookCover(false)}
+                                                                className="px-4 py-2.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 font-bold text-sm cursor-pointer"
+                                                            >
+                                                                {currentModalBook.meta?.use_custom_cover ? 'Use Original' : 'Use AI Cover'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* ── CHAPTERS & PAINTED SCENES GRID ── */}
+                                                <div className="space-y-4">
+                                                    {currentModalBook.chapters.map((chTrack: any, chIdx: number) => {
+                                                        const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
+                                                        const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${chIdx + 1}`;
+                                                        const durSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : (chMeta.duration_sec || 300);
+
+                                                        const detectedScenes: any[] = (chMeta.images || []).filter(
+                                                            (i: any) => i && i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg')
+                                                        );
+                                                        const paintedScenesCount = detectedScenes.filter((i: any) => Boolean(i.url)).length;
+                                                        const isExpanded = Boolean(expandedChapterIndices[chIdx]);
+                                                        const isPaintingScenes = runningChapterTaskKey === `${chapterKey}::paint_scenes`;
+
+                                                        return (
+                                                            <div key={chapterKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
+                                                                <div
+                                                                    onClick={() => setExpandedChapterIndices(prev => ({ ...prev, [chIdx]: !prev[chIdx] }))}
+                                                                    className="p-4 sm:p-5 bg-zinc-900/90 hover:bg-zinc-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
+                                                                >
+                                                                    <div className="flex items-center gap-3.5 min-w-0">
+                                                                        <span className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-sm font-black flex items-center justify-center shrink-0">
+                                                                            {chIdx + 1}
+                                                                        </span>
+                                                                        <div className="min-w-0">
+                                                                            <h5 className="text-base sm:text-lg font-black text-white truncate">
+                                                                                {chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`}
+                                                                            </h5>
+                                                                            <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 flex-wrap mt-0.5">
+                                                                                <span className="font-mono">{formatMMSS(durSec)}</span>
+                                                                                <span>•</span>
+                                                                                <span className={paintedScenesCount > 0 ? 'text-emerald-300 font-black' : 'text-zinc-500'}>
+                                                                                    {paintedScenesCount}/{detectedScenes.length} Painted
                                                                                 </span>
-                                                                            )}
-                                                                            {chMeta.transcription_status === 'failed' && chMeta.error_message && (
-                                                                                <span className="px-2.5 py-0.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 font-bold">
-                                                                                    {chMeta.error_message}
-                                                                                </span>
-                                                                            )}
+                                                                            </div>
                                                                         </div>
+                                                                    </div>
+
+                                                                    <div className="flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+                                                                        <button
+                                                                            onClick={() => handleRunChapterTask(chTrack, chIdx, 'paint_scenes')}
+                                                                            disabled={detectedScenes.length === 0 || isPaintingScenes}
+                                                                            title={
+                                                                                detectedScenes.length === 0
+                                                                                    ? 'Requires Stage 2 (Scening) first'
+                                                                                    : 'Paint images for all detected scenes in this chapter'
+                                                                            }
+                                                                            className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                                                                        >
+                                                                            <Sparkles size={15} className={isPaintingScenes ? 'animate-spin' : ''} />
+                                                                            <span>{isPaintingScenes ? 'Painting...' : 'Paint Scenes'}</span>
+                                                                        </button>
+
+                                                                        <span className="p-1.5 text-zinc-400">
+                                                                            {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                                                                        </span>
                                                                     </div>
                                                                 </div>
 
-                                                                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                                                    <button
-                                                                        onClick={() => handleRunChapterTask(chTrack, chIdx, 'transcribe')}
-                                                                        disabled={isTranscribing}
-                                                                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                                    >
-                                                                        <RefreshCw size={15} className={isTranscribing ? 'animate-spin' : ''} />
-                                                                        <span>{isTranscribing ? 'Working...' : lines.length > 0 ? 'Regen' : 'Gen'}</span>
-                                                                    </button>
+                                                                {isExpanded && (
+                                                                    <div className="p-5 border-t border-zinc-800/80">
+                                                                        {detectedScenes.length === 0 ? (
+                                                                            <div className="py-8 text-center text-sm font-bold text-zinc-500">
+                                                                                No scenes detected yet for this chapter. Open the Scening tab to detect scenes first.
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                                                {detectedScenes.map((existingImg: any, sIdx: number) => {
+                                                                                    const startSec = existingImg?.startSec ?? existingImg?.timestampSec ?? (sIdx * 180);
+                                                                                    const endSec = existingImg?.endSec ?? existingImg?.endTimestampSec ?? Math.min(durSec, startSec + 180);
+                                                                                    const draftKey = `${chapterKey}::s${sIdx}`;
+                                                                                    const promptVal = scenePromptDrafts[draftKey] !== undefined
+                                                                                        ? scenePromptDrafts[draftKey]
+                                                                                        : (existingImg?.prompt || '');
+                                                                                    const isSceneBusy = repaintingSceneKey === draftKey;
 
-                                                                    {lines.length > 0 && (
-                                                                        <button
-                                                                            onClick={() => handleResetAssets('transcripts', chapterKey, false)}
-                                                                            title="Delete transcript for this chapter"
-                                                                            className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
-                                                                        >
-                                                                            <Trash2 size={16} />
-                                                                        </button>
-                                                                    )}
+                                                                                    return (
+                                                                                        <div
+                                                                                            key={existingImg?.id || `slot-${sIdx}`}
+                                                                                            className="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between"
+                                                                                        >
+                                                                                            <div className="aspect-video bg-zinc-900 relative flex items-center justify-center overflow-hidden border-b border-zinc-800">
+                                                                                                {existingImg?.url ? (
+                                                                                                    <img
+                                                                                                        src={existingImg.url}
+                                                                                                        alt={existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
+                                                                                                        className="w-full h-full object-cover"
+                                                                                                    />
+                                                                                                ) : (
+                                                                                                    <button
+                                                                                                        onClick={() =>
+                                                                                                            handleRepaintSingleScene(chTrack, chIdx, {
+                                                                                                                imageId: existingImg?.id,
+                                                                                                                sceneIndex: sIdx,
+                                                                                                                customPrompt: promptVal.trim() || undefined,
+                                                                                                                sceneTitle: existingImg?.sceneTitle || `Scene ${sIdx + 1}`,
+                                                                                                                startSec,
+                                                                                                                endSec,
+                                                                                                                artType: sIdx === 0 ? 'chapter_header' : 'scene'
+                                                                                                            })
+                                                                                                        }
+                                                                                                        disabled={isSceneBusy}
+                                                                                                        title="Paint this scene illustration"
+                                                                                                        className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50"
+                                                                                                    >
+                                                                                                        <Sparkles size={16} className={isSceneBusy ? 'animate-spin' : ''} />
+                                                                                                        <span>{isSceneBusy ? 'Painting...' : 'Paint Scene'}</span>
+                                                                                                    </button>
+                                                                                                )}
 
-                                                                    <span className="p-1.5 text-zinc-400">
-                                                                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                                                                    </span>
-                                                                </div>
+                                                                                                <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg bg-black/85 text-white text-xs font-black max-w-[62%] truncate">
+                                                                                                    {existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
+                                                                                                </div>
+                                                                                                <div className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/85 text-amber-300 text-xs font-mono font-bold">
+                                                                                                    {formatMMSS(startSec)} – {formatMMSS(endSec)}
+                                                                                                </div>
+                                                                                            </div>
+
+                                                                                            <div className="p-3.5 space-y-2.5">
+                                                                                                <p className="text-xs text-zinc-300 line-clamp-2">
+                                                                                                    {promptVal || 'Automatic scene prompt'}
+                                                                                                </p>
+
+                                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                                    <button
+                                                                                                        onClick={() =>
+                                                                                                            handleRepaintSingleScene(chTrack, chIdx, {
+                                                                                                                imageId: existingImg?.id,
+                                                                                                                sceneIndex: sIdx,
+                                                                                                                customPrompt: promptVal.trim() || undefined,
+                                                                                                                sceneTitle: existingImg?.sceneTitle || `Scene ${sIdx + 1}`,
+                                                                                                                startSec,
+                                                                                                                endSec,
+                                                                                                                artType: sIdx === 0 ? 'chapter_header' : 'scene'
+                                                                                                            })
+                                                                                                        }
+                                                                                                        disabled={isSceneBusy}
+                                                                                                        title="Paint or regenerate this scene illustration"
+                                                                                                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/40 text-xs font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                                                    >
+                                                                                                        <RefreshCw size={14} className={isSceneBusy ? 'animate-spin' : ''} />
+                                                                                                        <span>{existingImg?.url ? 'Regen' : 'Paint'}</span>
+                                                                                                    </button>
+
+                                                                                                    <button
+                                                                                                        onClick={() =>
+                                                                                                            handleRepaintSingleScene(chTrack, chIdx, {
+                                                                                                                sceneIndex: detectedScenes.length,
+                                                                                                                customPrompt: promptVal.trim() || undefined,
+                                                                                                                sceneTitle: `${existingImg?.sceneTitle || `Scene ${sIdx + 1}`} (Alt)`,
+                                                                                                                startSec,
+                                                                                                                endSec,
+                                                                                                                artType: 'scene'
+                                                                                                            })
+                                                                                                        }
+                                                                                                        disabled={isSceneBusy}
+                                                                                                        title="Generate an alternative version for this scene"
+                                                                                                        className="py-2 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-black uppercase flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                                                                                    >
+                                                                                                        <Plus size={14} />
+                                                                                                        <span>Alt</span>
+                                                                                                    </button>
+
+                                                                                                    {existingImg?.id && (
+                                                                                                        <button
+                                                                                                            onClick={() => handleCurateSceneImage(chapterKey, existingImg.id, 'delete')}
+                                                                                                            title="Delete this scene"
+                                                                                                            className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
+                                                                                                        >
+                                                                                                            <Trash2 size={15} />
+                                                                                                        </button>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                             </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
 
-                                                            {isExpanded && (
-                                                                <div className="p-5 border-t border-zinc-800/80 space-y-3">
-                                                                    {isTranscribing && (
-                                                                        <div className="w-full bg-zinc-950 rounded-full h-2.5 overflow-hidden border border-zinc-800">
-                                                                            <div
-                                                                                className="bg-amber-400 h-full transition-all duration-500"
-                                                                                style={{ width: `${Math.max(4, Math.min(100, transProgress))}%` }}
-                                                                            />
+                                            {/* ── PART 2: VOICE GENERATION SECTION ── */}
+                                            <div className="pt-6 border-t-2 border-zinc-800 space-y-6">
+                                                {/* Top Voice Menu */}
+                                                <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-950 border-2 border-emerald-500/50 shadow-2xl space-y-5">
+                                                    <div className="flex items-center gap-3">
+                                                        <Headphones size={24} className="text-emerald-400" />
+                                                        <h4 className="text-xl font-black text-white uppercase tracking-wider">Voice Generation</h4>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="block text-xs font-black text-emerald-300 uppercase tracking-wider mb-1.5">
+                                                                Voice Style
+                                                            </label>
+                                                            <select
+                                                                value={editVoicePreset}
+                                                                onChange={e => setEditVoicePreset(e.target.value)}
+                                                                className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-base font-bold text-white cursor-pointer"
+                                                            >
+                                                                <option value="clear_voice">Clear Voice (Vocal Presence)</option>
+                                                                <option value="warm_bass">Warm Studio Narrator</option>
+                                                                <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
+                                                                <option value="crisp_treble">Crisp Articulation</option>
+                                                                <option value="bright_pitch">Brighter Voice (+6% Pitch)</option>
+                                                                <option value="night_compress">Night Leveler</option>
+                                                                <option value="original">Original Voice</option>
+                                                            </select>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="block text-xs font-black text-emerald-300 uppercase tracking-wider mb-1.5">
+                                                                Mastering / Alternatives
+                                                            </label>
+                                                            <select
+                                                                value={editEnhancePreset}
+                                                                onChange={e => setEditEnhancePreset(e.target.value)}
+                                                                className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-base font-bold text-white cursor-pointer"
+                                                            >
+                                                                <option value="denoise_clarity">Denoise &amp; Studio Clarity</option>
+                                                                <option value="crystal_voice">Crystal Broadcast</option>
+                                                                <option value="vintage_restore">Warm Tape Restoration</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+                                                        <button
+                                                            onClick={() => handleSaveBookStudioSettings(false)}
+                                                            disabled={runningStudioAction !== null}
+                                                            title="Apply selected Voice Style across the book"
+                                                            className="sm:col-span-5 py-4 px-6 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-emerald-200 border-2 border-emerald-500/50 font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-lg cursor-pointer disabled:opacity-50"
+                                                        >
+                                                            <Check size={22} className="text-emerald-400" />
+                                                            <span>Save Voice Style</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => handleGenAllForSubTab('voice')}
+                                                            disabled={runningStudioAction !== null}
+                                                            title="Generate enhanced voice tracks for all chapters"
+                                                            className="sm:col-span-5 py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-xl shadow-emerald-500/30 cursor-pointer disabled:opacity-50"
+                                                        >
+                                                            <Sparkles size={22} className={runningStudioAction === 'gen_all_voice' ? 'animate-spin' : ''} />
+                                                            <span>Gen All Voice</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => handleResetAssets('voices', undefined, false)}
+                                                            disabled={runningStudioAction !== null}
+                                                            title="Delete all enhanced voice tracks for this book"
+                                                            className="sm:col-span-2 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                            <span>Delete All</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Chapters & Voice Tracks */}
+                                                <div className="space-y-4">
+                                                    {currentModalBook.chapters.map((chTrack: any, chIdx: number) => {
+                                                        const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
+                                                        const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${chIdx + 1}`;
+                                                        const durSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : (chMeta.duration_sec || 300);
+                                                        const isEnhDone = chMeta.audio_enhance_status === 'completed' || Boolean(chMeta.enhanced_audio_path);
+                                                        const processedVoices: Record<string, string> = chMeta.processed_voices || {};
+                                                        const voiceEntries = Object.entries(processedVoices);
+                                                        const isExpanded = Boolean(expandedChapterIndices[chIdx]);
+                                                        const isBusy = runningChapterTaskKey === `${chapterKey}::enhance`;
+
+                                                        return (
+                                                            <div key={chapterKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
+                                                                <div
+                                                                    onClick={() => setExpandedChapterIndices(prev => ({ ...prev, [chIdx]: !prev[chIdx] }))}
+                                                                    className="p-4 sm:p-5 bg-zinc-900/90 hover:bg-zinc-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
+                                                                >
+                                                                    <div className="flex items-center gap-3.5 min-w-0">
+                                                                        <span className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-sm font-black flex items-center justify-center shrink-0">
+                                                                            {chIdx + 1}
+                                                                        </span>
+                                                                        <div className="min-w-0">
+                                                                            <h5 className="text-base sm:text-lg font-black text-white truncate">
+                                                                                {chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`}
+                                                                            </h5>
+                                                                            <div className="flex items-center gap-2.5 text-xs font-bold text-zinc-400">
+                                                                                <span className="font-mono">{formatMMSS(durSec)}</span>
+                                                                                <span>•</span>
+                                                                                <span className={isEnhDone ? 'text-emerald-300 font-black' : 'text-zinc-500'}>
+                                                                                    {isEnhDone ? `Enhanced (${chMeta.voice_preset || editVoicePreset})` : 'Original Audio'}
+                                                                                </span>
+                                                                            </div>
                                                                         </div>
-                                                                    )}
+                                                                    </div>
 
-                                                                    {lines.length === 0 ? (
-                                                                        <div className="py-8 text-center">
+                                                                    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                                                        <button
+                                                                            onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance')}
+                                                                            disabled={isBusy}
+                                                                            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                        >
+                                                                            <RefreshCw size={15} className={isBusy ? 'animate-spin' : ''} />
+                                                                            <span>{isEnhDone ? 'Regen' : 'Gen'}</span>
+                                                                        </button>
+
+                                                                        {isEnhDone && (
                                                                             <button
-                                                                                onClick={() => handleRunChapterTask(chTrack, chIdx, 'transcribe')}
-                                                                                disabled={isTranscribing}
-                                                                                className="px-6 py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider inline-flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50"
+                                                                                onClick={() => handleResetAssets('voices', chapterKey, false)}
+                                                                                title="Delete enhanced voice audio for this chapter"
+                                                                                className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
                                                                             >
-                                                                                <Mic2 size={18} className={isTranscribing ? 'animate-spin' : ''} />
-                                                                                <span>{isTranscribing ? 'Transcribing Audio Chunks...' : 'Gen Chapter Transcript'}</span>
+                                                                                <Trash2 size={16} />
                                                                             </button>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
-                                                                            {lines.map((line: string, lIdx: number) => {
-                                                                                const match = line.match(/^\[(\d+:\d+(?:\.\d+)?)\]\s*(.*)$/);
-                                                                                const timeTag = match ? match[1] : '';
-                                                                                const textBody = match ? match[2] : line;
-                                                                                return (
-                                                                                    <div
-                                                                                        key={lIdx}
-                                                                                        className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 flex items-center justify-between gap-3 group"
+                                                                        )}
+
+                                                                        <span className="p-1.5 text-zinc-400">
+                                                                            {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {isExpanded && (
+                                                                    <div className="p-5 border-t border-zinc-800/80 space-y-3">
+                                                                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                                                                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">
+                                                                                Voice Alternatives ({voiceEntries.length || (isEnhDone ? 1 : 0)})
+                                                                            </span>
+                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                {['clear_voice', 'warm_bass', 'deep_pitch', 'night_compress'].map(preset => (
+                                                                                    <button
+                                                                                        key={preset}
+                                                                                        onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance', preset)}
+                                                                                        disabled={isBusy}
+                                                                                        className="px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase flex items-center gap-1 cursor-pointer disabled:opacity-50"
                                                                                     >
-                                                                                        <div className="flex items-start gap-3 min-w-0">
-                                                                                            {timeTag && (
-                                                                                                <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-xs font-bold shrink-0">
-                                                                                                    {timeTag}
-                                                                                                </span>
-                                                                                            )}
-                                                                                            <p className="text-sm sm:text-base text-zinc-200 leading-relaxed">
-                                                                                                {textBody}
+                                                                                        <Plus size={13} />
+                                                                                        <span>{preset.replace('_', ' ')}</span>
+                                                                                    </button>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {voiceEntries.length > 0 ? (
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                                                {voiceEntries.map(([presetKey, filePath]) => (
+                                                                                    <div
+                                                                                        key={presetKey}
+                                                                                        className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3"
+                                                                                    >
+                                                                                        <div className="min-w-0">
+                                                                                            <p className="text-sm font-black text-emerald-300 uppercase">
+                                                                                                {presetKey.replace('_', ' ')}
+                                                                                            </p>
+                                                                                            <p className="text-xs font-mono text-zinc-500 truncate">
+                                                                                                {filePath}
                                                                                             </p>
                                                                                         </div>
-                                                                                        <button
-                                                                                            onClick={() => handleDeleteSingleTranscriptLine(chTrack, chIdx, lIdx, lines)}
-                                                                                            title="Delete this synced line"
-                                                                                            className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shrink-0"
-                                                                                        >
-                                                                                            <Trash2 size={15} />
-                                                                                        </button>
+                                                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                                                            <button
+                                                                                                onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance', presetKey)}
+                                                                                                title="Regenerate this voice alternative"
+                                                                                                className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 cursor-pointer"
+                                                                                            >
+                                                                                                <RefreshCw size={15} />
+                                                                                            </button>
+                                                                                            <button
+                                                                                                onClick={() => handleResetAssets('voices', chapterKey, false)}
+                                                                                                title="Delete enhanced voice"
+                                                                                                className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 cursor-pointer"
+                                                                                            >
+                                                                                                <Trash2 size={15} />
+                                                                                            </button>
+                                                                                        </div>
                                                                                     </div>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* ═══════════════════════════════════════════════════════════
-                                        SUBTAB 3: VOICE
-                                        1. PROMINENT TOP MENU: Gen Options (Voice Style & Enhancement Mode) + AUTO GEN SCENES + GEN ALL
-                                        2. BELOW: Chapters & Voice Alternatives division with Regen / + Alt / Delete
-                                       ═══════════════════════════════════════════════════════════ */}
-                                    {aiSubTab === 'voice' && (
-                                        <div className="space-y-6">
-                                            {/* ── TOP PROMINENT CREATION MENU ── */}
-                                            <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-950 border-2 border-emerald-500/50 shadow-2xl space-y-5">
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                    <div>
-                                                        <label className="block text-xs font-black text-emerald-300 uppercase tracking-wider mb-1.5">
-                                                            Voice Style
-                                                        </label>
-                                                        <select
-                                                            value={editVoicePreset}
-                                                            onChange={e => setEditVoicePreset(e.target.value)}
-                                                            className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-base font-bold text-white cursor-pointer"
-                                                        >
-                                                            <option value="clear_voice">Clear Voice (Vocal Presence)</option>
-                                                            <option value="warm_bass">Warm Studio Narrator</option>
-                                                            <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
-                                                            <option value="crisp_treble">Crisp Articulation</option>
-                                                            <option value="bright_pitch">Brighter Voice (+6% Pitch)</option>
-                                                            <option value="night_compress">Night Leveler</option>
-                                                            <option value="original">Original Voice</option>
-                                                        </select>
-                                                    </div>
-
-                                                    <div>
-                                                        <label className="block text-xs font-black text-emerald-300 uppercase tracking-wider mb-1.5">
-                                                            Mastering / Alternatives
-                                                        </label>
-                                                        <select
-                                                            value={editEnhancePreset}
-                                                            onChange={e => setEditEnhancePreset(e.target.value)}
-                                                            className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-base font-bold text-white cursor-pointer"
-                                                        >
-                                                            <option value="denoise_clarity">Denoise &amp; Studio Clarity</option>
-                                                            <option value="crystal_voice">Crystal Broadcast</option>
-                                                            <option value="vintage_restore">Warm Tape Restoration</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-
-                                                {/* HUGE PRIMARY ACTION BUTTONS: AUTO GEN SCENES + GEN ALL */}
-                                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
-                                                    <button
-                                                        onClick={() => handleSaveBookStudioSettings(false)}
-                                                        disabled={runningStudioAction !== null}
-                                                        title="Apply selected Voice Style across the book"
-                                                        className="sm:col-span-5 py-4 px-6 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-emerald-200 border-2 border-emerald-500/50 font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-lg cursor-pointer disabled:opacity-50"
-                                                    >
-                                                        <Check size={22} className="text-emerald-400" />
-                                                        <span>Save Voice Style</span>
-                                                    </button>
-
-                                                    <button
-                                                        onClick={() => handleGenAllForSubTab('voice')}
-                                                        disabled={runningStudioAction !== null}
-                                                        title="Generate enhanced voice tracks for all chapters"
-                                                        className="sm:col-span-5 py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-xl shadow-emerald-500/30 cursor-pointer disabled:opacity-50"
-                                                    >
-                                                        <Sparkles size={22} className={runningStudioAction === 'gen_all_voice' ? 'animate-spin' : ''} />
-                                                        <span>Gen All</span>
-                                                    </button>
-
-                                                    <button
-                                                        onClick={() => handleResetAssets('voices', undefined, false)}
-                                                        disabled={runningStudioAction !== null}
-                                                        title="Delete all enhanced voice tracks for this book"
-                                                        className="sm:col-span-2 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                                                    >
-                                                        <Trash2 size={18} />
-                                                        <span>Delete All</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* ── BELOW: CHAPTERS & VOICE TRACKS DIVISION ── */}
-                                            <div className="space-y-4">
-                                                {currentModalBook.chapters.map((chTrack: any, chIdx: number) => {
-                                                    const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
-                                                    const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${chIdx + 1}`;
-                                                    const durSec = chTrack.durationMs ? Math.round(chTrack.durationMs / 1000) : (chMeta.duration_sec || 300);
-                                                    const isEnhDone = chMeta.audio_enhance_status === 'completed' || Boolean(chMeta.enhanced_audio_path);
-                                                    const processedVoices: Record<string, string> = chMeta.processed_voices || {};
-                                                    const voiceEntries = Object.entries(processedVoices);
-                                                    const isExpanded = Boolean(expandedChapterIndices[chIdx]);
-                                                    const isBusy = runningChapterTaskKey === `${chapterKey}::enhance`;
-
-                                                    return (
-                                                        <div key={chapterKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
-                                                            <div
-                                                                onClick={() => setExpandedChapterIndices(prev => ({ ...prev, [chIdx]: !prev[chIdx] }))}
-                                                                className="p-4 sm:p-5 bg-zinc-900/90 hover:bg-zinc-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
-                                                            >
-                                                                <div className="flex items-center gap-3.5 min-w-0">
-                                                                    <span className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-sm font-black flex items-center justify-center shrink-0">
-                                                                        {chIdx + 1}
-                                                                    </span>
-                                                                    <div className="min-w-0">
-                                                                        <h5 className="text-base sm:text-lg font-black text-white truncate">
-                                                                            {chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`}
-                                                                        </h5>
-                                                                        <div className="flex items-center gap-2.5 text-xs font-bold text-zinc-400">
-                                                                            <span className="font-mono">{formatMMSS(durSec)}</span>
-                                                                            <span>•</span>
-                                                                            <span className={isEnhDone ? 'text-emerald-300 font-black' : 'text-zinc-500'}>
-                                                                                {isEnhDone ? `Enhanced (${chMeta.voice_preset || editVoicePreset})` : 'Original Audio'}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-
-                                                                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                                                    <button
-                                                                        onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance')}
-                                                                        disabled={isBusy}
-                                                                        className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                                    >
-                                                                        <RefreshCw size={15} className={isBusy ? 'animate-spin' : ''} />
-                                                                        <span>{isEnhDone ? 'Regen' : 'Gen'}</span>
-                                                                    </button>
-
-                                                                    {isEnhDone && (
-                                                                        <button
-                                                                            onClick={() => handleResetAssets('voices', chapterKey, false)}
-                                                                            title="Delete enhanced voice audio for this chapter"
-                                                                            className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
-                                                                        >
-                                                                            <Trash2 size={16} />
-                                                                        </button>
-                                                                    )}
-
-                                                                    <span className="p-1.5 text-zinc-400">
-                                                                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-
-                                                            {isExpanded && (
-                                                                <div className="p-5 border-t border-zinc-800/80 space-y-3">
-                                                                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                                                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400">
-                                                                            Voice Alternatives ({voiceEntries.length || (isEnhDone ? 1 : 0)})
-                                                                        </span>
-                                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                                            {['clear_voice', 'warm_bass', 'deep_pitch', 'night_compress'].map(preset => (
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="py-6 text-center">
                                                                                 <button
-                                                                                    key={preset}
-                                                                                    onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance', preset)}
+                                                                                    onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance')}
                                                                                     disabled={isBusy}
-                                                                                    className="px-3 py-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                                                                    className="px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm uppercase tracking-wider inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
                                                                                 >
-                                                                                    <Plus size={13} />
-                                                                                    <span>{preset.replace('_', ' ')}</span>
+                                                                                    <Headphones size={18} />
+                                                                                    <span>{isBusy ? 'Enhancing Voice...' : 'Gen Enhanced Voice'}</span>
                                                                                 </button>
-                                                                            ))}
-                                                                        </div>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
-
-                                                                    {voiceEntries.length > 0 ? (
-                                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                                            {voiceEntries.map(([presetKey, filePath]) => (
-                                                                                <div
-                                                                                    key={presetKey}
-                                                                                    className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3"
-                                                                                >
-                                                                                    <div className="min-w-0">
-                                                                                        <p className="text-sm font-black text-emerald-300 uppercase">
-                                                                                            {presetKey.replace('_', ' ')}
-                                                                                        </p>
-                                                                                        <p className="text-xs font-mono text-zinc-500 truncate">
-                                                                                            {filePath}
-                                                                                        </p>
-                                                                                    </div>
-                                                                                    <div className="flex items-center gap-1.5 shrink-0">
-                                                                                        <button
-                                                                                            onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance', presetKey)}
-                                                                                            title="Regenerate this voice alternative"
-                                                                                            className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 cursor-pointer"
-                                                                                        >
-                                                                                            <RefreshCw size={15} />
-                                                                                        </button>
-                                                                                        <button
-                                                                                            onClick={() => handleResetAssets('voices', chapterKey, false)}
-                                                                                            title="Delete enhanced voice"
-                                                                                            className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 cursor-pointer"
-                                                                                        >
-                                                                                            <Trash2 size={15} />
-                                                                                        </button>
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="py-6 text-center">
-                                                                            <button
-                                                                                onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance')}
-                                                                                disabled={isBusy}
-                                                                                className="px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm uppercase tracking-wider inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                                                            >
-                                                                                <Headphones size={18} />
-                                                                                <span>{isBusy ? 'Enhancing Voice...' : 'Gen Enhanced Voice'}</span>
-                                                                            </button>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
                                         </div>
                                     )}
