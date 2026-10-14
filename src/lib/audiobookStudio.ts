@@ -3439,10 +3439,15 @@ export const deliteralizeNarrativeTermsForVisualPrompt = (text: string, bookTitl
         .replace(/\b(the\s+)?staircase\s+(program|project|plan|mission|initiative)\b/gi, 'deep-space nuclear-pulse radiation-sail probe launch mission and futuristic aerospace command center')
         .replace(/\bproject\s+staircase\b/gi, 'deep-space radiation-sail spacecraft probe mission in an aerospace command center')
         .replace(/\bwallfacer(\s+project|\s+program)?\b/gi, 'United Nations planetary defense council chamber and strategic command center')
-        .replace(/\bswordholder\b/gi, 'sole guardian of the gravitational-wave deterrence control console in a subterranean bunker')
+        .replace(/\bswordholder\b/gi, 'sole guardian of the gravitational-wave deterrence control console in an austere white subterranean bunker')
         .replace(/\bdark\s+forest\s+(deterrence|theory|state|broadcast)\b/gi, 'interstellar gravitational-wave deterrence array and deep-space cosmos')
         .replace(/\bred\s+coast\s+base\b/gi, 'giant parabolic radio-astronomy dish antenna atop a mountain peak')
-        .replace(/\bsophon(s)?\b/gi, 'subatomic multidimensional quantum supercomputer projection floating in a high-tech facility');
+        .replace(/\bsophon(s)?\b/gi, 'subatomic multidimensional quantum supercomputer projection floating in a high-tech facility')
+        .replace(/\b(droplet|waterdrop)\b/gi, 'sleek mirror-finish aerodynamic Trisolaran droplet probe floating in space with perfect reflections')
+        .replace(/\b(dual[\s-]vector\s+foil|two[\s-]dimensional\s+foil|vector\s+foil)\b/gi, 'unfolding two-dimensional sheet collapsing three-dimensional space and celestial bodies into an infinite flat plane')
+        .replace(/\b(bunker\s+world|bunker\s+project|space\s+cit(?:y|ies))\b/gi, 'gigantic cylindrical space habitat cities shielded in the colossal shadow of gas-giant Jupiter')
+        .replace(/\b(curvature\s+propulsion|lightspeed\s+ship)\b/gi, 'starship creating a glowing rainbow curvature wake distortion in deep space')
+        .replace(/\b(universe\s+647|pocket\s+universe)\b/gi, 'miniature tranquil pocket universe with a small farmhouse, tea garden, and glowing mini sun in the void');
 
     if (isSciFiOrLiu && /\b(probe|sail|launch|nuclear|space|orbit|pia|cheng\s+xin|yun\s+tianming|wade|thomas\s+wade|halo|bunker|deterrence|crisis\s+era)\b/i.test(out)) {
         out = out.replace(/\bstaircase(s|way)?\b/gi, 'deep-space radiation-sail trajectory');
@@ -3453,8 +3458,8 @@ export const deliteralizeNarrativeTermsForVisualPrompt = (text: string, bookTitl
 
 /**
  * Resolves the authentic historical or futuristic era & visual aesthetic for a specific book/chapter/scene,
- * preventing hardcoded "literary book illustration" / "period clothing" tokens from forcing a vintage/retro pulp style
- * onto modern or futuristic sci-fi scenes.
+ * distinguishing multi-era sagas (like Death's End's 1453 Prologue, Crisis Era, Deterrence Era, Bunker Era, 2D Collapse, and Pocket Universe)
+ * and classic literary worlds.
  */
 export const resolveSceneEraAndStyleDirective = (params: {
     bookTitle: string;
@@ -3465,24 +3470,73 @@ export const resolveSceneEraAndStyleDirective = (params: {
 }): { eraContext: string; wardrobeAndSettingDirective: string; styleFinish: string } => {
     const { bookTitle, author, chapterTitle, sceneSnippet, effectiveStyle } = params;
     const combined = `${bookTitle} ${author} ${chapterTitle} ${sceneSnippet}`;
+    const isLiuOrThreeBody = /death'?s end|three[\s-]*body|dark forest|cixin|liu|trisolar/i.test(`${bookTitle} ${author}`);
 
-    // Check if a chapter is an explicit historical prologue/flashback (e.g. "May 1453", "Constantinople")
-    if (/\b(1453|constantinople|byzantine|emperor\s+constantine|sultan|medieval)\b/i.test(`${chapterTitle} ${sceneSnippet}`)) {
-        return {
-            eraContext: '15th-century 1453 Byzantine Constantinople historical setting',
-            wardrobeAndSettingDirective: 'authentic 15th-century Byzantine stone architecture, candlelight, and period attire',
-            styleFinish: `${effectiveStyle}, high-detail cinematic historical realism, no retro pulp poster borders`
-        };
-    }
+    // 1. Cixin Liu / Death's End / Three-Body Trilogy Era-Specific Granularity
+    if (isLiuOrThreeBody) {
+        // Prologue: Fall of Constantinople (1453 CE) - Helena and Emperor Constantine
+        if (/\b(1453|constantinople|byzantine|emperor\s+constantine|helena)\b/i.test(`${chapterTitle} ${sceneSnippet}`)) {
+            return {
+                eraContext: '1453 Byzantine Constantinople historical prologue with cosmic 4D spatial anomalies',
+                wardrobeAndSettingDirective: 'authentic 15th-century Byzantine stone architecture, dramatic torchlight, Helena, and ethereal glowing 4D cosmic geometry fragments',
+                styleFinish: `${effectiveStyle}, high-detail cinematic historical realism with subtle cosmic mystery, no retro pulp poster borders`
+            };
+        }
 
-    if (/death'?s end|three[\s-]*body|dark forest|cixin|liu|spacecraft|starship|orbital|hibernation|crisis\s+era|deterrence\s+era|bunker\s+era|galaxy\s+era|cheng\s+xin|yun\s+tianming|thomas\s+wade|pia|halo|trisolar/i.test(combined)) {
+        // Post-Deterrence Era: Australia Resettlement
+        if (/\b(post[\s-]deterrence|australia|resettlement|refugee|desert|sydney|cannibal|resistance)\b/i.test(`${chapterTitle} ${sceneSnippet}`)) {
+            return {
+                eraContext: 'Post-Deterrence Era (mass human resettlement and resistance across the arid Australian continent)',
+                wardrobeAndSettingDirective: 'rugged outdoor survivor attire, tense outdoor gatherings under vast desert skies, hovering alien security surveillance spheres',
+                styleFinish: `${effectiveStyle}, dramatic cinematic realism, gritty atmospheric lighting`
+            };
+        }
+
+        // Bunker Era & Space Cities behind Jupiter
+        if (/\b(bunker\s+era|bunker\s+world|space\s+city|space\s+cities|jupiter|saturn|uranus|halo|curvature|lightspeed|solar\s+shield)\b/i.test(`${chapterTitle} ${sceneSnippet}`)) {
+            return {
+                eraContext: 'Bunker Era (gigantic orbital space cities shielded in the colossal shadow of gas-giant Jupiter)',
+                wardrobeAndSettingDirective: 'advanced aerospace flight jumpsuits, colossal rotating cylindrical space habitats, transparent observation cupolas overlooking the massive swirling bands and Great Red Spot of Jupiter',
+                styleFinish: `${effectiveStyle}, ultra-clean modern hard sci-fi cinematic concept art, majestic cosmic lighting`
+            };
+        }
+
+        // Dark Forest 2D Strike / Vector Foil Collapse
+        if (/\b(dual[\s-]vector|vector\s+foil|two[\s-]dimensional|flatten|flattening|2d|solar\s+system\s+collapse|singularity)\b/i.test(`${chapterTitle} ${sceneSnippet}`)) {
+            return {
+                eraContext: 'Dark Forest 2D Strike (cataclysmic cosmic collapse of 3D space into a flat 2D plane)',
+                wardrobeAndSettingDirective: 'deep-space starship flight deck, awe-inspiring and terrifying cosmic vista of planets and space flattening into an infinite geometric plane, glowing curvature wake trails',
+                styleFinish: `${effectiveStyle}, ultra-clean modern hard sci-fi cinematic concept art, breathtaking cosmic scale`
+            };
+        }
+
+        // Pocket Universe 647
+        if (/\b(universe\s+647|pocket\s+universe|mini[\s-]universe|guan\s+yifan|farmhouse|mini\s+sun|door\s+in\s+space)\b/i.test(`${chapterTitle} ${sceneSnippet}`)) {
+            return {
+                eraContext: 'Pocket Universe 647 (peaceful miniature universe isolated beyond the dying cosmos)',
+                wardrobeAndSettingDirective: 'simple rural linen clothing, idyllic small white farmhouse and cultivated vegetable fields floating under a gentle miniature artificial sun in infinite cosmic stillness',
+                styleFinish: `${effectiveStyle}, poetic atmospheric cinematic concept art, soft warm lighting`
+            };
+        }
+
+        // Deterrence Era & Swordholder
+        if (/\b(deterrence\s+era|swordholder|luo\s+ji|underground\s+city|tree\s+canopy|droplet|waterdrop|sophon|gravity\s+wave|antenna)\b/i.test(`${chapterTitle} ${sceneSnippet}`)) {
+            return {
+                eraContext: 'Deterrence Era (23rd-century high-tech subterranean cities and interstellar deterrence defense)',
+                wardrobeAndSettingDirective: 'sleek minimalist 23rd-century attire or Sophon in traditional silk kimono, underground city under glowing synthetic foliage, austere white Swordholder bunker with gravitational deterrence console, mirror-finish aerodynamic droplet probe',
+                styleFinish: `${effectiveStyle}, ultra-clean modern hard sci-fi cinematic concept art, realistic lighting and materials`
+            };
+        }
+
+        // Crisis Era & Common Era (Staircase Project, Yun Tianming, Thomas Wade, Cheng Xin, Yang Dong)
         return {
-            eraContext: 'hard science-fiction futuristic aerospace and cosmic civilization setting (contemporary / near-future / interstellar Crisis & Deterrence Era)',
-            wardrobeAndSettingDirective: 'sleek modern and futuristic technical attire, realistic aerospace command centers, holographic telemetry, orbital habitats, and hard sci-fi engineering (strictly NO retro 1950s pulp sci-fi, NO vintage book-cover aesthetic, NO literal staircases for Project Staircase)',
+            eraContext: 'Crisis Era (early 21st century aerospace research, particle physics, and Planetary Defense Council initiative)',
+            wardrobeAndSettingDirective: 'contemporary professional and aerospace attire, particle accelerator labs, UN defense council hall, hospital bedside overlooking stars, high-tech cleanrooms (strictly NO retro 1950s pulp sci-fi, NO literal staircases)',
             styleFinish: `${effectiveStyle}, ultra-clean modern hard sci-fi cinematic concept art, realistic lighting and materials`
         };
     }
 
+    // 2. Classic Literature and Specific World Settings
     if (/metamorphosis|kafka|191\d|prague|samsa/i.test(combined)) {
         return {
             eraContext: 'early 20th-century 1915 Central European Prague apartment setting',
@@ -3491,11 +3545,82 @@ export const resolveSceneEraAndStyleDirective = (params: {
         };
     }
 
+    if (/dune|arrakis|herbert|atreides|harkonnen|fremen|spice|sandworm/i.test(combined)) {
+        return {
+            eraContext: 'far-future desert world of Arrakis',
+            wardrobeAndSettingDirective: 'authentic desert stillsuits, flowing desert robes, intense blue-within-blue eyes, sweeping sand dunes, harsh desert sunlight',
+            styleFinish: `${effectiveStyle}, grand cinematic epic realism`
+        };
+    }
+
+    if (/frankenstein|shelley|dracula|stoker|poe|jekyll|hyde|victorian\s+gothic/i.test(combined)) {
+        return {
+            eraContext: '19th-century Victorian gothic atmosphere',
+            wardrobeAndSettingDirective: 'period Victorian attire, tailored tailcoats, gaslit cobbled alleys, candlelit laboratory apparatus, deep atmospheric shadows',
+            styleFinish: `${effectiveStyle}, moody cinematic gothic realism`
+        };
+    }
+
+    if (/hobbit|lord\s+of\s+the\s+rings|tolkien|middle[\s-]earth|gandalf|frodo|bilbo|shire|mordor/i.test(combined)) {
+        return {
+            eraContext: 'high fantasy Middle-earth realm',
+            wardrobeAndSettingDirective: 'authentic handcrafted fantasy cloaks, weathered traveling gear, stone hearths, ancient forests, warm natural sunlight',
+            styleFinish: `${effectiveStyle}, epic fantasy cinematic concept art`
+        };
+    }
+
+    if (/1984|orwell|big\s+brother|oceania|winston\s+smith|brave\s+new\s+world|huxley/i.test(combined)) {
+        return {
+            eraContext: 'bleak totalitarian dystopian city',
+            wardrobeAndSettingDirective: 'monochrome utilitarian worker overalls, looming brutalist concrete architecture, omnipresent telescreens, cold overcast daylight',
+            styleFinish: `${effectiveStyle}, gritty dystopian cinematic realism`
+        };
+    }
+
+    if (/spacecraft|starship|orbital|interstellar|space\s+station|cyberpunk|android|cyborg|galaxy/i.test(combined)) {
+        return {
+            eraContext: 'futuristic aerospace and interstellar civilization setting',
+            wardrobeAndSettingDirective: 'sleek modern flight suits and technical attire, holographic consoles, realistic spacecraft architecture',
+            styleFinish: `${effectiveStyle}, clean modern sci-fi cinematic concept art, realistic materials and lighting`
+        };
+    }
+
     return {
         eraContext: `authentic world and era of "${bookTitle}" by ${author}`,
         wardrobeAndSettingDirective: 'era-appropriate clothing matching the exact scene setting, expressive faces, coherent natural anatomy',
         styleFinish: `${effectiveStyle}, high-resolution cinematic scene composition`
     };
+};
+
+/**
+ * Structures an image prompt with NARRATIVE ACTION AND CHARACTERS FIRST,
+ * followed by Setting/Era, Art Style, and Negative Guardrails.
+ * This maximizes the semantic attention weight of visual diffusion models (Flux, SDXL, Midjourney)
+ * on the actual story events, characters, and emotions.
+ */
+export const formatActionFirstVisualPrompt = (params: {
+    actionAndCharacters: string;
+    eraContext: string;
+    wardrobeAndSettingDirective: string;
+    styleFinish: string;
+    additionalFocus?: string;
+}): string => {
+    const { actionAndCharacters, eraContext, wardrobeAndSettingDirective, styleFinish, additionalFocus } = params;
+    const cleanAction = (actionAndCharacters || '').replace(/["'“”‘’]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanEra = (eraContext || '').trim();
+    const cleanSetting = (wardrobeAndSettingDirective || '').trim();
+    const cleanStyle = (styleFinish || '').trim();
+    const cleanFocus = (additionalFocus || '').trim();
+
+    const parts = [
+        cleanAction,
+        cleanSetting || cleanEra ? `Setting: ${cleanEra}${cleanSetting ? `, ${cleanSetting}` : ''}` : '',
+        cleanFocus ? `Visual focus: ${cleanFocus}` : '',
+        cleanStyle ? `Style: ${cleanStyle}` : '',
+        'cinematic lighting, rich details, coherent anatomy, no text, no watermark, no frame'
+    ].filter(Boolean);
+
+    return parts.join('. ');
 };
 
 export const sanitizeAndGroundScenePrompt = (params: {
@@ -3524,20 +3649,34 @@ export const sanitizeAndGroundScenePrompt = (params: {
     }
 
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
-    if (!cleaned || cleaned.length < 25) {
+
+    // Invert legacy boilerplate prompts (where style/title was prepended before the story)
+    const legacyBoilerplateMatch = cleaned.match(/^(?:.*?(?:in dramatic action|depicting the characters and dramatic action in|scene context|featuring\s+[^:]+:)\s*:?\s*)(.+?)(?:\.\s*[\w\s,-]+(?:wardrobe|setting|lighting|no text|no watermark|$)|$)/i);
+    let actionCore = '';
+    if (legacyBoilerplateMatch && legacyBoilerplateMatch[1] && legacyBoilerplateMatch[1].trim().length > 15) {
+        actionCore = legacyBoilerplateMatch[1].replace(/^(?:features?|depicts?|showing)\s+/i, '').trim();
+    } else if (cleaned.length >= 25 && !cleaned.toLowerCase().startsWith('style:') && !cleaned.toLowerCase().includes('in dramatic action:')) {
+        // Strip duplicate trailing guardrails
+        actionCore = cleaned
+            .replace(/,\s*(?:coherent natural anatomy|cinematic lighting|no text|no watermark|no frame).*$/gi, '')
+            .trim();
+    }
+
+    if (!actionCore || actionCore.length < 20) {
         const cleanSnippet = deliteralizeNarrativeTermsForVisualPrompt(
-            (sceneSnippet || '').replace(/["'()\[\]{}<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200),
+            (sceneSnippet || '').replace(/["'()\[\]{}<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 420),
             bookTitle,
             author
         );
-        cleaned = `${eraInfo.styleFinish} for "${bookTitle}", depicting the characters and dramatic action in ${eraInfo.eraContext}: ${cleanSnippet}`;
+        actionCore = cleanSnippet || `Dramatic narrative events in ${chapterTitle} of "${bookTitle}"`;
     }
 
-    const guardrailSuffix = `${eraInfo.wardrobeAndSettingDirective}, coherent natural anatomy, cinematic lighting, no text, no watermark`;
-    if (cleaned.toLowerCase().includes('no text, no watermark')) {
-        return cleaned;
-    }
-    return `${cleaned}, ${guardrailSuffix}`;
+    return formatActionFirstVisualPrompt({
+        actionAndCharacters: actionCore,
+        eraContext: eraInfo.eraContext,
+        wardrobeAndSettingDirective: eraInfo.wardrobeAndSettingDirective,
+        styleFinish: eraInfo.styleFinish
+    });
 };
 
 /**
@@ -3800,17 +3939,18 @@ export const generateDynamicScenePrompt = async (params: {
     if (useDynamic) {
         const directorSystemPrompt = [
             `You are a master cinematic concept artist and visual director.`,
-            `Write ONE vivid, character-driven, plot-specific image-generation prompt (50 to 80 words) for ${roleTarget}.`,
+            `Write ONE vivid, character-driven, plot-specific image-generation prompt (50 to 80 words) for ${roleTarget}, starting immediately with the named characters and dramatic action.`,
             `Art Style & Aesthetic: ${eraInfo.styleFinish}. Era & World Setting: ${eraInfo.eraContext}. Visual Focus: ${focusDesc}.`,
             sceneSnippet ? `Exact story event / transcribed audio passage happening right now: "${sceneSnippet}".` : '',
             properNouns.length > 0 ? `Named characters & subjects in this book: ${properNouns.join(', ')}.` : '',
             prevContinuity ? `${prevContinuity} (Keep consistent character faces, wardrobe, and era while depicting this specific new plot action).` : '',
             effectiveCustomPrompt ? `Additional user direction: ${effectiveCustomPrompt}.` : '',
             `CRITICAL ILLUSTRATION RULES:`,
-            `1. NEVER generate an empty room or generic furniture! You MUST depict the specific characters present in this scene, their physical appearance, ${eraInfo.wardrobeAndSettingDirective}, facial expressions, and the exact action or confrontation happening in the passage.`,
-            `2. NEVER interpret scientific project codenames or narrative metaphors literally! For example, "Staircase Program" or "Project Staircase" in Cixin Liu's Death's End is a deep-space nuclear radiation-sail probe launch mission—NEVER draw a physical staircase! Depict the actual spacecraft probe, radiation sail, or aerospace command center and characters (Cheng Xin, Thomas Wade, Yun Tianming).`,
-            `3. Match the exact era of the scene (${eraInfo.eraContext}). Never use a retro 1950s pulp or vintage book-illustration look on modern or futuristic sci-fi scenes.`,
-            `4. Do NOT include any text, letters, book titles, speech bubbles, or watermarks in the image. Return ONLY the raw image prompt.`
+            `1. Structure your prompt with ACTION AND CHARACTERS FIRST (e.g. "[Named Characters]: [Specific physical action, facial expressions, and plot event]. Setting: [Era & environment]. Style: ${eraInfo.styleFinish}").`,
+            `2. NEVER generate an empty room or generic furniture! You MUST depict the specific characters present in this scene, their physical appearance, ${eraInfo.wardrobeAndSettingDirective}, facial expressions, and the exact action or confrontation happening in the passage.`,
+            `3. NEVER interpret scientific project codenames or narrative metaphors literally! For example, "Staircase Program" or "Project Staircase" in Cixin Liu's Death's End is a deep-space nuclear radiation-sail probe launch mission—NEVER draw a physical staircase! Depict the actual spacecraft probe, radiation sail, or aerospace command center and characters (Cheng Xin, Thomas Wade, Yun Tianming).`,
+            `4. Match the exact era of the scene (${eraInfo.eraContext}). Never use a retro 1950s pulp or vintage book-illustration look on modern or futuristic sci-fi scenes.`,
+            `5. Do NOT include any text, letters, book titles, speech bubbles, or watermarks in the image. Return ONLY the raw image prompt.`
         ].filter(Boolean).join('\n');
 
         const llmRes = await callStudioTextLlmWithFailover({
@@ -3823,7 +3963,7 @@ export const generateDynamicScenePrompt = async (params: {
 
         if (llmRes?.text && llmRes.text.length > 25) {
             return sanitizeAndGroundScenePrompt({
-                rawPrompt: `${llmRes.text.replace(/^["']|["']$/g, '')}, ${eraInfo.styleFinish}`,
+                rawPrompt: llmRes.text.replace(/^["']|["']$/g, ''),
                 sceneSnippet,
                 bookTitle: book.title,
                 author: book.author,
@@ -3839,17 +3979,20 @@ export const generateDynamicScenePrompt = async (params: {
             .replace(/["'()\[\]{}<>]/g, ' ')
             .replace(/\s+/g, ' ')
             .trim()
-            .slice(0, 200),
+            .slice(0, 420),
         book.title,
         book.author
     );
 
-    const baseFallbackPrompt = [
-        `${eraInfo.styleFinish} for "${book.title}" by ${book.author} (${eraInfo.eraContext})`,
-        properNouns.length > 0 ? `depicting characters ${properNouns.slice(0, 4).join(', ')} in dramatic action` : 'depicting the main characters in dramatic action',
-        cleanSnippet ? `scene context: ${cleanSnippet}` : '',
-        `(${focusDesc}, ${eraInfo.wardrobeAndSettingDirective})`
-    ].filter(Boolean).join(', ');
+    const charPart = properNouns.length > 0 ? properNouns.slice(0, 4).join(' and ') : `central characters of "${book.title}"`;
+    const actionPart = cleanSnippet ? `${charPart}: ${cleanSnippet}` : `${charPart} in dramatic action during ${roleTarget}`;
+    const baseFallbackPrompt = formatActionFirstVisualPrompt({
+        actionAndCharacters: actionPart,
+        eraContext: eraInfo.eraContext,
+        wardrobeAndSettingDirective: eraInfo.wardrobeAndSettingDirective,
+        styleFinish: eraInfo.styleFinish,
+        additionalFocus: focusDesc
+    });
 
     return sanitizeAndGroundScenePrompt({
         rawPrompt: baseFallbackPrompt,
@@ -4253,7 +4396,7 @@ const generateRawCandidateImageBuffer = async (params: {
         .replace(/[^a-zA-Z0-9 ,.-]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-        .slice(0, 220);
+        .slice(0, 850);
     const encodedPrompt = encodeURIComponent(sanitizedPrompt);
     const negPrompt = encodeURIComponent('body horror, gore, deformed face, mutated bug, nightmare fuel, extra limbs, text, watermark, ugly');
     const pW = Math.min(1024, Math.max(512, Math.round(width / 16) * 16));
@@ -4643,7 +4786,7 @@ const extractLocalScenesFromWindowTranscript = (params: {
             }
         }
         const properMatches = passage.match(/\b[A-Z][a-z]{2,14}(?:\s+[A-Z][a-z]{2,14})?\b/g) || [];
-        const stopSet = new Set(['The', 'And', 'But', 'Then', 'When', 'Where', 'While', 'From', 'With', 'Into', 'Over', 'After', 'Before', 'This', 'That', 'There', 'Here', 'What', 'His', 'Her', 'Their', 'They', 'One', 'All', 'For', 'Near', 'Some', 'These']);
+        const stopSet = new Set(['The', 'And', 'But', 'Then', 'When', 'Where', 'While', 'From', 'With', 'Into', 'Over', 'After', 'Before', 'This', 'That', 'There', 'Here', 'What', 'His', 'Her', 'Their', 'They', 'One', 'All', 'For', 'Near', 'Some', 'These', 'Chapter', 'Part', 'Section', 'Book']);
         for (const pm of properMatches) {
             if (!stopSet.has(pm) && !foundChars.includes(pm) && foundChars.length < 4) {
                 foundChars.push(pm);
@@ -4661,8 +4804,9 @@ const extractLocalScenesFromWindowTranscript = (params: {
             ? words.replace(/[.,;!?]+$/, '')
             : (atSec === 0 ? `${cleanChapLabel} — Opening` : `${cleanChapLabel} (${fmtSecToMMSS(atSec)})`);
 
+        const cleanPassage = passage.replace(/["'“”‘’\s]+/g, ' ').trim();
         const excerptSummary = deliteralizeNarrativeTermsForVisualPrompt(
-            passage.slice(0, 220) || `Story events at ${fmtSecToMMSS(atSec)} in ${cleanChapLabel} of ${bookTitle}`,
+            cleanPassage.slice(0, 420) || `Dramatic scene at ${fmtSecToMMSS(atSec)} in ${cleanChapLabel} of "${bookTitle}"`,
             bookTitle,
             author
         );
@@ -4670,11 +4814,17 @@ const extractLocalScenesFromWindowTranscript = (params: {
             bookTitle,
             author,
             chapterTitle: cleanChapLabel,
-            sceneSnippet: excerptSummary,
+            sceneSnippet: `${sceneTitle}: ${cleanPassage.slice(0, 300)}`,
             effectiveStyle
         });
-        const charPhrase = chars.length > 0 ? `featuring ${chars.join(', ')}` : `featuring the central characters of "${bookTitle}"`;
-        const prompt = `${eraInfo.styleFinish} for "${bookTitle}" by ${author} (${cleanChapLabel} at ${fmtSecToMMSS(atSec)}, ${eraInfo.eraContext}), ${charPhrase} in dramatic action: ${excerptSummary}. ${eraInfo.wardrobeAndSettingDirective}, rich atmospheric lighting, cinematic composition, no text, no watermark`;
+        const charPhrase = chars.length > 0 ? `${chars.join(' and ')}` : `central characters of "${bookTitle}"`;
+        const actionPhrase = `${charPhrase}: ${excerptSummary}`;
+        const prompt = formatActionFirstVisualPrompt({
+            actionAndCharacters: actionPhrase,
+            eraContext: eraInfo.eraContext,
+            wardrobeAndSettingDirective: eraInfo.wardrobeAndSettingDirective,
+            styleFinish: eraInfo.styleFinish
+        });
 
         return {
             atSecond: atSec,
@@ -4928,11 +5078,19 @@ export const detectAudiobookChapterScenesWithLlm = async (
             illustrationPrompt: string;
         }> = [];
 
+        const windowEraInfo = resolveSceneEraAndStyleDirective({
+            bookTitle: currentBook.title,
+            author: currentBook.author,
+            chapterTitle: latestChapter.title,
+            sceneSnippet: `${cleanChapLabel} ${formattedExcerpt.slice(0, 500)}`,
+            effectiveStyle
+        });
+
         if (!llmRateLimitedInChapter) {
             const llmAnalysisPrompt = [
                 `You are a literary narrative analyst and cinematic storyboard director reading the timestamped transcript of "${currentBook.title}" by ${currentBook.author}.`,
                 `We are analyzing audio file #${latestChapter.chapter_index} ("${cleanChapLabel}", total duration ${fmtSecToMMSS(durationSec)}) chronologically.`,
-                `Era & Aesthetic Directive: ${eraInfo.eraContext} — ${eraInfo.wardrobeAndSettingDirective}.`,
+                `Era & Aesthetic Directive: ${windowEraInfo.eraContext} — ${windowEraInfo.wardrobeAndSettingDirective}.`,
                 `Current Window: ${wIdx + 1} of ${totalWindows} (${fmtSecToMMSS(winStartSec)} to ${fmtSecToMMSS(winEndSec)}, seconds ${winStartSec}..${winEndSec}).`,
                 characterBible.size > 0 ? `Known Characters in Book: ${Array.from(characterBible).slice(0, 12).join(', ')}.` : '',
                 chapterPlotReference ? `Chapter Plot Context: ${chapterPlotReference.slice(0, 700)}` : '',
@@ -4952,8 +5110,8 @@ export const detectAudiobookChapterScenesWithLlm = async (
                 `   - "sceneTitle": specific, evocative 3-7 word title for what happens in this scene`,
                 `   - "transitionReason": 1 concise sentence explaining WHY a new scene starts at this exact timestamp`,
                 `   - "characters": array of specific character names present in this scene`,
-                `   - "visualSetting": specific room/location, era (${eraInfo.eraContext}), and lighting`,
-                `   - "illustrationPrompt": a rich, concrete 55-80 word visual prompt in "${eraInfo.styleFinish}" style depicting the EXACT named characters, their facial expressions, ${eraInfo.wardrobeAndSettingDirective}, body language, and the specific plot action happening at this timestamp. NEVER interpret project names like "Staircase Program" as a literal staircase—depict the actual deep-space radiation-sail probe or aerospace command center!`,
+                `   - "visualSetting": specific room/location, era (${windowEraInfo.eraContext}), and lighting`,
+                `   - "illustrationPrompt": a rich, concrete 50-75 word visual prompt starting directly with the named characters and dramatic plot action happening at this exact timestamp (e.g. "Cheng Xin holds the silver capsule containing Yun Tianming's cryopreserved brain, tears in her eyes as Thomas Wade watches intently..."), followed by setting and lighting in "${windowEraInfo.styleFinish}" style. NEVER interpret project names like "Staircase Program" as a literal staircase! Return no text, no watermark.`,
                 `Respond ONLY with valid JSON matching this schema:`,
                 `{"transitions":[{"atSecond":${winStartSec},"sceneTitle":"...","transitionReason":"...","characters":["..."],"visualSetting":"...","illustrationPrompt":"..."}]}`
             ].filter(Boolean).join('\n');
@@ -5019,7 +5177,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
                 author: currentBook.author,
                 effectiveStyle,
                 knownCharacters: Array.from(characterBible),
-                chapterPlotReference
+                chapterPlotReference: chapterPlotReference || formattedExcerpt.slice(0, 600)
             });
             transitionsToProcess.push(...localTransitions);
         }
@@ -5042,8 +5200,8 @@ export const detectAudiobookChapterScenesWithLlm = async (
                 : `${cleanChapLabel} — ${tr.sceneTitle}`;
 
             const groundedPrompt = sanitizeAndGroundScenePrompt({
-                rawPrompt: `${tr.illustrationPrompt.replace(/^["']|["']$/g, '')}, ${eraInfo.styleFinish}`,
-                sceneSnippet: `${tr.sceneTitle} (${tr.characters.join(', ')}): ${tr.transitionReason}. ${formattedExcerpt.slice(0, 300)}`,
+                rawPrompt: tr.illustrationPrompt.replace(/^["']|["']$/g, ''),
+                sceneSnippet: `${tr.sceneTitle} (${tr.characters.join(', ')}): ${tr.transitionReason}. ${formattedExcerpt.slice(0, 450)}`,
                 bookTitle: currentBook.title,
                 author: currentBook.author,
                 chapterTitle: latestChapter.title,
