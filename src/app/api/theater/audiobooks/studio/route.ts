@@ -42,7 +42,11 @@ import {
     setAiGloballyPaused,
     isAiGloballyPaused,
     regenerateSingleAudiobookSceneImage,
-    getAudiobookTranscriptsDir
+    getAudiobookTranscriptsDir,
+    getBookVisualPortfolio,
+    saveBookVisualPortfolio,
+    generateBookVisualPortfolioWithAi,
+    paintBookPortfolioItem
 } from '@/lib/audiobookStudio';
 
 export const dynamic = 'force-dynamic';
@@ -65,6 +69,7 @@ export async function GET(request: Request) {
             const chapter = getAudiobookChapterMeta(chapterKey, bookKey || undefined);
             const book = chapter ? getAudiobookMeta(chapter.book_key) : (bookKey ? getAudiobookMeta(bookKey) : null);
             const chapters = book ? getAudiobookChaptersMeta(book.book_key) : (bookKey ? getAudiobookChaptersMeta(bookKey) : []);
+            const portfolio = book ? getBookVisualPortfolio(book.book_key) : (bookKey ? getBookVisualPortfolio(bookKey) : null);
             return NextResponse.json({
                 success: true,
                 config,
@@ -72,6 +77,7 @@ export async function GET(request: Request) {
                 book,
                 chapter,
                 chapters,
+                portfolio,
                 books,
                 collectionsState,
                 queueBreakdown,
@@ -82,12 +88,14 @@ export async function GET(request: Request) {
         if (bookKey) {
             const book = getAudiobookMeta(bookKey);
             const chapters = getAudiobookChaptersMeta(bookKey);
+            const portfolio = getBookVisualPortfolio(bookKey);
             return NextResponse.json({
                 success: true,
                 config,
                 status,
                 book,
                 chapters,
+                portfolio,
                 books,
                 collectionsState,
                 queueBreakdown,
@@ -204,6 +212,35 @@ export async function POST(request: Request) {
                 structure,
                 book: getAudiobookMeta(bookKey)
             });
+        }
+
+        if (action === 'get_book_portfolio') {
+            const { bookKey } = body;
+            const portfolio = getBookVisualPortfolio(bookKey);
+            return NextResponse.json({ success: true, portfolio });
+        }
+
+        if (action === 'generate_book_portfolio') {
+            const { bookKey } = body;
+            const portfolio = await generateBookVisualPortfolioWithAi(bookKey);
+            return NextResponse.json({ success: true, portfolio });
+        }
+
+        if (action === 'save_book_portfolio') {
+            const { bookKey, portfolio } = body;
+            if (bookKey && portfolio) {
+                saveBookVisualPortfolio(bookKey, portfolio);
+            }
+            return NextResponse.json({ success: true, portfolio });
+        }
+
+        if (action === 'paint_portfolio_item') {
+            const { bookKey, itemId, itemType, customPrompt } = body;
+            const result = await paintBookPortfolioItem({ bookKey, itemId, itemType, customPrompt });
+            if (!result) {
+                return NextResponse.json({ success: false, error: 'Failed to paint portfolio item' }, { status: 500 });
+            }
+            return NextResponse.json({ success: true, portfolio: result.portfolio, paintedUrl: result.paintedUrl });
         }
 
         if (action === 'reset_and_redo') {

@@ -14,7 +14,7 @@ import {
     Tv2, Radio, Sliders, MessageSquare, Activity, ExternalLink,
     Clock, FastForward, Rewind, Subtitles, ListFilter, Bookmark,
     ListPlus, Copy, Download, Shuffle, Repeat, SkipForward, SkipBack,
-    Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
+    Disc, User, ListMusic, Youtube, Globe, Heart, Star, PlaySquare, ArrowDownToLine,
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
     Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, RotateCcw, CheckCheck, Zap,
     UploadCloud, Clapperboard, AlertCircle, GripVertical,
@@ -29,6 +29,7 @@ import { smartMatchScore, normalizeSearchTerm, cleanTrackForMatching, findMatchi
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 import { logClientEvent } from '@/lib/clientLogger';
 import { AuthorDetailsModal } from '@/components/AuthorDetailsModal';
+import { MediaGradingModal } from '@/components/MediaGradingModal';
 
 interface TheaterLibrary {
     id: string;
@@ -320,6 +321,85 @@ function TheaterPageContent() {
 
     // IPTV / Live TV States
     const liveTvCacheRef = useRef<Record<string, { channels: any[]; groups: any[]; shortlists: any[] }>>({});
+    const libraryItemsCacheRef = useRef<Record<string, MediaItem[]>>({});
+    const [userRatings, setUserRatings] = useState<Record<string, any>>({});
+    const [userFavorites, setUserFavorites] = useState<string[]>([]);
+    const [gradingModalItem, setGradingModalItem] = useState<{
+        itemKey: string;
+        title: string;
+        subtitle?: string;
+        posterUrl?: string | null;
+        mediaType: 'book' | 'movie' | 'show';
+    } | null>(null);
+
+    const favoritesSet = useMemo(() => new Set(userFavorites), [userFavorites]);
+
+    const fetchUserRatingsAndFavorites = useCallback(async () => {
+        try {
+            const res = await fetch('/api/theater/ratings');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.ratings) setUserRatings(data.ratings);
+                if (data.favorites) setUserFavorites(data.favorites);
+            }
+        } catch {}
+    }, []);
+
+    useEffect(() => {
+        fetchUserRatingsAndFavorites();
+    }, [fetchUserRatingsAndFavorites]);
+
+    const handleToggleFavorite = async (itemKey: string) => {
+        if (!itemKey) return;
+        setUserFavorites(prev => prev.includes(itemKey) ? prev.filter(k => k !== itemKey) : [...prev, itemKey]);
+        try {
+            const res = await fetch('/api/theater/ratings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'toggle_favorite', itemKey })
+            });
+            const data = await res.json();
+            if (data.success && data.favorites) {
+                setUserFavorites(data.favorites);
+            }
+        } catch {
+            toast.error('Failed to update favorite');
+        }
+    };
+
+    const handleSaveRating = async (ratingData: any) => {
+        try {
+            const res = await fetch('/api/theater/ratings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'save_rating', rating: ratingData })
+            });
+            const data = await res.json();
+            if (data.success && data.ratings) {
+                setUserRatings(data.ratings);
+                toast.success('Grade saved');
+            }
+        } catch {
+            toast.error('Failed to save grade');
+        }
+    };
+
+    const handleDeleteRating = async (itemKey: string) => {
+        try {
+            const res = await fetch('/api/theater/ratings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete_rating', itemKey })
+            });
+            const data = await res.json();
+            if (data.success && data.ratings) {
+                setUserRatings(data.ratings);
+                toast.success('Grade removed');
+            }
+        } catch {
+            toast.error('Failed to remove grade');
+        }
+    };
     const [iptvChannels, setIptvChannels] = useState<IptvChannel[]>([]);
     const [iptvGroups, setIptvGroups] = useState<{ name: string; count: number }[]>([]);
     const [selectedIptvGroup, setSelectedIptvGroup] = useState<string>('ALL');
@@ -1239,6 +1319,16 @@ function TheaterPageContent() {
                 setLoadingItems(false);
                 return;
             }
+        } else {
+            // Instant 0ms cache check for movies, series, audiobooks, music
+            const allCached = !forceRefresh && libs.every(l => libraryItemsCacheRef.current[l.id]);
+            if (allCached) {
+                const cachedItems = libs.flatMap(l => libraryItemsCacheRef.current[l.id] || []);
+                setItems(cachedItems);
+                setIptvChannels([]);
+                setLoadingItems(false);
+                return;
+            }
         }
 
         setLoadingItems(true);
@@ -1302,11 +1392,13 @@ function TheaterPageContent() {
                             if (res.ok) {
                                 const data = await res.json();
                                 const fetchedItems = Array.isArray(data.items) ? data.items : [];
-                                return fetchedItems.map((item: any) => ({
+                                const mapped = fetchedItems.map((item: any) => ({
                                     ...item,
                                     libraryId: lib.id,
                                     libraryName: lib.name
                                 }));
+                                libraryItemsCacheRef.current[lib.id] = mapped;
+                                return mapped;
                             }
                         } catch {}
                         return [];
@@ -5442,6 +5534,21 @@ function TheaterPageContent() {
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
+                                                                handleToggleFavorite(track.path || track.id);
+                                                            }}
+                                                            className={`p-1.5 sm:p-2 rounded-xl transition-colors ${
+                                                                favoritesSet.has(track.path || track.id)
+                                                                    ? 'text-rose-400 bg-rose-500/15'
+                                                                    : 'text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10'
+                                                            }`}
+                                                            title={favoritesSet.has(track.path || track.id) ? "Favorited (Click to remove)" : "Add to Favorites"}
+                                                        >
+                                                            <Heart size={16} className={favoritesSet.has(track.path || track.id) ? "fill-rose-500" : ""} />
+                                                        </button>
+
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
                                                                 handleDownloadTrack(track);
                                                             }}
                                                             className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
@@ -6110,6 +6217,43 @@ function TheaterPageContent() {
                                                         <span>Done</span>
                                                     </button>
                                                 </div>
+                                                <div className="flex items-center gap-2 w-full pt-1">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleToggleFavorite(book.bookKey);
+                                                        }}
+                                                        title={favoritesSet.has(book.bookKey) ? "Favorited (Click to remove)" : "Add to favorites"}
+                                                        className={`p-2.5 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
+                                                            favoritesSet.has(book.bookKey)
+                                                                ? 'bg-rose-500/20 text-rose-400 border-rose-500/50 hover:bg-rose-500/30'
+                                                                : 'bg-zinc-900/90 text-zinc-400 border-zinc-700/80 hover:text-rose-400'
+                                                        }`}
+                                                    >
+                                                        <Heart size={18} className={favoritesSet.has(book.bookKey) ? "fill-rose-500 text-rose-500" : ""} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setGradingModalItem({
+                                                                itemKey: book.bookKey,
+                                                                title: book.cleanTitle || book.title,
+                                                                subtitle: book.author,
+                                                                posterUrl: effectiveCoverUrl || book.posterUrl,
+                                                                mediaType: 'book'
+                                                            });
+                                                        }}
+                                                        title={userRatings[book.bookKey] ? `Your Grade: ${userRatings[book.bookKey].overallScore}/100 (Click to adjust)` : "Grade this book (0-100 across 6 categories)"}
+                                                        className={`flex-1 py-2 px-3 rounded-xl border font-black text-xs sm:text-sm uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                                            userRatings[book.bookKey]
+                                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30'
+                                                                : 'bg-zinc-900/90 text-zinc-300 border-zinc-700/80 hover:text-white'
+                                                        }`}
+                                                    >
+                                                        <Star size={16} className={userRatings[book.bookKey] ? "fill-amber-400 text-amber-400" : "text-amber-400"} />
+                                                        <span>{userRatings[book.bookKey] ? `${userRatings[book.bookKey].overallScore}` : "Grade"}</span>
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             {/* Top Left Volume / Status Badges */}
@@ -6435,6 +6579,43 @@ function TheaterPageContent() {
                                                                         <Check size={15} />
                                                                         <span>Done</span>
                                                                     </button>
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleToggleFavorite(book.bookKey);
+                                                                            }}
+                                                                            title={favoritesSet.has(book.bookKey) ? "Favorited (Click to remove)" : "Add to favorites"}
+                                                                            className={`p-2 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
+                                                                                favoritesSet.has(book.bookKey)
+                                                                                    ? 'bg-rose-500/20 text-rose-400 border-rose-500/50'
+                                                                                    : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-rose-400'
+                                                                            }`}
+                                                                        >
+                                                                            <Heart size={15} className={favoritesSet.has(book.bookKey) ? "fill-rose-500 text-rose-500" : ""} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setGradingModalItem({
+                                                                                    itemKey: book.bookKey,
+                                                                                    title: book.cleanTitle || book.title,
+                                                                                    subtitle: book.author,
+                                                                                    posterUrl: effectiveCoverUrl || book.posterUrl,
+                                                                                    mediaType: 'book'
+                                                                                });
+                                                                            }}
+                                                                            title={userRatings[book.bookKey] ? `Your Grade: ${userRatings[book.bookKey].overallScore}/100` : "Grade this book"}
+                                                                            className={`px-3 py-2 rounded-xl border text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 transition-all cursor-pointer ${
+                                                                                userRatings[book.bookKey]
+                                                                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                                                                                    : 'bg-zinc-900 text-zinc-300 border-zinc-700 hover:text-white'
+                                                                            }`}
+                                                                        >
+                                                                            <Star size={15} className={userRatings[book.bookKey] ? "fill-amber-400 text-amber-400" : "text-amber-400"} />
+                                                                            <span>{userRatings[book.bookKey] ? `${userRatings[book.bookKey].overallScore}` : "Grade"}</span>
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -6667,6 +6848,43 @@ function TheaterPageContent() {
                                                 {show.seasons.length > 0 ? `${show.seasons.length}S • ` : ''}{show.totalEpisodes} Eps
                                             </span>
                                         </div>
+                                        <div className="flex items-center gap-2 pt-2 border-t border-zinc-900">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleToggleFavorite(`show::${show.name}`);
+                                                }}
+                                                title={favoritesSet.has(`show::${show.name}`) ? "Favorited (Click to remove)" : "Add to favorites"}
+                                                className={`p-2 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
+                                                    favoritesSet.has(`show::${show.name}`)
+                                                        ? 'bg-rose-500/20 text-rose-400 border-rose-500/50'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-rose-400'
+                                                }`}
+                                            >
+                                                <Heart size={15} className={favoritesSet.has(`show::${show.name}`) ? "fill-rose-500 text-rose-500" : ""} />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setGradingModalItem({
+                                                        itemKey: `show::${show.name}`,
+                                                        title: show.name,
+                                                        subtitle: `${show.seasons?.length || 1} Seasons`,
+                                                        posterUrl: show.posterUrl,
+                                                        mediaType: 'show'
+                                                    });
+                                                }}
+                                                title={userRatings[`show::${show.name}`] ? `Your Grade: ${userRatings[`show::${show.name}`].overallScore}/100` : "Grade this show"}
+                                                className={`flex-1 py-1.5 px-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                                    userRatings[`show::${show.name}`]
+                                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                                                        : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                <Star size={14} className={userRatings[`show::${show.name}`] ? "fill-amber-400 text-amber-400" : "text-amber-400"} />
+                                                <span>{userRatings[`show::${show.name}`] ? `${userRatings[`show::${show.name}`].overallScore}` : "Grade"}</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -6833,6 +7051,43 @@ function TheaterPageContent() {
                                             ) : (
                                                 <span className="text-[10px] text-zinc-600 uppercase font-black">{item.extension || 'Plex'}</span>
                                             )}
+                                        </div>
+                                        <div className="flex items-center gap-2 pt-2 border-t border-zinc-900">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleToggleFavorite(item.path || item.id);
+                                                }}
+                                                title={favoritesSet.has(item.path || item.id) ? "Favorited (Click to remove)" : "Add to favorites"}
+                                                className={`p-2 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
+                                                    favoritesSet.has(item.path || item.id)
+                                                        ? 'bg-rose-500/20 text-rose-400 border-rose-500/50'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-rose-400'
+                                                }`}
+                                            >
+                                                <Heart size={15} className={favoritesSet.has(item.path || item.id) ? "fill-rose-500 text-rose-500" : ""} />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setGradingModalItem({
+                                                        itemKey: item.path || item.id,
+                                                        title: item.title,
+                                                        subtitle: item.folder,
+                                                        posterUrl: item.posterUrl,
+                                                        mediaType: 'movie'
+                                                    });
+                                                }}
+                                                title={userRatings[item.path || item.id] ? `Your Grade: ${userRatings[item.path || item.id].overallScore}/100` : "Grade this movie"}
+                                                className={`flex-1 py-1.5 px-3 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                                    userRatings[item.path || item.id]
+                                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                                                        : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                <Star size={14} className={userRatings[item.path || item.id] ? "fill-amber-400 text-amber-400" : "text-amber-400"} />
+                                                <span>{userRatings[item.path || item.id] ? `${userRatings[item.path || item.id].overallScore}` : "Grade"}</span>
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -12427,6 +12682,22 @@ function TheaterPageContent() {
 
 
 
+
+            {/* ── MEDIA GRADING MODAL ── */}
+            {gradingModalItem && (
+                <MediaGradingModal
+                    isOpen={true}
+                    onClose={() => setGradingModalItem(null)}
+                    itemKey={gradingModalItem.itemKey}
+                    title={gradingModalItem.title}
+                    subtitle={gradingModalItem.subtitle}
+                    posterUrl={gradingModalItem.posterUrl}
+                    mediaType={gradingModalItem.mediaType}
+                    initialRating={userRatings[gradingModalItem.itemKey] || null}
+                    onSaveRating={handleSaveRating}
+                    onDeleteRating={handleDeleteRating}
+                />
+            )}
 
             {/* Author Details & Showcase Modal */}
             <AuthorDetailsModal

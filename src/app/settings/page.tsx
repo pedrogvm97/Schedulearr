@@ -144,6 +144,28 @@ export default function Settings() {
 
 
 
+    // Check URL parameters for direct deep-linking (e.g. /settings?subtopic=ai or ?tab=ai)
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const subtopicParam = (params.get('subtopic') || params.get('tab') || '').toLowerCase();
+            if (subtopicParam === 'ai' || subtopicParam === 'ai_studio' || subtopicParam === 'ai_settings' || subtopicParam === 'aisettings') {
+                setSettingsSubtopic('ai');
+            } else if (subtopicParam === 'automation') {
+                setSettingsSubtopic('automation');
+            } else if (subtopicParam === 'system') {
+                setSettingsSubtopic('system');
+            } else if (subtopicParam === 'instances') {
+                setSettingsSubtopic('instances');
+            }
+
+            const mediaParam = (params.get('media') || '').toLowerCase();
+            if (mediaParam === 'audiobooks' || mediaParam === 'video' || mediaParam === 'general') {
+                setAiMediaCategory(mediaParam);
+            }
+        }
+    }, []);
+
     const handlePairPlex = async () => {
         setPlexPairing(true);
         setPlexPairingStatus("Connecting to Plex Auth...");
@@ -1166,50 +1188,54 @@ export default function Settings() {
                     </div>
                 </div>
 
-                {/* Subtopic Segmented Switcher */}
-                <div className="flex p-1.5 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 max-w-2xl gap-1">
+                {/* Subtopic Segmented Switcher — Prominent 125%+ Scale Controls */}
+                <div className="flex flex-wrap p-2 bg-zinc-950/90 rounded-3xl border border-zinc-800 max-w-4xl gap-2 shadow-xl">
                     <button
                         onClick={() => setSettingsSubtopic('instances')}
-                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                        title="Configure Radarr, Sonarr, Lidarr, and media server instances"
+                        className={`flex-1 min-w-[130px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
                             settingsSubtopic === 'instances'
-                                ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
                         }`}
                     >
-                        <Server size={14} className={settingsSubtopic === 'instances' ? 'text-indigo-400' : ''} />
+                        <Server size={20} className={settingsSubtopic === 'instances' ? 'text-white' : 'text-indigo-400'} />
                         <span>Instances</span>
                     </button>
                     <button
                         onClick={() => setSettingsSubtopic('automation')}
-                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                        title="Configure search schedules, automated batching, and storage guards"
+                        className={`flex-1 min-w-[130px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
                             settingsSubtopic === 'automation'
-                                ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
+                                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
                         }`}
                     >
-                        <Shield size={14} className={settingsSubtopic === 'automation' ? 'text-emerald-400' : ''} />
+                        <Shield size={20} className={settingsSubtopic === 'automation' ? 'text-white' : 'text-emerald-400'} />
                         <span>Automation</span>
                     </button>
                     <button
                         onClick={() => setSettingsSubtopic('ai')}
-                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                        title="Dedicated AI Settings: Neural engines, API key pools, image quotas, voice models & pipeline stages"
+                        className={`flex-1 min-w-[150px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
                             settingsSubtopic === 'ai'
-                                ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
+                                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30 border border-amber-300'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
                         }`}
                     >
-                        <Sparkles size={14} className={settingsSubtopic === 'ai' ? 'text-amber-400' : ''} />
-                        <span>AI Studio</span>
+                        <Sparkles size={20} className={settingsSubtopic === 'ai' ? 'text-black' : 'text-amber-400'} />
+                        <span>AI Settings</span>
                     </button>
                     <button
                         onClick={() => setSettingsSubtopic('system')}
-                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                        title="System updates, Docker diagnostics, and troubleshooting"
+                        className={`flex-1 min-w-[130px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
                             settingsSubtopic === 'system'
-                                ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
+                                ? 'bg-sky-600 text-white shadow-lg shadow-sky-600/30 border border-sky-400'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
                         }`}
                     >
-                        <Wrench size={14} className={settingsSubtopic === 'system' ? 'text-sky-400' : ''} />
+                        <Wrench size={20} className={settingsSubtopic === 'system' ? 'text-white' : 'text-sky-400'} />
                         <span>System</span>
                     </button>
                 </div>

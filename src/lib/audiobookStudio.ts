@@ -116,6 +116,150 @@ export interface BookRealStructure {
     discoveredAt: string;
 }
 
+export interface BookPortfolioCharacter {
+    id: string;
+    name: string;
+    role: string;
+    appearance: string;
+    clothing: string;
+    personality?: string;
+    imageUrl?: string;
+    imagePrompt?: string;
+}
+
+export interface BookPortfolioLocation {
+    id: string;
+    name: string;
+    era?: string;
+    visualDescription: string;
+    imageUrl?: string;
+    imagePrompt?: string;
+}
+
+export interface BookVisualPortfolio {
+    bookKey: string;
+    bookTitle: string;
+    author: string;
+    summary: string;
+    characters: BookPortfolioCharacter[];
+    locations: BookPortfolioLocation[];
+    updatedAt: string;
+}
+
+export interface CuratedVoiceProfile {
+    id: string;
+    name: string;
+    subtitle: string;
+    gender: 'male' | 'female' | 'neutral';
+    category: 'iconic' | 'classic' | 'intimate' | 'broadcast';
+    description: string;
+    tags: string[];
+    pitchOffset: number;
+    color: string;
+}
+
+export const CURATED_VOICE_PROFILES: CuratedVoiceProfile[] = [
+    {
+        id: 'morgan_freeman',
+        name: 'Morgan Freeman',
+        subtitle: 'The Voice of God & Wisdom',
+        gender: 'male',
+        category: 'iconic',
+        description: 'Deep authoritative resonance, warm baritone chest rumble, slow deliberate cadence and profound gravitas.',
+        tags: ['Authoritative', 'Deep Bass', 'Cinematic', 'Gravitas'],
+        pitchOffset: -11,
+        color: 'from-amber-600 to-yellow-800'
+    },
+    {
+        id: 'barack_obama',
+        name: 'Barack Obama',
+        subtitle: 'Oratorical Rhythm & Presence',
+        gender: 'male',
+        category: 'iconic',
+        description: 'Melodic rhetorical cadence, signature deliberate pacing, warm mid-range baritone clarity, and measured gravitas.',
+        tags: ['Rhythmic', 'Oratorical', 'Warm Baritone', 'Measured'],
+        pitchOffset: -7,
+        color: 'from-blue-600 to-indigo-800'
+    },
+    {
+        id: 'scarlett_johansson',
+        name: 'Scarlett Johansson',
+        subtitle: 'Intimate Velvet & Warm Whisper',
+        gender: 'female',
+        category: 'intimate',
+        description: 'Silky close-mic presence, breathy subtle huskiness, intimate bedside storytelling tone, and velvet warmth.',
+        tags: ['Intimate', 'Breathy Velvet', 'Bedside', 'Sensual Warmth'],
+        pitchOffset: 2,
+        color: 'from-rose-500 to-pink-800'
+    },
+    {
+        id: 'attenborough',
+        name: 'Sir David Attenborough',
+        subtitle: 'Naturalist Wonder & British Cadence',
+        gender: 'male',
+        category: 'iconic',
+        description: 'Quiet breathless wonder, precise BBC naturalist articulation, gentle grandfatherly warmth and awe.',
+        tags: ['British Accent', 'Naturalist', 'Quiet Wonder', 'Articulate'],
+        pitchOffset: -3,
+        color: 'from-emerald-600 to-teal-800'
+    },
+    {
+        id: 'deep_narrator',
+        name: 'Deep Studio Baritone',
+        subtitle: 'Epic Sci-Fi & Fantasy Narrator',
+        gender: 'male',
+        category: 'classic',
+        description: 'Imposing cinematic depth with rich sub-harmonics, tailored for high-stakes space operas and epic mythos.',
+        tags: ['Epic Depth', 'Resonant Sub-Bass', 'Sci-Fi Voice'],
+        pitchOffset: -8,
+        color: 'from-purple-600 to-indigo-900'
+    },
+    {
+        id: 'warm_storyteller',
+        name: 'Warm Fireside Storyteller',
+        subtitle: 'Balanced Classic Audio Edition',
+        gender: 'neutral',
+        category: 'classic',
+        description: 'Cozy, inviting acoustic balance with boosted speech clarity, gentle compression, and zero listener fatigue.',
+        tags: ['All-Genre', 'Cozy', 'Zero Fatigue', 'Natural'],
+        pitchOffset: -4,
+        color: 'from-amber-500 to-orange-700'
+    },
+    {
+        id: 'crisp_clear',
+        name: 'Crystal Clear Voice',
+        subtitle: 'Modern High-Fidelity Presence',
+        gender: 'neutral',
+        category: 'broadcast',
+        description: 'Pristine high-definition articulation, cutting-edge sibilance management, and razor-sharp intelligibility.',
+        tags: ['Crisp Presence', 'High Intelligibility', 'Modern Podcast'],
+        pitchOffset: 4,
+        color: 'from-cyan-500 to-blue-700'
+    },
+    {
+        id: 'late_night_radio',
+        name: 'Midnight FM Host',
+        subtitle: 'Vintage Tube Warmth & Compression',
+        gender: 'male',
+        category: 'broadcast',
+        description: 'Analog broadcast compression, silky rolled-off highs, and intimate FM broadcast presence for late-night listening.',
+        tags: ['Analog Tube', 'FM Broadcast', 'Night Companion'],
+        pitchOffset: -6,
+        color: 'from-violet-600 to-fuchsia-900'
+    },
+    {
+        id: 'original',
+        name: 'Original Recording Master',
+        subtitle: 'Studio Denoise & Normalization Only',
+        gender: 'neutral',
+        category: 'classic',
+        description: 'Preserves the original narrator voice without pitch manipulation, applying only clean studio noise reduction and loudness mastering.',
+        tags: ['Pure Voice', 'Original Actor', 'Lossless Pitch'],
+        pitchOffset: 0,
+        color: 'from-zinc-600 to-zinc-800'
+    }
+];
+
 export interface AudiobookStudioConfig {
     enabled: boolean;
     aiPaused?: boolean;
@@ -3353,7 +3497,19 @@ export const enhanceAudiobookChapterAudio = async (
         filters.push('highpass=f=80', 'lowpass=f=13500', 'afftdn=nf=-24', 'dynaudnorm=f=200:g=15');
     }
 
-    if (effectiveVoice === 'deep_narrator' || effectiveVoice === 'deep_cinema') {
+    if (effectiveVoice === 'morgan_freeman') {
+        // Deep authoritative resonance, rich chest gravitas, warm bass presence, deliberate cadence
+        filters.push('asetrate=44100*0.89,aresample=44100,atempo=1.1235955,equalizer=f=110:width_type=h:width=80:g=4.8,equalizer=f=2400:width_type=h:width=900:g=3.2,acompressor=threshold=-19dB:ratio=3:attack=15:release=220,dynaudnorm=f=200:g=15');
+    } else if (effectiveVoice === 'barack_obama') {
+        // Melodic oratorical cadence, measured pacing, warm baritone speech presence
+        filters.push('asetrate=44100*0.93,aresample=44100,atempo=1.0752688,equalizer=f=180:width_type=h:width=90:g=3.0,equalizer=f=3100:width_type=h:width=1100:g=3.0,dynaudnorm=f=180:g=14');
+    } else if (effectiveVoice === 'scarlett_johansson') {
+        // Intimate velvet warmth, close-mic presence, breathy articulation, gentle sibilance smoothing
+        filters.push('asetrate=44100*1.02,aresample=44100,atempo=0.9803922,equalizer=f=220:width_type=h:width=100:g=2.2,equalizer=f=4500:width_type=h:width=1200:g=3.5,equalizer=f=8000:width_type=h:width=2000:g=2.0,lowpass=f=13000,dynaudnorm=f=250:g=16');
+    } else if (effectiveVoice === 'attenborough') {
+        // Naturalist British wonder, gentle grandfatherly warmth, clear BBC acoustic headroom
+        filters.push('asetrate=44100*0.97,aresample=44100,atempo=1.0309278,equalizer=f=190:width_type=h:width=90:g=2.2,equalizer=f=3600:width_type=h:width=1200:g=3.5,acompressor=threshold=-16dB:ratio=2.2:attack=10:release=160,dynaudnorm=f=160:g=12');
+    } else if (effectiveVoice === 'deep_narrator' || effectiveVoice === 'deep_cinema') {
         filters.push('asetrate=44100*0.92,aresample=44100,atempo=1.0869565,equalizer=f=140:width_type=h:width=90:g=3');
     } else if (effectiveVoice === 'warm_storyteller') {
         filters.push('asetrate=44100*0.96,aresample=44100,atempo=1.0416667,equalizer=f=220:width_type=h:width=120:g=2.5');
@@ -3670,6 +3826,31 @@ export const sanitizeAndGroundScenePrompt = (params: {
         );
         actionCore = cleanSnippet || `Dramatic narrative events in ${chapterTitle} of "${bookTitle}"`;
     }
+
+    // Ground scene prompt with canonical character appearance & wardrobe if recognized in this scene
+    try {
+        const bookKeyMatch = (params as any).bookKey;
+        let pKey = bookKeyMatch;
+        if (!pKey) {
+            const all = getAllAudiobooksMeta();
+            const b = all.find(x => x.title.toLowerCase() === bookTitle.toLowerCase());
+            if (b) pKey = b.book_key;
+        }
+        if (pKey) {
+            const portfolio = getBookVisualPortfolio(pKey);
+            if (portfolio && Array.isArray(portfolio.characters)) {
+                for (const char of portfolio.characters) {
+                    const charRx = new RegExp(`\\b${char.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+                    if (charRx.test(actionCore) || charRx.test(sceneSnippet)) {
+                        if (!actionCore.toLowerCase().includes(char.appearance.toLowerCase().slice(0, 20))) {
+                            actionCore += ` Featuring ${char.name} (${char.appearance}, wearing ${char.clothing}).`;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    } catch {}
 
     return formatActionFirstVisualPrompt({
         actionAndCharacters: actionCore,
@@ -6978,4 +7159,455 @@ export const executeRenameAudiobookFiles = (
         results
     };
 };
+
+/**
+ * Built-in Canonical Character & Setting Portfolios for prominent literary works.
+ * Provides authentic, rich visual continuity across scenes and character galleries.
+ */
+const KNOWN_BOOK_LORE_PORTFOLIOS: Record<string, {
+    summary: string;
+    characters: Array<{ name: string; role: string; appearance: string; clothing: string; personality: string }>;
+    locations: Array<{ name: string; era?: string; visualDescription: string }>;
+}> = {
+    deaths_end: {
+        summary: "Remembrance of Earth's Past Book 3: Spanning the Common Era (1453 Constantinople prologue) to the Deterrence, Post-Deterrence, Bunker Eras, and the pocket universe collapse.",
+        characters: [
+            {
+                name: 'Cheng Xin',
+                role: 'Protagonist, Aerospace Engineer & Second Swordholder',
+                appearance: 'Chinese woman in her late 20s to early 30s, gentle solemn expression, slender frame, dark hair tied back, eyes reflecting empathy and tragic moral burden',
+                clothing: 'Common Era aerospace flight suit / white lab coat, later Deterrence Era elegant minimalist white silk robes, later astronaut flight pressure-suit',
+                personality: 'Compassionate, morally steadfast, bearing the weight of human survival'
+            },
+            {
+                name: 'Yun Tianming',
+                role: 'Recluse, Star Buyer & Fairy Tale Weaver',
+                appearance: 'Pale slender Chinese man, contemplative melancholy eyes, quiet solitary presence, sharp intelligent gaze',
+                clothing: 'Subdued wool coat and knit scarf in the Common Era, later sleek deep space voyager attire',
+                personality: 'Deeply thoughtful, enigmatic, selfless devotion to Cheng Xin'
+            },
+            {
+                name: 'Thomas Wade',
+                role: 'Former PIA Director & Ruthless Realist',
+                appearance: 'Severe middle-aged American intelligence leader, piercing icy blue-gray eyes, silver-dusted dark hair slicked back, prominent jaw, cybernetic prosthetic arm in later eras',
+                clothing: 'Tailored sharp charcoal intelligence suit, crisp white collar, later tactical military trench coat',
+                personality: 'Uncompromisingly pragmatic, ferocious determination: "Advance! Advance at all costs!"'
+            },
+            {
+                name: 'Ai AA',
+                role: 'Physicist, Astronomer & Cheng Xin\'s Closest Companion',
+                appearance: 'Energetic young Chinese woman, short black bob hairstyle, bright expressive dark eyes, warm resilient smile',
+                clothing: 'Vibrant futuristic jumpsuits with utilitarian accents, comfortable celestial observation gear',
+                personality: 'Spirited, quick-witted, fiercely loyal and grounded'
+            },
+            {
+                name: 'Guan Yifan',
+                role: 'Deep Space Astronomer & Gravity Crew Scientist',
+                appearance: 'Weathered Chinese astronomer, calm calculating features, graying hair, quiet philosopher gaze',
+                clothing: 'Deterrence Fleet blue-gray exploration flight uniform with mission patches',
+                personality: 'Patient, analytical, cosmic perspective on deep time and dimensional physics'
+            },
+            {
+                name: 'Sophon',
+                role: 'Trisolarian Humanoid Diplomatic Android',
+                appearance: 'Serene, extraordinarily beautiful East Asian woman with porcelain skin, impassive dark eyes, unearthly graceful stillness',
+                clothing: 'Traditional embroidered Japanese silk kimono with tea ceremony accessories / later desert camouflage combat fatigues with katana on back',
+                personality: 'Polite, cultured, chillingly detached and capable of sudden lethal brutality'
+            },
+            {
+                name: 'Helena',
+                role: 'Byzantine Courtesan & Sorceress (1453 Prologue)',
+                appearance: 'Stunning 15th-century Greek/Byzantine woman with long dark wavy hair, mysterious knowing gaze',
+                clothing: 'Flowing purple embroidered Byzantine velvet gown, gold filigree jewelry',
+                personality: 'Mystical, fearless, drawn to the four-dimensional cosmic miracle'
+            }
+        ],
+        locations: [
+            {
+                name: '1453 Siege of Constantinople (Prologue)',
+                era: '1453 AD',
+                visualDescription: 'Ancient stone Theodosian ramparts under Ottoman siege, massive golden dome of Hagia Sophia, mystical shimmering 4D celestial distortion aperture glowing in the Mediterranean dusk sky'
+            },
+            {
+                name: 'Bunker Era Space Cities behind Jupiter',
+                era: 'Bunker Era',
+                visualDescription: 'Gigantic rotating Bernal sphere and O\'Neill cylinder habitats shielded under the colossal banded mass of Jupiter, glowing artificial skies and suspended zero-gravity sky cities'
+            },
+            {
+                name: 'Deterrence Era Gravity Broadcast Station',
+                era: 'Deterrence Era',
+                visualDescription: 'Pristine white monolithic neutrino transmitter antenna piercing through low overcast storm clouds, juxtaposed against quiet raked stone and bamboo zen gardens'
+            },
+            {
+                name: 'Pluto Planetary Museum',
+                era: 'Bunker Era / 2D Collapse',
+                visualDescription: 'Subterranean cavern excavated directly into the frozen nitrogen-methane bedrock of Pluto, ancient Earth stone inscriptions and historical artifacts lit by amber archival lamps'
+            },
+            {
+                name: 'Universe 647 (Pocket Dimension)',
+                era: 'End of Time',
+                visualDescription: 'A serene miniature pastoral paradise, lush green meadow under a gentle warm mini-sun, a solitary timber cottage, blue pond, and agricultural tractor resting in eternal twilight'
+            }
+        ]
+    },
+    three_body_problem: {
+        summary: "Remembrance of Earth's Past Book 1: The inception of humanity's contact with Trisolaris from the Cultural Revolution to the nano-material ambush of Judgement Day.",
+        characters: [
+            {
+                name: 'Ye Wenjie',
+                role: 'Astrophysicist & Inceptor of the Contact',
+                appearance: 'Solemn intellectual Chinese woman, weathered by tragedy, piercing intelligent eyes, graying hair',
+                clothing: '1960s green military padded parka / later modest grey academic woolen cardigan',
+                personality: 'Quiet, profound disillusionment with humanity, unwavering conviction'
+            },
+            {
+                name: 'Wang Miao',
+                role: 'Nanomaterials Scientist',
+                appearance: 'Chinese researcher in his late 30s, neat wire-rimmed glasses, nervous observant demeanor',
+                clothing: 'Clean casual button-down shirt and brown laboratory jacket',
+                personality: 'Logical, cautious, stunned by the impossible cosmic countdown'
+            },
+            {
+                name: 'Shi Qiang (Da Shi)',
+                role: 'Veteran Counter-Terrorism Detective',
+                appearance: 'Burly cynical Beijing police detective, coarse rugged face, perpetually squinting through cigarette smoke',
+                clothing: 'Worn dark brown leather jacket, rumpled trousers, unbuttoned collar',
+                personality: 'Streetwise, unshakeable nerves, deep psychological insight'
+            }
+        ],
+        locations: [
+            {
+                name: 'Red Coast Base (Radar Peak)',
+                era: '1960s - 1970s',
+                visualDescription: 'Massive parabolic satellite dish antenna mounted on the granite summit of Radar Peak in Daxing\'anling, surrounded by pine forests and bitter sub-zero Siberian blizzards'
+            },
+            {
+                name: 'Three-Body VR Civilization',
+                era: 'Virtual Reality',
+                visualDescription: 'Desolate alien plain beneath three erratic burning suns, dehydrated parchment-like bodies rolled up in storage, towering bronze pyramid in the distance'
+            },
+            {
+                name: 'Operation Guzheng (Panama Canal)',
+                era: 'Common Era',
+                visualDescription: 'Tropical daylight on the narrow Gaillard Cut, invisible ultra-dense flying-blade nanowires stringing across the banks as the Judgement Day oil tanker slices apart like a deck of cards'
+            }
+        ]
+    },
+    dark_forest: {
+        summary: "Remembrance of Earth's Past Book 2: The Wallfacer Project, the Droplet's devastating assault on the Earth Fleet, and the discovery of cosmic sociology.",
+        characters: [
+            {
+                name: 'Luo Ji',
+                role: 'Cosmic Sociologist & Wallfacer',
+                appearance: 'Slender, detached Chinese academic, cynical playful smile, unruly dark hair, solitary demeanor',
+                clothing: 'Heavy dark sheepskin shearling jacket with woolen scarf',
+                personality: 'Hedonistic turned reluctant savior of two worlds, profound strategic mind'
+            },
+            {
+                name: 'Zhang Beihai',
+                role: 'Space Force Political Commissar & Escapist',
+                appearance: 'Chiseled stoic Chinese naval officer, razor-sharp posture, resolute stone-faced expression',
+                clothing: 'Immaculate dark blue Space Force dress uniform with high collar and silver insignia',
+                personality: 'Master of deep deception, unswerving dedication to human continuation'
+            }
+        ],
+        locations: [
+            {
+                name: 'The Droplet Battle (Doomsday)',
+                era: 'Crisis Era',
+                visualDescription: 'Mirror-polished, teardrop-shaped alien probe of total reflection streaking through 2,000 rectangular stellar-class fusion battleships, shattering them into expanding nuclear fireballs'
+            },
+            {
+                name: 'Luo Ji\'s Lakeside Winter Solitude',
+                era: 'Crisis Era',
+                visualDescription: 'Frozen Nordic lake surrounded by dense fir trees, quiet log cabin with chimney smoke rising into dusk, casting a cosmic spell into the dark void'
+            }
+        ]
+    },
+    dune: {
+        summary: "Frank Herbert's sci-fi epic: Arrakis, the spice melange, Fremen rebellion, and the rise of Muad'Dib.",
+        characters: [
+            {
+                name: 'Paul Atreides (Muad\'Dib)',
+                role: 'Young Duke & Messianic Leader',
+                appearance: 'Lean aristocratic youth with dark wavy hair, sharp hawkish Atreides nose, deep spice-blue eyes',
+                clothing: 'Black formal Atreides high-collar tunic / full desert Stillsuit with filtration mask',
+                personality: 'Precognitive, burdened by terrible purpose, fierce leader'
+            },
+            {
+                name: 'Lady Jessica',
+                role: 'Bene Gesserit Sister & Mother of Muad\'Dib',
+                appearance: 'Regal woman with bronze-gold hair, dignified cheekbones, serene commanding presence',
+                clothing: 'Flowing hooded desert-gold Bene Gesserit robes / Stillsuit',
+                personality: 'Mystical master of the Voice, protective and fiercely intelligent'
+            },
+            {
+                name: 'Chani',
+                role: 'Fremen Fedaykin Warrior & Paul\'s Companion',
+                appearance: 'Fierce young desert woman with dark windblown hair, glowing solid-blue eyes of the Ibad, sun-bronzed skin',
+                clothing: 'Weathered Fremen stillsuit, flowing sand-camouflaged robe, crysknife at hip',
+                personality: 'Deadly warrior, fiercely loyal, deeply intuitive'
+            }
+        ],
+        locations: [
+            {
+                name: 'The Deep Desert of Arrakis',
+                era: 'Arrakis',
+                visualDescription: 'Endless rolling orange dunes beneath two pale moons, shimmering coriolis storm in the horizon, titanic sandworm breaching the crest'
+            },
+            {
+                name: 'Arrakeen Palace Keep',
+                era: 'Arrakis',
+                visualDescription: 'Imposing monolithic stone fortress with thick sloping blast walls, vaulted shadowed archways, spice dust hanging in shafts of desert sunlight'
+            }
+        ]
+    }
+};
+
+export const getBookVisualPortfolio = (bookKey: string): BookVisualPortfolio | null => {
+    try {
+        const raw = getSetting(`book_portfolio_${bookKey}`);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && Array.isArray(parsed.characters)) {
+                return parsed;
+            }
+        }
+
+        // If not in SQLite yet, check if it matches a known canonical book
+        const book = getAudiobookMeta(bookKey);
+        if (!book) return null;
+
+        const titleLower = book.title.toLowerCase();
+        let matchedLoreKey: string | null = null;
+        if (/death'?s\s+end/i.test(titleLower)) matchedLoreKey = 'deaths_end';
+        else if (/three[- ]body/i.test(titleLower)) matchedLoreKey = 'three_body_problem';
+        else if (/dark\s+forest/i.test(titleLower)) matchedLoreKey = 'dark_forest';
+        else if (/\bdune\b/i.test(titleLower)) matchedLoreKey = 'dune';
+
+        if (matchedLoreKey && KNOWN_BOOK_LORE_PORTFOLIOS[matchedLoreKey]) {
+            const lore = KNOWN_BOOK_LORE_PORTFOLIOS[matchedLoreKey];
+            const portfolio: BookVisualPortfolio = {
+                bookKey,
+                bookTitle: book.title,
+                author: book.author,
+                summary: lore.summary,
+                characters: lore.characters.map((c, i) => ({
+                    id: `char_${bookKey}_${i + 1}`,
+                    ...c
+                })),
+                locations: lore.locations.map((l, i) => ({
+                    id: `loc_${bookKey}_${i + 1}`,
+                    ...l
+                })),
+                updatedAt: new Date().toISOString()
+            };
+            saveBookVisualPortfolio(bookKey, portfolio);
+            return portfolio;
+        }
+
+        return null;
+    } catch {
+        return null;
+    }
+};
+
+export const saveBookVisualPortfolio = (bookKey: string, portfolio: BookVisualPortfolio): void => {
+    try {
+        setSetting(`book_portfolio_${bookKey}`, JSON.stringify(portfolio));
+    } catch (e) {
+        console.error('Failed to save book visual portfolio:', e);
+    }
+};
+
+export const generateBookVisualPortfolioWithAi = async (bookKey: string): Promise<BookVisualPortfolio | null> => {
+    const book = getAudiobookMeta(bookKey);
+    if (!book) return null;
+
+    // Check existing or canonical lore first
+    const existing = getBookVisualPortfolio(bookKey);
+    if (existing && existing.characters.length > 0) return existing;
+
+    const chapters = getAudiobookChaptersMeta(bookKey);
+    const textSnippet = chapters
+        .slice(0, 5)
+        .map(c => c.plain_transcript || '')
+        .filter(Boolean)
+        .join('\n')
+        .slice(0, 3000);
+
+    const prompt = `You are a literary art director creating a Visual Bible for the book "${book.title}" by "${book.author}".
+Context snippet from book:
+${textSnippet || 'No audio transcript available yet. Rely on literary knowledge of the book.'}
+
+Return a STRICT JSON object in this format (no markdown, no other text):
+{
+  "summary": "Brief 1-2 sentence overview of narrative setting and premise",
+  "characters": [
+    {
+      "name": "Character Name",
+      "role": "Role in the book",
+      "appearance": "Visual physical description: ethnicity, age, hair, face, build",
+      "clothing": "Authentic era clothing / attire they wear",
+      "personality": "Core traits"
+    }
+  ],
+  "locations": [
+    {
+      "name": "Location Name",
+      "era": "Setting / Era",
+      "visualDescription": "Detailed visual atmosphere, architecture, scale, and lighting"
+    }
+  ]
+}
+Provide 3-6 main characters and 2-4 key locations.`;
+
+    try {
+        const llmRes = await callStudioTextLlmWithFailover({
+            prompt,
+            task: 'structure_search'
+        });
+
+        if (llmRes && llmRes.text) {
+            const jsonMatch = llmRes.text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                const portfolio: BookVisualPortfolio = {
+                    bookKey,
+                    bookTitle: book.title,
+                    author: book.author,
+                    summary: parsed.summary || `Visual bible for ${book.title}`,
+                    characters: Array.isArray(parsed.characters)
+                        ? parsed.characters.map((c: any, i: number) => ({
+                            id: `char_${bookKey}_${Date.now()}_${i}`,
+                            name: String(c.name || `Character ${i + 1}`),
+                            role: String(c.role || 'Main Character'),
+                            appearance: String(c.appearance || ''),
+                            clothing: String(c.clothing || ''),
+                            personality: String(c.personality || '')
+                        }))
+                        : [],
+                    locations: Array.isArray(parsed.locations)
+                        ? parsed.locations.map((l: any, i: number) => ({
+                            id: `loc_${bookKey}_${Date.now()}_${i}`,
+                            name: String(l.name || `Location ${i + 1}`),
+                            era: String(l.era || ''),
+                            visualDescription: String(l.visualDescription || '')
+                        }))
+                        : [],
+                    updatedAt: new Date().toISOString()
+                };
+                saveBookVisualPortfolio(bookKey, portfolio);
+                return portfolio;
+            }
+        }
+    } catch (e) {
+        console.warn('AI portfolio generation fallback:', e);
+    }
+
+    // Default fallback if offline
+    const fallbackPortfolio: BookVisualPortfolio = {
+        bookKey,
+        bookTitle: book.title,
+        author: book.author,
+        summary: `Visual character and location bible for "${book.title}" by ${book.author}`,
+        characters: [
+            {
+                id: `char_${bookKey}_1`,
+                name: 'Main Protagonist',
+                role: 'Central Character',
+                appearance: `The central figure of ${book.title}`,
+                clothing: 'Era-appropriate attire',
+                personality: 'Determined protagonist'
+            }
+        ],
+        locations: [
+            {
+                id: `loc_${bookKey}_1`,
+                name: 'Primary Setting',
+                era: 'Setting',
+                visualDescription: `Atmospheric world of ${book.title}`
+            }
+        ],
+        updatedAt: new Date().toISOString()
+    };
+    saveBookVisualPortfolio(bookKey, fallbackPortfolio);
+    return fallbackPortfolio;
+};
+
+export const paintBookPortfolioItem = async (params: {
+    bookKey: string;
+    itemId: string;
+    itemType: 'character' | 'location';
+    customPrompt?: string;
+}): Promise<{ portfolio: BookVisualPortfolio; paintedUrl: string } | null> => {
+    const { bookKey, itemId, itemType, customPrompt } = params;
+    const book = getAudiobookMeta(bookKey);
+    if (!book) return null;
+
+    const portfolio = getBookVisualPortfolio(bookKey);
+    if (!portfolio) return null;
+
+    const config = getAudiobookStudioConfig();
+    const effectiveStyle = config.artStyle || 'Cinematic Concept Art';
+
+    if (itemType === 'character') {
+        const char = portfolio.characters.find(c => c.id === itemId);
+        if (!char) return null;
+
+        const imgId = `port_char_${bookKey.replace(/[^a-zA-Z0-9_-]/g, '_')}_${char.id}`;
+        const promptToPaint = (customPrompt || '').trim() ||
+            `${char.name}, ${char.role}. Visual features: ${char.appearance}. Wardrobe: ${char.clothing}. Atmospheric character portrait, book illustration masterpiece, ${effectiveStyle}, dramatic lighting, expressive face, highly detailed, no text, no watermark, no frame.`;
+
+        const painted = await paintAndSaveStudioImage({
+            imgId,
+            fullPrompt: promptToPaint,
+            sceneSnippet: `${char.name} (${char.role}): ${char.appearance}. ${char.clothing}`,
+            book,
+            chapterTitle: `Character Portrait — ${char.name}`,
+            sceneIndex: 0,
+            effectiveStyle,
+            width: 768,
+            height: 1024
+        });
+
+        if (!painted) return null;
+
+        const paintedUrl = `/api/theater/audiobooks/art?file=${encodeURIComponent(painted.fileName)}`;
+        char.imageUrl = paintedUrl;
+        char.imagePrompt = painted.finalPrompt || promptToPaint;
+        portfolio.updatedAt = new Date().toISOString();
+        saveBookVisualPortfolio(bookKey, portfolio);
+        return { portfolio, paintedUrl };
+    } else {
+        const loc = portfolio.locations.find(l => l.id === itemId);
+        if (!loc) return null;
+
+        const imgId = `port_loc_${bookKey.replace(/[^a-zA-Z0-9_-]/g, '_')}_${loc.id}`;
+        const promptToPaint = (customPrompt || '').trim() ||
+            `${loc.name}${loc.era ? ` (${loc.era})` : ''}. ${loc.visualDescription}. Panoramic environment landscape, wide-angle cinematic concept art, ${effectiveStyle}, magnificent scale, atmospheric volumetric lighting, masterwork book illustration, no text, no watermark, no frame.`;
+
+        const painted = await paintAndSaveStudioImage({
+            imgId,
+            fullPrompt: promptToPaint,
+            sceneSnippet: `${loc.name}: ${loc.visualDescription}`,
+            book,
+            chapterTitle: `Setting Architecture — ${loc.name}`,
+            sceneIndex: 0,
+            effectiveStyle,
+            width: 1280,
+            height: 720
+        });
+
+        if (!painted) return null;
+
+        const paintedUrl = `/api/theater/audiobooks/art?file=${encodeURIComponent(painted.fileName)}`;
+        loc.imageUrl = paintedUrl;
+        loc.imagePrompt = painted.finalPrompt || promptToPaint;
+        portfolio.updatedAt = new Date().toISOString();
+        saveBookVisualPortfolio(bookKey, portfolio);
+        return { portfolio, paintedUrl };
+    }
+};
+
 

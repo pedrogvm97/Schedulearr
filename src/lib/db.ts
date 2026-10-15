@@ -646,6 +646,85 @@ export const setSetting = (key: string, value: string): void => {
     stmt.run(key, value);
 };
 
+export interface UserMediaGradingCategories {
+    cat1: number;
+    cat2: number;
+    cat3: number;
+    cat4: number;
+    cat5: number;
+    cat6: number;
+}
+
+export interface UserMediaRating {
+    itemKey: string;
+    mediaType: 'book' | 'movie' | 'show' | 'track' | 'album';
+    title: string;
+    overall: number; // 0 - 100
+    categories: UserMediaGradingCategories;
+    notes?: string;
+    updatedAt: string;
+}
+
+export const getAllUserMediaRatings = (): Record<string, UserMediaRating> => {
+    try {
+        const raw = getSetting('user_media_ratings') || '{}';
+        return JSON.parse(raw);
+    } catch {
+        return {};
+    }
+};
+
+export const saveUserMediaRating = (rating: UserMediaRating): void => {
+    try {
+        const all = getAllUserMediaRatings();
+        all[rating.itemKey] = {
+            ...rating,
+            updatedAt: new Date().toISOString()
+        };
+        setSetting('user_media_ratings', JSON.stringify(all));
+    } catch (e) {
+        console.error('Failed to save media rating:', e);
+    }
+};
+
+export const deleteUserMediaRating = (itemKey: string): void => {
+    try {
+        const all = getAllUserMediaRatings();
+        delete all[itemKey];
+        setSetting('user_media_ratings', JSON.stringify(all));
+    } catch (e) {
+        console.error('Failed to delete media rating:', e);
+    }
+};
+
+export const getUserMediaFavorites = (): string[] => {
+    try {
+        const raw = getSetting('user_media_favorites') || '[]';
+        return JSON.parse(raw);
+    } catch {
+        return [];
+    }
+};
+
+export const toggleUserMediaFavorite = (itemKey: string): { isFavorite: boolean; favorites: string[] } => {
+    try {
+        const current = new Set(getUserMediaFavorites());
+        let isFavorite = false;
+        if (current.has(itemKey)) {
+            current.delete(itemKey);
+            isFavorite = false;
+        } else {
+            current.add(itemKey);
+            isFavorite = true;
+        }
+        const updated = Array.from(current);
+        setSetting('user_media_favorites', JSON.stringify(updated));
+        return { isFavorite, favorites: updated };
+    } catch {
+        return { isFavorite: false, favorites: [] };
+    }
+};
+
 // Scheduler Config Helpers
 export const getSchedulerConfig = () => {
     const enabled = getSetting('scheduler_enabled') === 'true';

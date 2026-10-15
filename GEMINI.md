@@ -1,5 +1,10 @@
 # Accessibility & Human-Centric Design Rules (MANDATORY)
 
+0. **STRICT VERSION NUMBER COMMIT CONVENTION (ABSOLUTE MANDATORY)**:
+   - EVERY single git commit message and upload MUST explicitly start with the version number (e.g. `v0.6.25: <Summary>`).
+   - NEVER for any reason upload or commit anything starting with generic `feat:`, `fix:`, or any other prefix without the explicit version number at the very start!
+   - Keep `package.json` version aligned and incremented.
+
 1. **Zero Descriptors, Subtitles, or Instructional Paragraphs**:
    - NEVER render helper sentences explaining how to use the UI (e.g., *"Click any book to open..."*, *"Each scene covers a specific time window..."*, *"No transcript yet, click Transcribe above..."*).
    - Explanations belong strictly in hover `title="..."` tooltips.

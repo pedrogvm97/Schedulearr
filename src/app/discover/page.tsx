@@ -11,7 +11,8 @@ import {
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
     CheckCircle2, Copy, ListOrdered, RefreshCw, Layers,
     Disc, Music, Radio, ArrowDownToLine, Play,
-    FolderPlus, AlertCircle, BookOpen, Settings, Zap
+    FolderPlus, AlertCircle, BookOpen, Settings, Zap,
+    Mic, Wand2, Image as ImageIcon, Headphones
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -24,6 +25,7 @@ import { MusicInspectorModal } from '@/components/MusicInspectorModal';
 import { IptvDvrManager } from '@/components/IptvDvrManager';
 import { AudiobooksMediaManager } from '@/components/AudiobooksMediaManager';
 import { ManageLibrariesModal } from '@/components/ManageLibrariesModal';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 class IptvErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
     constructor(props: { children: React.ReactNode }) {
@@ -1293,19 +1295,20 @@ function DiscoverPageContent() {
 
     // ── Per-Subtab Features & Providers Settings + Instant Stream Downloads ──
     const [showSubtabSettings, setShowSubtabSettings] = useState(false);
+    const [cleanAiModalOpen, setCleanAiModalOpen] = useState(false);
     const [audiobookAiEnabled, setAudiobookAiEnabled] = useState(true);
     const [instantDownloadsList, setInstantDownloadsList] = useState<any[]>([]);
     const [subtabSettings, setSubtabSettings] = useState<{
         movie: { tmdbProvider: boolean; webStreamFastProvider: boolean; defaultInstantDownload: boolean; autoStartSearch: boolean };
         series: { tvdbProvider: boolean; webStreamFastProvider: boolean; defaultInstantDownload: boolean; autoStartSearch: boolean };
         music: { lidarrProvider: boolean; onlineCatalogProvider: boolean; ytdlpAudioProvider: boolean; autoLyricsSync: boolean };
-        audiobooks: { aiFeaturesEnabled: boolean; transcribeEnabled: boolean; sceningEnabled: boolean; imagingEnabled: boolean; openLibraryProvider: boolean };
+        audiobooks: { aiFeaturesEnabled: boolean; transcribeEnabled: boolean; sceningEnabled: boolean; imagingEnabled: boolean; voiceEnabled: boolean; openLibraryProvider: boolean };
         iptv_dvr: { m3uProvider: boolean; xmltvEpgProvider: boolean; ffmpegDvrEngine: boolean };
     }>({
         movie: { tmdbProvider: true, webStreamFastProvider: true, defaultInstantDownload: true, autoStartSearch: true },
         series: { tvdbProvider: true, webStreamFastProvider: true, defaultInstantDownload: true, autoStartSearch: true },
         music: { lidarrProvider: true, onlineCatalogProvider: true, ytdlpAudioProvider: true, autoLyricsSync: true },
-        audiobooks: { aiFeaturesEnabled: true, transcribeEnabled: true, sceningEnabled: true, imagingEnabled: true, openLibraryProvider: true },
+        audiobooks: { aiFeaturesEnabled: true, transcribeEnabled: true, sceningEnabled: true, imagingEnabled: true, voiceEnabled: true, openLibraryProvider: true },
         iptv_dvr: { m3uProvider: true, xmltvEpgProvider: true, ffmpegDvrEngine: true }
     });
 
@@ -1318,6 +1321,29 @@ function DiscoverPageContent() {
             }
         } catch {}
     }, []);
+
+    const handleCleanAllAiData = async () => {
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'clean_generated_data',
+                    target: 'all',
+                    pauseAiFirst: true
+                })
+            });
+            if (res.ok) {
+                toast.success('Cleaned all generated AI data (transcripts, scenes, artwork, voice)');
+            } else {
+                toast.error('Failed to clean AI data');
+            }
+        } catch {
+            toast.error('Error cleaning AI data');
+        } finally {
+            setCleanAiModalOpen(false);
+        }
+    };
 
     // ── Load instances and config ──
     useEffect(() => {
@@ -1352,7 +1378,8 @@ function DiscoverPageContent() {
                         aiFeaturesEnabled: aiOn,
                         transcribeEnabled: d.config.transcribeEnabled !== false,
                         sceningEnabled: d.config.sceningEnabled !== false,
-                        imagingEnabled: d.config.sceningEnabled !== false && d.config.imagingEnabled !== false
+                        imagingEnabled: d.config.sceningEnabled !== false && d.config.imagingEnabled !== false,
+                        voiceEnabled: d.config.sceningEnabled !== false && d.config.voiceEnabled !== false
                     }
                 }));
             }
@@ -1365,12 +1392,17 @@ function DiscoverPageContent() {
     const handleUpdateSubtabSetting = async (subtab: keyof typeof subtabSettings, key: string, value: boolean) => {
         const nextSubtabState: any = { ...subtabSettings[subtab], [key]: value };
         if (subtab === 'audiobooks') {
+            // Strict Cascading Rules:
+            // Turning off Step 1 (transcribing) automatically disables steps 2, 3, 4
+            if (key === 'transcribeEnabled' && !value) {
+                nextSubtabState.sceningEnabled = false;
+                nextSubtabState.imagingEnabled = false;
+                nextSubtabState.voiceEnabled = false;
+            }
+            // Turning off Step 2 (scening) automatically disables steps 3 and 4
             if (key === 'sceningEnabled' && !value) {
                 nextSubtabState.imagingEnabled = false;
-            }
-            if (key === 'imagingEnabled' && value && !nextSubtabState.sceningEnabled) {
-                toast.error('Enable Scening first — Imaging depends on Scening');
-                return;
+                nextSubtabState.voiceEnabled = false;
             }
         }
         const nextAll = { ...subtabSettings, [subtab]: nextSubtabState };
@@ -1392,13 +1424,14 @@ function DiscoverPageContent() {
                         aiFeaturesEnabled: nextSubtabState.aiFeaturesEnabled,
                         transcribeEnabled: nextSubtabState.transcribeEnabled,
                         sceningEnabled: nextSubtabState.sceningEnabled,
-                        imagingEnabled: nextSubtabState.imagingEnabled
+                        imagingEnabled: nextSubtabState.imagingEnabled,
+                        voiceEnabled: nextSubtabState.voiceEnabled
                     })
                 });
             }
-            toast.success('Updated subtab settings');
+            toast.success('Updated settings');
         } catch {
-            toast.error('Failed to save subtab settings');
+            toast.error('Failed to save settings');
         }
     };
 
@@ -1926,30 +1959,141 @@ function DiscoverPageContent() {
                                 </div>
                             )}
 
-                            {mediaType === 'audiobooks' && (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                                    {[
-                                        { key: 'aiFeaturesEnabled', label: 'AI Features (Shows AI Tab & Queue)', val: subtabSettings.audiobooks.aiFeaturesEnabled },
-                                        { key: 'transcribeEnabled', label: 'Step 1: Transcription', val: subtabSettings.audiobooks.transcribeEnabled },
-                                        { key: 'sceningEnabled', label: 'Step 2: Scening (Required for Imaging)', val: subtabSettings.audiobooks.sceningEnabled },
-                                        { key: 'imagingEnabled', label: 'Step 3: Imaging (Depends on Scening)', val: subtabSettings.audiobooks.imagingEnabled && subtabSettings.audiobooks.sceningEnabled },
-                                        { key: 'openLibraryProvider', label: 'OpenLibrary & Google Books Provider', val: subtabSettings.audiobooks.openLibraryProvider }
-                                    ].map(opt => (
-                                        <button
-                                            key={opt.key}
-                                            onClick={() => handleUpdateSubtabSetting('audiobooks', opt.key, !opt.val)}
-                                            className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 cursor-pointer transition-all ${
-                                                opt.val ? 'bg-purple-500/15 border-purple-500/50 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'
-                                            }`}
-                                        >
-                                            <span className="text-sm font-black">{opt.label}</span>
-                                            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase ${opt.val ? 'bg-purple-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
-                                                {opt.val ? 'ON' : 'OFF'}
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
+                            {mediaType === 'audiobooks' && (() => {
+                                const aiOn = subtabSettings.audiobooks.aiFeaturesEnabled !== false;
+                                const step1On = aiOn && subtabSettings.audiobooks.transcribeEnabled !== false;
+                                const step2On = step1On && subtabSettings.audiobooks.sceningEnabled !== false;
+                                const step3On = step2On && subtabSettings.audiobooks.imagingEnabled !== false;
+                                const step4On = step2On && subtabSettings.audiobooks.voiceEnabled !== false;
+
+                                return (
+                                    <div className="space-y-4">
+                                        {/* Master Row: 1 General Switch + 1 General Cleaner Button */}
+                                        <div className="p-4 sm:p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                            <button
+                                                onClick={() => handleUpdateSubtabSetting('audiobooks', 'aiFeaturesEnabled', !aiOn)}
+                                                title="Master general switch for all 4 Audiobook AI pipeline stages"
+                                                className={`px-6 py-3.5 rounded-2xl text-base font-black uppercase tracking-wider flex items-center gap-3 transition-all cursor-pointer ${
+                                                    aiOn
+                                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/25'
+                                                        : 'bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700'
+                                                }`}
+                                            >
+                                                <Sparkles size={22} className={aiOn ? 'text-black' : 'text-zinc-400'} />
+                                                <span>{aiOn ? 'AI Features: ON' : 'AI Features: OFF'}</span>
+                                            </button>
+
+                                            <button
+                                                onClick={() => setCleanAiModalOpen(true)}
+                                                title="Permanently clean all generated transcripts, detected scenes, scene artwork, and voice exports"
+                                                className="px-5 py-3.5 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 cursor-pointer transition-all shrink-0"
+                                            >
+                                                <Trash2 size={20} />
+                                                <span>Clean All</span>
+                                            </button>
+                                        </div>
+
+                                        {/* 4 Cascading Pipeline Stages (Steps 2-4 greyed out if Step 1 is off; Steps 3-4 greyed out if Step 2 is off) */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                                            {/* Step 1: Transcribing */}
+                                            <button
+                                                disabled={!aiOn}
+                                                onClick={() => handleUpdateSubtabSetting('audiobooks', 'transcribeEnabled', !step1On)}
+                                                title={!aiOn ? 'Turn on AI Features first' : 'Step 1: Speech-to-Text Transcription'}
+                                                className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                                    !aiOn
+                                                        ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                        : step1On
+                                                        ? 'bg-sky-500/15 border-sky-500/50 text-white cursor-pointer'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <Mic size={22} className={step1On ? 'text-sky-400' : 'text-zinc-500'} />
+                                                    <span className="text-base font-black truncate">1. Transcribing</span>
+                                                </div>
+                                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                                    step1On ? 'bg-sky-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                                }`}>
+                                                    {step1On ? 'ON' : 'OFF'}
+                                                </span>
+                                            </button>
+
+                                            {/* Step 2: Scening (Defining scenes) */}
+                                            <button
+                                                disabled={!aiOn || !step1On}
+                                                onClick={() => handleUpdateSubtabSetting('audiobooks', 'sceningEnabled', !step2On)}
+                                                title={!step1On ? 'Requires Step 1 (Transcribing)' : 'Step 2: Defining scenes from narrative transcript'}
+                                                className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                                    !aiOn || !step1On
+                                                        ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                        : step2On
+                                                        ? 'bg-amber-500/15 border-amber-500/50 text-white cursor-pointer'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <Wand2 size={22} className={step2On ? 'text-amber-400' : 'text-zinc-500'} />
+                                                    <span className="text-base font-black truncate">2. Scening</span>
+                                                </div>
+                                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                                    step2On ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                                }`}>
+                                                    {step2On ? 'ON' : 'OFF'}
+                                                </span>
+                                            </button>
+
+                                            {/* Step 3: Illustrating scenes */}
+                                            <button
+                                                disabled={!aiOn || !step1On || !step2On}
+                                                onClick={() => handleUpdateSubtabSetting('audiobooks', 'imagingEnabled', !step3On)}
+                                                title={!step2On ? 'Requires Step 2 (Scening)' : 'Step 3: Illustrating scenes with artwork'}
+                                                className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                                    !aiOn || !step1On || !step2On
+                                                        ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                        : step3On
+                                                        ? 'bg-purple-500/15 border-purple-500/50 text-white cursor-pointer'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <ImageIcon size={22} className={step3On ? 'text-purple-400' : 'text-zinc-500'} />
+                                                    <span className="text-base font-black truncate">3. Illustrating</span>
+                                                </div>
+                                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                                    step3On ? 'bg-purple-500 text-white' : 'bg-zinc-800 text-zinc-400'
+                                                }`}>
+                                                    {step3On ? 'ON' : 'OFF'}
+                                                </span>
+                                            </button>
+
+                                            {/* Step 4: Voice enhancing/replacing */}
+                                            <button
+                                                disabled={!aiOn || !step1On || !step2On}
+                                                onClick={() => handleUpdateSubtabSetting('audiobooks', 'voiceEnabled', !step4On)}
+                                                title={!step2On ? 'Requires Step 2 (Scening)' : 'Step 4: Voice enhancing & narration styles'}
+                                                className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                                    !aiOn || !step1On || !step2On
+                                                        ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                        : step4On
+                                                        ? 'bg-emerald-500/15 border-emerald-500/50 text-white cursor-pointer'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <Headphones size={22} className={step4On ? 'text-emerald-400' : 'text-zinc-500'} />
+                                                    <span className="text-base font-black truncate">4. Voice</span>
+                                                </div>
+                                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                                    step4On ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                                }`}>
+                                                    {step4On ? 'ON' : 'OFF'}
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {mediaType === 'iptv_dvr' && (
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2634,6 +2778,18 @@ function DiscoverPageContent() {
                     isOpen={isManageLibrariesOpen}
                     onClose={() => setIsManageLibrariesOpen(false)}
                     onLibrariesChanged={() => loadLibrary()}
+                />
+            )}
+
+            {cleanAiModalOpen && (
+                <ConfirmModal
+                    isOpen={cleanAiModalOpen}
+                    onClose={() => setCleanAiModalOpen(false)}
+                    onConfirm={handleCleanAllAiData}
+                    title="Clean All AI Data"
+                    description="This will permanently delete all generated transcripts, detected scenes, scene artwork, and voice exports across all audiobooks."
+                    confirmText="Clean All"
+                    variant="danger"
                 />
             )}
         </>

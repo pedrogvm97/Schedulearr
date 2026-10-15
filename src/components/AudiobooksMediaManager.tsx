@@ -4,10 +4,20 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     BookOpen, Sparkles, Sliders, FolderPlus, Edit3, Trash2, Check,
     RefreshCw, Play, Pause, Zap, FileText, Image as ImageIcon, Mic2,
-    Search, User, Layers, Wrench, X, Plus, Headphones, ChevronDown, ChevronUp, Wand2, ArrowUp, Save
+    Search, User, Layers, Wrench, X, Plus, Headphones, ChevronDown, ChevronUp, Wand2, ArrowUp, Save,
+    Maximize2, ZoomIn, ZoomOut, Info, Download, Printer, Share2, Volume2, ArrowLeft, ArrowRight, Star, Heart, Compass
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { AudiobookImageLightboxModal } from '@/components/AudiobookImageLightboxModal';
+import { AudiobookDocumentExportModal } from '@/components/AudiobookDocumentExportModal';
+import {
+    CURATED_VOICE_PROFILES,
+    CuratedVoiceProfile,
+    BookVisualPortfolio,
+    BookPortfolioCharacter,
+    BookPortfolioLocation
+} from '@/lib/audiobookStudio';
 
 const CLIENT_BOOK_CATALOG: Array<{ pattern: RegExp; cleanTitle: string; collection: string; bookNumber: number; releaseYear: string; summary?: string }> = [
     // Alastair Reynolds — Poseidon's Children
@@ -298,12 +308,47 @@ export function AudiobooksMediaManager() {
 
     // Book Modal state:
     // Top-level tabs: 'book' (Book data, fetched metadata, chapters) | 'ai' (AI Features)
-    // Inside 'ai', strictly 3 subtabs in pipeline order: 'transcription' -> 'scening' -> 'illustration' (Illustration + Voice)
+    // Inside 'ai', strictly 4 distinct pipeline subtabs: 'transcription' -> 'scening' -> 'illustration' -> 'voice'
     const [editingBook, setEditingBook] = useState<any | null>(null);
     const [bookModalMainTab, setBookModalMainTab] = useState<'book' | 'ai'>('book');
-    const [aiSubTab, setAiSubTab] = useState<'transcription' | 'scening' | 'illustration'>('transcription');
+    const [aiSubTab, setAiSubTab] = useState<'transcription' | 'scening' | 'illustration' | 'voice'>('transcription');
     const [expandedChapterIndices, setExpandedChapterIndices] = useState<Record<number, boolean>>({ 0: true });
     const [showBookCustomizePanel, setShowBookCustomizePanel] = useState(false);
+
+    // Book Visual Portfolio (Characters & Settings Bible)
+    const [bookPortfolio, setBookPortfolio] = useState<BookVisualPortfolio | null>(null);
+    const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
+    const [paintingPortfolioItemId, setPaintingPortfolioItemId] = useState<string | null>(null);
+
+    // Lightbox Zoom Modal
+    const [lightboxImage, setLightboxImage] = useState<{
+        url: string;
+        title: string;
+        chapterTitle?: string;
+        prompt?: string;
+        date?: string;
+        startSec?: number;
+        endSec?: number;
+        characters?: string[];
+        transitionReason?: string;
+        chapterKey?: string;
+        imageId?: string;
+        allImages?: Array<any>;
+        currentIndex?: number;
+    } | null>(null);
+    const [showLightboxInfoDrawer, setShowLightboxInfoDrawer] = useState(true);
+    const [lightboxZoomLevel, setLightboxZoomLevel] = useState<number>(1);
+
+    // Document / PDF Export Modal
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [exportIncludeCover, setExportIncludeCover] = useState(true);
+    const [exportIncludeCharacters, setExportIncludeCharacters] = useState(true);
+    const [exportIncludeArtwork, setExportIncludeArtwork] = useState(true);
+    const [exportIncludeSceneDesc, setExportIncludeSceneDesc] = useState(true);
+    const [exportIncludeTranscripts, setExportIncludeTranscripts] = useState(false);
+
+    // Voice subtab curated filter
+    const [curatedVoiceCategory, setCuratedVoiceCategory] = useState<'all' | 'iconic' | 'classic' | 'intimate' | 'broadcast'>('all');
 
     // Auto-fetched book metadata (Cover, Synopsis, Author Bio, Year, Genre, Available Covers)
     const [fetchedDetails, setFetchedDetails] = useState<{
@@ -342,6 +387,7 @@ export function AudiobooksMediaManager() {
     // Voice Gen Options
     const [editVoicePreset, setEditVoicePreset] = useState('clear_voice');
     const [editEnhancePreset, setEditEnhancePreset] = useState('denoise_clarity');
+    const [voiceCategoryFilter, setVoiceCategoryFilter] = useState<'all' | 'iconic' | 'classic' | 'intimate' | 'broadcast'>('all');
 
     // Busy states & Scene drafts
     const [scenePromptDrafts, setScenePromptDrafts] = useState<Record<string, string>>({});
@@ -1082,7 +1128,7 @@ export function AudiobooksMediaManager() {
     const openBookModal = useCallback((
         book: any,
         mainTab: 'book' | 'ai' = 'book',
-        initialAiSubTab: 'transcription' | 'scening' | 'illustration' = 'transcription',
+        initialAiSubTab: 'transcription' | 'scening' | 'illustration' | 'voice' = 'transcription',
         openCustomize = false
     ) => {
         const meta = studioBooksMap[book.bookKey] || book.meta || {};
@@ -1116,6 +1162,27 @@ export function AudiobooksMediaManager() {
         setEditBookSceningEnabled(bScen);
         setEditBookIllustrateEnabled(bIll);
         setFetchedDetails({ loading: true });
+
+        // Load visual portfolio (characters & settings bible) and fresh chapter metadata (transcripts & images)
+        fetch(`/api/theater/audiobooks/studio?bookKey=${encodeURIComponent(book.bookKey)}`)
+            .then(r => r.json())
+            .then(d => {
+                if (d && d.portfolio) setBookPortfolio(d.portfolio);
+                else setBookPortfolio(null);
+
+                if (d && Array.isArray(d.chapters)) {
+                    setStudioChaptersMap(prev => {
+                        const next = { ...prev };
+                        for (const ch of d.chapters) {
+                            if (ch.chapter_key) next[ch.chapter_key] = ch;
+                            if (ch.track_id) next[ch.track_id] = ch;
+                            next[`${ch.book_key}::ch${ch.chapter_index}`] = ch;
+                        }
+                        return next;
+                    });
+                }
+            })
+            .catch(() => setBookPortfolio(null));
 
         syncBookChaptersSilently(book);
         handleFetchBookMetadata(book, false);
@@ -1154,6 +1221,42 @@ export function AudiobooksMediaManager() {
         if (!editingBook) return null;
         return allBooks.find(b => b.bookKey === editingBook.bookKey || b.title === editingBook.title) || editingBook;
     }, [editingBook, allBooks]);
+
+    const allBookPaintedImages = useMemo(() => {
+        const list: Array<any> = [];
+        if (!currentModalBook) return list;
+
+        // Custom AI Book Cover
+        if (currentModalBook.customCoverUrl) {
+            list.push({
+                id: 'custom_cover',
+                url: currentModalBook.customCoverUrl,
+                title: 'Custom AI Book Cover',
+                chapterTitle: 'Book Cover Edition',
+                prompt: currentModalBook.meta?.custom_prompt || 'Custom AI Book Cover Edition',
+                artType: 'cover',
+                createdAt: currentModalBook.meta?.updated_at
+            });
+        }
+
+        // Chapter Scenes
+        (currentModalBook.chapters || []).forEach((chTrack: any, chIdx: number) => {
+            const chMeta = resolveChapterMeta(currentModalBook.bookKey, chTrack, chIdx);
+            const chapterKey = chMeta.chapter_key || `${currentModalBook.bookKey}::ch${chIdx + 1}`;
+            (chMeta.images || []).forEach((img: any, sIdx: number) => {
+                if (img && img.url && img.kept !== false && !String(img.url).toLowerCase().includes('.svg')) {
+                    list.push({
+                        ...img,
+                        chapterIndex: chIdx,
+                        chapterTitle: chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`,
+                        chapterKey,
+                        sceneIndex: sIdx
+                    });
+                }
+            });
+        });
+        return list;
+    }, [currentModalBook, studioBooksMap, studioChaptersMap, resolveChapterMeta]);
 
     const handleSaveBookMetadata = async () => {
         if (!currentModalBook) return;
@@ -1679,6 +1782,109 @@ export function AudiobooksMediaManager() {
             toast.error(`Error running ${task}`);
         } finally {
             setRunningChapterTaskKey(null);
+        }
+    };
+
+    const handleGeneratePortfolio = async () => {
+        if (!currentModalBook) return;
+        setIsLoadingPortfolio(true);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'generate_book_portfolio',
+                    bookKey: currentModalBook.bookKey
+                })
+            });
+            const data = await res.json();
+            if (data.success && data.portfolio) {
+                setBookPortfolio(data.portfolio);
+                toast.success('Visual character & setting bible generated!');
+            } else {
+                toast.error(data.error || 'Failed to generate visual portfolio');
+            }
+        } catch {
+            toast.error('Network error generating portfolio');
+        } finally {
+            setIsLoadingPortfolio(false);
+        }
+    };
+
+    const handlePaintPortfolioItem = async (itemId: string, itemType: 'character' | 'location', customPrompt?: string) => {
+        if (!currentModalBook) return;
+        setPaintingPortfolioItemId(itemId);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'paint_portfolio_item',
+                    bookKey: currentModalBook.bookKey,
+                    itemId,
+                    itemType,
+                    customPrompt
+                })
+            });
+            const data = await res.json();
+            if (data.success && data.portfolio) {
+                setBookPortfolio(data.portfolio);
+                toast.success(itemType === 'character' ? 'Character portrait painted!' : 'Setting illustration painted!');
+            } else {
+                toast.error(data.error || 'Could not paint item');
+            }
+        } catch {
+            toast.error('Network error painting portfolio item');
+        } finally {
+            setPaintingPortfolioItemId(null);
+        }
+    };
+
+    const handlePromoteImageToBookCover = async (imageUrl: string) => {
+        if (!currentModalBook || !imageUrl) return;
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'edit_book_metadata',
+                    bookKey: currentModalBook.bookKey,
+                    title: currentModalBook.title,
+                    author: currentModalBook.author,
+                    coverUrl: imageUrl,
+                    thumb: imageUrl,
+                    useCustomCover: true
+                })
+            });
+            if (res.ok) {
+                toast.success('Promoted image to primary book cover!');
+                fetchAll();
+            } else {
+                toast.error('Failed to set book cover');
+            }
+        } catch {
+            toast.error('Error setting book cover');
+        }
+    };
+
+    const handleDeleteImageFromLightbox = async (chapterKey: string, imageId: string) => {
+        if (!chapterKey || !imageId) return;
+        await handleCurateSceneImage(chapterKey, imageId, 'delete');
+        setLightboxImage(null);
+    };
+
+    const handleNavigateLightbox = (direction: 'prev' | 'next') => {
+        if (!lightboxImage || !lightboxImage.allImages || lightboxImage.allImages.length === 0) return;
+        const curIdx = lightboxImage.currentIndex ?? 0;
+        const total = lightboxImage.allImages.length;
+        const nextIdx = direction === 'next' ? (curIdx + 1) % total : (curIdx - 1 + total) % total;
+        const nextItem = lightboxImage.allImages[nextIdx];
+        if (nextItem) {
+            setLightboxImage({
+                ...nextItem,
+                allImages: lightboxImage.allImages,
+                currentIndex: nextIdx
+            });
         }
     };
 
@@ -3324,293 +3530,168 @@ export function AudiobooksMediaManager() {
                         );
                     })()}
 
-                    {/* ── AI SUBTAB 2: SETTINGS FOR TRANSCRIPTION, SCENING & IMAGING ── */}
+                    {/* ── AI SUBTAB 2: CLEAN 4 AI FEATURES PIPELINE ── */}
                     {aiMainSubTab === 'settings' && (() => {
-                        const transEnabled = studioConfig?.transcribeEnabled !== false;
-                        const scenEnabled = studioConfig?.sceningEnabled !== false;
-                        const imgEnabled = scenEnabled && studioConfig?.imagingEnabled !== false;
+                        const aiOn = studioConfig?.aiFeaturesEnabled !== false;
+                        const step1On = aiOn && studioConfig?.transcribeEnabled !== false;
+                        const step2On = step1On && studioConfig?.sceningEnabled !== false;
+                        const step3On = step2On && studioConfig?.imagingEnabled !== false;
+                        const step4On = step2On && studioConfig?.voiceEnabled !== false;
 
                         return (
                             <div className="space-y-6">
-                                {/* Pipeline Step Enable Toggles with Strict Dependency Rule:
-                                    Can turn off Imaging, or turn off Imaging + Scening, but NOT Scening without Imaging */}
-                                <div className="p-6 rounded-3xl bg-zinc-900/75 border-2 border-zinc-800 space-y-5">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                        <h4 className="text-xl font-black text-white uppercase tracking-wider flex items-center gap-2.5">
-                                            <Sparkles size={22} className="text-amber-400" />
-                                            <span>Processing Pipeline Steps</span>
-                                        </h4>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <button
-                                                onClick={() => handleSaveConfig({ transcribeEnabled: true, sceningEnabled: true, imagingEnabled: true })}
-                                                title="Enable Transcription + Scening + Imaging"
-                                                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black uppercase cursor-pointer border transition-all ${
-                                                    transEnabled && scenEnabled && imgEnabled
-                                                        ? 'bg-amber-500 text-black border-amber-400 shadow'
-                                                        : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white'
-                                                }`}
-                                            >
-                                                All 3 Steps
-                                            </button>
-                                            <button
-                                                onClick={() => handleSaveConfig({ transcribeEnabled: true, sceningEnabled: true, imagingEnabled: false })}
-                                                title="Turn off Imaging only (keep Transcription + Scening)"
-                                                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black uppercase cursor-pointer border transition-all ${
-                                                    transEnabled && scenEnabled && !imgEnabled
-                                                        ? 'bg-purple-500 text-black border-purple-400 shadow'
-                                                        : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white'
-                                                }`}
-                                            >
-                                                No Imaging
-                                            </button>
-                                            <button
-                                                onClick={() => handleSaveConfig({ transcribeEnabled: true, sceningEnabled: false, imagingEnabled: false })}
-                                                title="Turn off both Scening and Imaging (Transcription only)"
-                                                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black uppercase cursor-pointer border transition-all ${
-                                                    transEnabled && !scenEnabled && !imgEnabled
-                                                        ? 'bg-emerald-500 text-black border-emerald-400 shadow'
-                                                        : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white'
-                                                }`}
-                                            >
-                                                Transcription Only
-                                            </button>
-                                        </div>
-                                    </div>
+                                {/* Master Row: 1 General Switch + 1 General Cleaner Button */}
+                                <div className="p-6 rounded-3xl bg-zinc-900/90 border-2 border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <button
+                                        onClick={() => handleSaveConfig({ aiFeaturesEnabled: !aiOn })}
+                                        title="Master general switch for all 4 Audiobook AI pipeline stages"
+                                        className={`px-7 py-4 rounded-2xl text-lg font-black uppercase tracking-wider flex items-center gap-3 transition-all cursor-pointer ${
+                                            aiOn
+                                                ? 'bg-amber-500 text-black shadow-xl shadow-amber-500/25'
+                                                : 'bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700'
+                                        }`}
+                                    >
+                                        <Sparkles size={24} className={aiOn ? 'text-black' : 'text-zinc-400'} />
+                                        <span>{aiOn ? 'AI Features: ON' : 'AI Features: OFF'}</span>
+                                    </button>
 
-                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                                        {/* STEP 1: TRANSCRIPTION SETTINGS (ZERO OPTIONS - FULL BOOK TIMESTAMPED TRANSCRIPTION) */}
-                                        <div className={`p-5 rounded-3xl border-2 space-y-4 ${
-                                            transEnabled ? 'bg-amber-950/20 border-amber-500/50' : 'bg-zinc-950/60 border-zinc-800 opacity-60'
-                                        }`}>
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div className="flex items-center gap-2.5">
-                                                    <Mic2 size={22} className="text-amber-400" />
-                                                    <span className="text-lg font-black text-white uppercase">1. Transcription</span>
-                                                </div>
-                                                <button
-                                                    onClick={() => handleSaveConfig({ transcribeEnabled: !transEnabled })}
-                                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
-                                                        transEnabled ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'
-                                                    }`}
-                                                >
-                                                    {transEnabled ? 'ON' : 'OFF'}
-                                                </button>
-                                            </div>
-
-                                            <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2">
-                                                <p className="text-sm font-bold text-amber-200">
-                                                    Full Book Speech-to-Text
-                                                </p>
-                                                <p className="text-xs text-zinc-400 leading-relaxed font-mono">
-                                                    Verbatim audio transcript with exact [MM:SS] timestamps across all chapters. Zero manual input needed.
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {/* STEP 2: SCENING SETTINGS */}
-                                        <div className={`p-5 rounded-3xl border-2 space-y-4 ${
-                                            scenEnabled ? 'bg-purple-950/20 border-purple-500/50' : 'bg-zinc-950/60 border-zinc-800 opacity-60'
-                                        }`}>
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div className="flex items-center gap-2.5">
-                                                    <Wand2 size={22} className="text-purple-400" />
-                                                    <span className="text-lg font-black text-white uppercase">2. Scening</span>
-                                                </div>
-                                                <button
-                                                    onClick={() => {
-                                                        const nextScen = !scenEnabled;
-                                                        // Turning off Scening also turns off Imaging since Imaging depends on Scening
-                                                        handleSaveConfig({
-                                                            sceningEnabled: nextScen,
-                                                            imagingEnabled: nextScen ? imgEnabled : false
-                                                        });
-                                                    }}
-                                                    title="Turning off Scening also turns off Imaging (Imaging depends on Scening)"
-                                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
-                                                        scenEnabled ? 'bg-purple-500 text-black' : 'bg-zinc-800 text-zinc-400'
-                                                    }`}
-                                                >
-                                                    {scenEnabled ? 'ON' : 'OFF'}
-                                                </button>
-                                            </div>
-
-                                            <div className="space-y-3">
-                                                <div>
-                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">
-                                                        Scene Focus
-                                                    </label>
-                                                    <select
-                                                        value={studioConfig?.artFocus || 'auto-choice'}
-                                                        onChange={e => handleSaveConfig({ artFocus: e.target.value })}
-                                                        disabled={!scenEnabled}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer disabled:opacity-40"
-                                                    >
-                                                        <option value="auto-choice">Characters &amp; Plot Action</option>
-                                                        <option value="characters">Character Portraits &amp; Faces</option>
-                                                        <option value="landscapes">Characters in World &amp; Setting</option>
-                                                        <option value="ambient">Dramatic Lighting &amp; Mood</option>
-                                                    </select>
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">
-                                                        Target Scenes / Chapter
-                                                    </label>
-                                                    <select
-                                                        value={Number(studioConfig?.imagesPerChapter || 3)}
-                                                        onChange={e => handleSaveConfig({ imagesPerChapter: Number(e.target.value) })}
-                                                        disabled={!scenEnabled}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer disabled:opacity-40"
-                                                    >
-                                                        <option value={2}>2 Scenes / Chapter</option>
-                                                        <option value={3}>3 Scenes / Chapter (Auto Natural Windows)</option>
-                                                        <option value={4}>4 Scenes / Chapter</option>
-                                                        <option value={5}>5 Scenes / Chapter</option>
-                                                        <option value={6}>6 Scenes / Chapter</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* STEP 3: IMAGING & VOICE SETTINGS */}
-                                        <div className={`p-5 rounded-3xl border-2 space-y-4 ${
-                                            imgEnabled ? 'bg-emerald-950/20 border-emerald-500/50' : 'bg-zinc-950/60 border-zinc-800 opacity-60'
-                                        }`}>
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div className="flex items-center gap-2.5">
-                                                    <ImageIcon size={22} className="text-emerald-400" />
-                                                    <span className="text-lg font-black text-white uppercase">3. Illustration + Voice</span>
-                                                </div>
-                                                <button
-                                                    onClick={() => {
-                                                        const nextImg = !imgEnabled;
-                                                        // Enabling Imaging automatically enables Scening because Imaging depends on Scening
-                                                        handleSaveConfig({
-                                                            imagingEnabled: nextImg,
-                                                            sceningEnabled: nextImg ? true : scenEnabled
-                                                        });
-                                                    }}
-                                                    title="Turn Imaging ON/OFF (Enabling Imaging requires Scening to be ON)"
-                                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
-                                                        imgEnabled ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
-                                                    }`}
-                                                >
-                                                    {imgEnabled ? 'ON' : 'OFF'}
-                                                </button>
-                                            </div>
-
-                                            <div className="space-y-3">
-                                                <div>
-                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">
-                                                        Default Art Style
-                                                    </label>
-                                                    <select
-                                                        value={studioConfig?.artStyle || 'Cinematic Concept Art'}
-                                                        onChange={e => handleSaveConfig({ artStyle: e.target.value })}
-                                                        disabled={!imgEnabled}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer disabled:opacity-40"
-                                                    >
-                                                        <option value="Cinematic Concept Art">Cinematic Concept Art (Era-Adaptive)</option>
-                                                        <option value="Photorealistic">Photorealistic Film Still</option>
-                                                        <option value="Oil Painting">Classic Oil Painting</option>
-                                                        <option value="Dark Fantasy">Dark Atmospheric Painting</option>
-                                                        <option value="Watercolor">Storybook Watercolor</option>
-                                                        <option value="Graphic Novel">Graphic Novel Ink</option>
-                                                        <option value="Anime">Anime Masterpiece</option>
-                                                        <option value="Vintage Book Plate">Vintage Book Engraving</option>
-                                                    </select>
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">
-                                                        Default Voice Preset
-                                                    </label>
-                                                    <select
-                                                        value={studioConfig?.defaultVoicePreset || 'clear_voice'}
-                                                        onChange={e => handleSaveConfig({ defaultVoicePreset: e.target.value })}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer"
-                                                    >
-                                                        <option value="clear_voice">Clear Voice (Vocal Presence)</option>
-                                                        <option value="warm_bass">Warm Studio Narrator</option>
-                                                        <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
-                                                        <option value="night_compress">Night Leveler</option>
-                                                        <option value="original">Original Voice</option>
-                                                    </select>
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">
-                                                        Image Provider
-                                                    </label>
-                                                    <select
-                                                        value={studioConfig?.imageProvider || 'pollinations_free'}
-                                                        onChange={e => handleSaveConfig({ imageProvider: e.target.value })}
-                                                        disabled={!imgEnabled}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base font-bold text-white cursor-pointer disabled:opacity-40"
-                                                    >
-                                                        <option value="gemini_imagen">Google Imagen 3 / Gemini</option>
-                                                        <option value="pollinations_free">Pollinations Flux (Free Fallback)</option>
-                                                        <option value="openai_dalle">OpenAI DALL-E 3</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <button
+                                        onClick={() => handleCleanGeneratedData('all', 'Everything (Pause AI + Full Reset)')}
+                                        disabled={savingConfig}
+                                        title="Permanently clean all generated transcripts, detected scenes, scene artwork, and voice exports"
+                                        className="px-6 py-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-base uppercase tracking-wider flex items-center justify-center gap-2.5 cursor-pointer transition-all shrink-0 disabled:opacity-50"
+                                    >
+                                        <Trash2 size={22} />
+                                        <span>Clean All</span>
+                                    </button>
                                 </div>
 
-                                {/* ── GRANULAR & FULL CLEANUP BAR ── */}
-                                <div className="p-6 rounded-3xl bg-zinc-900/75 border-2 border-zinc-800 flex flex-wrap items-center justify-between gap-4">
-                                    <div className="flex items-center gap-3">
-                                        <Trash2 size={22} className="text-red-400" />
-                                        <h4 className="text-xl font-black text-white uppercase tracking-wider">Cleanup</h4>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2.5">
-                                        <button
-                                            onClick={() => handleCleanGeneratedData('images', 'Generated Images Only')}
-                                            disabled={savingConfig}
-                                            title="Delete all generated scene images while keeping transcripts and detected scene prompts intact"
-                                            className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                        >
-                                            <ImageIcon size={18} />
-                                            <span>Images</span>
-                                        </button>
-                                        <button
-                                            onClick={() => handleCleanGeneratedData('scenes', 'Scenes & Images')}
-                                            disabled={savingConfig}
-                                            title="Delete all generated scenes and images while keeping Speech-to-Text transcripts intact"
-                                            className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                        >
-                                            <Layers size={18} />
-                                            <span>Scenes</span>
-                                        </button>
-                                        <button
-                                            onClick={() => handleCleanGeneratedData('transcripts', 'Transcripts Only')}
-                                            disabled={savingConfig}
-                                            title="Delete all generated Speech-to-Text transcripts (.lrc / .txt)"
-                                            className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                        >
-                                            <FileText size={18} />
-                                            <span>Transcripts</span>
-                                        </button>
-                                        <button
-                                            onClick={() => handleCleanGeneratedData('voices', 'Voice Exports')}
-                                            disabled={savingConfig}
-                                            title="Delete all generated voice preset audio files (.m4a)"
-                                            className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                        >
-                                            <Mic2 size={18} />
-                                            <span>Voices</span>
-                                        </button>
-                                        <button
-                                            onClick={() => handleCleanGeneratedData('all', 'Everything (Pause AI + Full Reset)')}
-                                            disabled={savingConfig}
-                                            title="Pause AI and wipe all generated images, scenes, transcripts, and voice exports across all books"
-                                            className="px-5 py-2.5 rounded-2xl bg-red-500 hover:bg-red-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
-                                        >
-                                            <Trash2 size={18} />
-                                            <span>Clean All</span>
-                                        </button>
-                                    </div>
+                                {/* 4 Cascading Pipeline Stages (Steps 2-4 greyed out if Step 1 is off; Steps 3-4 greyed out if Step 2 is off) */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {/* Step 1: Transcribing */}
+                                    <button
+                                        disabled={!aiOn}
+                                        onClick={() => {
+                                            const nextVal = !step1On;
+                                            handleSaveConfig({
+                                                transcribeEnabled: nextVal,
+                                                sceningEnabled: nextVal ? (studioConfig?.sceningEnabled !== false) : false,
+                                                imagingEnabled: nextVal ? (studioConfig?.imagingEnabled !== false) : false,
+                                                voiceEnabled: nextVal ? (studioConfig?.voiceEnabled !== false) : false
+                                            });
+                                        }}
+                                        title={!aiOn ? 'Turn on AI Features first' : 'Step 1: Speech-to-Text Transcription'}
+                                        className={`p-5 rounded-3xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                            !aiOn
+                                                ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : step1On
+                                                ? 'bg-sky-500/15 border-sky-500/50 text-white cursor-pointer'
+                                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <Mic2 size={24} className={step1On ? 'text-sky-400' : 'text-zinc-500'} />
+                                            <span className="text-base sm:text-lg font-black truncate">1. Transcribing</span>
+                                        </div>
+                                        <span className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                            step1On ? 'bg-sky-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                        }`}>
+                                            {step1On ? 'ON' : 'OFF'}
+                                        </span>
+                                    </button>
+
+                                    {/* Step 2: Scening (Defining scenes) */}
+                                    <button
+                                        disabled={!aiOn || !step1On}
+                                        onClick={() => {
+                                            const nextVal = !step2On;
+                                            handleSaveConfig({
+                                                sceningEnabled: nextVal,
+                                                imagingEnabled: nextVal ? (studioConfig?.imagingEnabled !== false) : false,
+                                                voiceEnabled: nextVal ? (studioConfig?.voiceEnabled !== false) : false
+                                            });
+                                        }}
+                                        title={!step1On ? 'Requires Step 1 (Transcribing)' : 'Step 2: Defining scenes from narrative transcript'}
+                                        className={`p-5 rounded-3xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                            !aiOn || !step1On
+                                                ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : step2On
+                                                ? 'bg-purple-500/15 border-purple-500/50 text-white cursor-pointer'
+                                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <Wand2 size={24} className={step2On ? 'text-purple-400' : 'text-zinc-500'} />
+                                            <span className="text-base sm:text-lg font-black truncate">2. Scening</span>
+                                        </div>
+                                        <span className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                            step2On ? 'bg-purple-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                        }`}>
+                                            {step2On ? 'ON' : 'OFF'}
+                                        </span>
+                                    </button>
+
+                                    {/* Step 3: Illustrating scenes */}
+                                    <button
+                                        disabled={!aiOn || !step1On || !step2On}
+                                        onClick={() => {
+                                            const nextVal = !step3On;
+                                            handleSaveConfig({
+                                                imagingEnabled: nextVal,
+                                                sceningEnabled: nextVal ? true : step2On,
+                                                transcribeEnabled: nextVal ? true : step1On
+                                            });
+                                        }}
+                                        title={!step2On ? 'Requires Step 2 (Scening)' : 'Step 3: Illustrating scenes with artwork'}
+                                        className={`p-5 rounded-3xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                            !aiOn || !step1On || !step2On
+                                                ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : step3On
+                                                ? 'bg-emerald-500/15 border-emerald-500/50 text-white cursor-pointer'
+                                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <ImageIcon size={24} className={step3On ? 'text-emerald-400' : 'text-zinc-500'} />
+                                            <span className="text-base sm:text-lg font-black truncate">3. Illustrating</span>
+                                        </div>
+                                        <span className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                            step3On ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                        }`}>
+                                            {step3On ? 'ON' : 'OFF'}
+                                        </span>
+                                    </button>
+
+                                    {/* Step 4: Voice enhancing/replacing */}
+                                    <button
+                                        disabled={!aiOn || !step1On || !step2On}
+                                        onClick={() => {
+                                            const nextVal = !step4On;
+                                            handleSaveConfig({
+                                                voiceEnabled: nextVal,
+                                                sceningEnabled: nextVal ? true : step2On,
+                                                transcribeEnabled: nextVal ? true : step1On
+                                            });
+                                        }}
+                                        title={!step2On ? 'Requires Step 2 (Scening)' : 'Step 4: Voice enhancing & narration styles'}
+                                        className={`p-5 rounded-3xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                            !aiOn || !step1On || !step2On
+                                                ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : step4On
+                                                ? 'bg-indigo-500/15 border-indigo-500/50 text-white cursor-pointer'
+                                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <Headphones size={24} className={step4On ? 'text-indigo-400' : 'text-zinc-500'} />
+                                            <span className="text-base sm:text-lg font-black truncate">4. Voice</span>
+                                        </div>
+                                        <span className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                            step4On ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-400'
+                                        }`}>
+                                            {step4On ? 'ON' : 'OFF'}
+                                        </span>
+                                    </button>
                                 </div>
                             </div>
                         );
@@ -3619,152 +3700,232 @@ export function AudiobooksMediaManager() {
             )}
 
             {/* ── TAB 5: AUDIOBOOK SUBTAB SETTINGS (AI FEATURES TOGGLE & PROVIDERS) ── */}
-            {activeSubTab === 'queue_settings' && (
-                <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-6 max-w-4xl">
-                    {/* Master AI Features Toggle for Audiobook Subtab */}
-                    <div className="p-5 rounded-3xl bg-zinc-950 border-2 border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="flex items-center gap-3.5">
-                            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0">
-                                <Sparkles size={24} />
-                            </div>
-                            <div>
-                                <h4 className="text-lg sm:text-xl font-black text-white uppercase tracking-wider">
-                                    AI Features
-                                </h4>
-                                <p className="text-xs sm:text-sm font-bold text-zinc-400">
-                                    Show AI Queue tab, automated transcription, scening, and chapter illustration
-                                </p>
-                            </div>
-                        </div>
+            {/* ── TAB 5: AUDIOBOOK SUBTAB SETTINGS (4 AI FEATURES, PROVIDERS & API KEY) ── */}
+            {activeSubTab === 'queue_settings' && (() => {
+                const aiOn = studioConfig?.aiFeaturesEnabled !== false;
+                const step1On = aiOn && studioConfig?.transcribeEnabled !== false;
+                const step2On = step1On && studioConfig?.sceningEnabled !== false;
+                const step3On = step2On && studioConfig?.imagingEnabled !== false;
+                const step4On = step2On && studioConfig?.voiceEnabled !== false;
 
-                        <button
-                            onClick={() => {
-                                const nextAi = studioConfig?.aiFeaturesEnabled === false ? true : false;
-                                handleSaveConfig({ aiFeaturesEnabled: nextAi });
-                            }}
-                            className={`px-7 py-3.5 rounded-2xl text-base font-black uppercase tracking-wider cursor-pointer transition-all shrink-0 ${
-                                studioConfig?.aiFeaturesEnabled !== false
-                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/25'
-                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
-                            }`}
-                        >
-                            {studioConfig?.aiFeaturesEnabled !== false ? 'AI Features: ON' : 'AI Features: OFF'}
-                        </button>
-                    </div>
-
-                    {/* Audiobook Providers & Individual Feature Toggles */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
-                            <div>
-                                <p className="text-base font-black text-white">OpenLibrary Covers &amp; Synopsis</p>
-                                <p className="text-xs font-bold text-zinc-400">Auto-fetch book editions, covers &amp; descriptions</p>
-                            </div>
+                return (
+                    <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-6 max-w-4xl">
+                        {/* Master Row: 1 General Switch + 1 General Cleaner Button */}
+                        <div className="p-5 rounded-3xl bg-zinc-950 border-2 border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <button
-                                onClick={() => handleSaveConfig({ openLibraryProvider: studioConfig?.openLibraryProvider === false ? true : false })}
-                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
-                                    studioConfig?.openLibraryProvider !== false ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                onClick={() => {
+                                    const nextAi = !aiOn;
+                                    handleSaveConfig({ aiFeaturesEnabled: nextAi });
+                                }}
+                                title="Master general switch for all 4 Audiobook AI pipeline stages"
+                                className={`px-7 py-3.5 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center gap-3 transition-all cursor-pointer ${
+                                    aiOn
+                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/25'
+                                        : 'bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700'
                                 }`}
                             >
-                                {studioConfig?.openLibraryProvider !== false ? 'ON' : 'OFF'}
+                                <Sparkles size={22} className={aiOn ? 'text-black' : 'text-zinc-400'} />
+                                <span>{aiOn ? 'AI Features: ON' : 'AI Features: OFF'}</span>
                             </button>
-                        </div>
 
-                        <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
-                            <div>
-                                <p className="text-base font-black text-white">Apple iTunes Audiobook Lookup</p>
-                                <p className="text-xs font-bold text-zinc-400">High-res square &amp; portrait audiobook artwork</p>
-                            </div>
-                            <button
-                                onClick={() => handleSaveConfig({ itunesAudiobookProvider: studioConfig?.itunesAudiobookProvider === false ? true : false })}
-                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
-                                    studioConfig?.itunesAudiobookProvider !== false ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
-                                }`}
-                            >
-                                {studioConfig?.itunesAudiobookProvider !== false ? 'ON' : 'OFF'}
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* AI Provider API Key */}
-                    <div className="space-y-3 pt-2 border-t border-zinc-800">
-                        <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
-                            <Sliders size={18} className="text-amber-400" />
-                            <span>AI Provider API Key</span>
-                        </h4>
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            <input
-                                type="password"
-                                value={apiKeyInput}
-                                onChange={e => setApiKeyInput(e.target.value)}
-                                placeholder="Paste Gemini / OpenAI / Claude / Groq API Key (or leave blank for Free Built-in)..."
-                                className="flex-1 px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono focus:outline-none focus:border-amber-500"
-                            />
-                            <button
-                                onClick={() => handleSaveConfig({})}
-                                disabled={savingConfig}
-                                className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider cursor-pointer"
-                            >
-                                Save Key
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Granular & Full Cleanup */}
-                    <div className="space-y-3 pt-4 border-t border-zinc-800">
-                        <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
-                            <Trash2 size={18} className="text-red-400" />
-                            <span>Cleanup</span>
-                        </h4>
-                        <div className="flex flex-wrap items-center gap-2.5">
-                            <button
-                                onClick={() => handleCleanGeneratedData('images', 'Generated Images Only')}
-                                disabled={savingConfig}
-                                title="Delete all generated scene images while keeping transcripts and detected scene prompts intact"
-                                className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                            >
-                                <ImageIcon size={18} />
-                                <span>Images</span>
-                            </button>
-                            <button
-                                onClick={() => handleCleanGeneratedData('scenes', 'Scenes & Images')}
-                                disabled={savingConfig}
-                                title="Delete all generated scenes and images while keeping Speech-to-Text transcripts intact"
-                                className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                            >
-                                <Layers size={18} />
-                                <span>Scenes</span>
-                            </button>
-                            <button
-                                onClick={() => handleCleanGeneratedData('transcripts', 'Transcripts Only')}
-                                disabled={savingConfig}
-                                title="Delete all generated Speech-to-Text transcripts (.lrc / .txt)"
-                                className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                            >
-                                <FileText size={18} />
-                                <span>Transcripts</span>
-                            </button>
-                            <button
-                                onClick={() => handleCleanGeneratedData('voices', 'Voice Exports')}
-                                disabled={savingConfig}
-                                title="Delete all generated voice preset audio files (.m4a)"
-                                className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                            >
-                                <Mic2 size={18} />
-                                <span>Voices</span>
-                            </button>
                             <button
                                 onClick={() => handleCleanGeneratedData('all', 'Everything (Pause AI + Full Reset)')}
                                 disabled={savingConfig}
-                                title="Pause AI and wipe all generated images, scenes, transcripts, and voice exports across all books"
-                                className="px-5 py-2.5 rounded-2xl bg-red-500 hover:bg-red-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                                title="Permanently clean all generated transcripts, detected scenes, scene artwork, and voice exports"
+                                className="px-5 py-3.5 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 cursor-pointer transition-all shrink-0 disabled:opacity-50"
                             >
-                                <Trash2 size={18} />
+                                <Trash2 size={20} />
                                 <span>Clean All</span>
                             </button>
                         </div>
+
+                        {/* 4 Cascading Pipeline Stages (Steps 2-4 greyed out if Step 1 is off; Steps 3-4 greyed out if Step 2 is off) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                            {/* Step 1: Transcribing */}
+                            <button
+                                disabled={!aiOn}
+                                onClick={() => {
+                                    const nextVal = !step1On;
+                                    handleSaveConfig({
+                                        transcribeEnabled: nextVal,
+                                        sceningEnabled: nextVal ? (studioConfig?.sceningEnabled !== false) : false,
+                                        imagingEnabled: nextVal ? (studioConfig?.imagingEnabled !== false) : false,
+                                        voiceEnabled: nextVal ? (studioConfig?.voiceEnabled !== false) : false
+                                    });
+                                }}
+                                title={!aiOn ? 'Turn on AI Features first' : 'Step 1: Speech-to-Text Transcription'}
+                                className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                    !aiOn
+                                        ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        : step1On
+                                        ? 'bg-sky-500/15 border-sky-500/50 text-white cursor-pointer'
+                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <Mic2 size={22} className={step1On ? 'text-sky-400' : 'text-zinc-500'} />
+                                    <span className="text-base font-black truncate">1. Transcribing</span>
+                                </div>
+                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                    step1On ? 'bg-sky-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                }`}>
+                                    {step1On ? 'ON' : 'OFF'}
+                                </span>
+                            </button>
+
+                            {/* Step 2: Scening */}
+                            <button
+                                disabled={!aiOn || !step1On}
+                                onClick={() => {
+                                    const nextVal = !step2On;
+                                    handleSaveConfig({
+                                        sceningEnabled: nextVal,
+                                        imagingEnabled: nextVal ? (studioConfig?.imagingEnabled !== false) : false,
+                                        voiceEnabled: nextVal ? (studioConfig?.voiceEnabled !== false) : false
+                                    });
+                                }}
+                                title={!step1On ? 'Requires Step 1 (Transcribing)' : 'Step 2: Defining scenes from narrative transcript'}
+                                className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                    !aiOn || !step1On
+                                        ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        : step2On
+                                        ? 'bg-purple-500/15 border-purple-500/50 text-white cursor-pointer'
+                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <Wand2 size={22} className={step2On ? 'text-purple-400' : 'text-zinc-500'} />
+                                    <span className="text-base font-black truncate">2. Scening</span>
+                                </div>
+                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                    step2On ? 'bg-purple-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                }`}>
+                                    {step2On ? 'ON' : 'OFF'}
+                                </span>
+                            </button>
+
+                            {/* Step 3: Illustrating */}
+                            <button
+                                disabled={!aiOn || !step1On || !step2On}
+                                onClick={() => {
+                                    const nextVal = !step3On;
+                                    handleSaveConfig({
+                                        imagingEnabled: nextVal,
+                                        sceningEnabled: nextVal ? true : step2On,
+                                        transcribeEnabled: nextVal ? true : step1On
+                                    });
+                                }}
+                                title={!step2On ? 'Requires Step 2 (Scening)' : 'Step 3: Illustrating scenes with artwork'}
+                                className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                    !aiOn || !step1On || !step2On
+                                        ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        : step3On
+                                        ? 'bg-emerald-500/15 border-emerald-500/50 text-white cursor-pointer'
+                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <ImageIcon size={22} className={step3On ? 'text-emerald-400' : 'text-zinc-500'} />
+                                    <span className="text-base font-black truncate">3. Illustrating</span>
+                                </div>
+                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                    step3On ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                }`}>
+                                    {step3On ? 'ON' : 'OFF'}
+                                </span>
+                            </button>
+
+                            {/* Step 4: Voice */}
+                            <button
+                                disabled={!aiOn || !step1On || !step2On}
+                                onClick={() => {
+                                    const nextVal = !step4On;
+                                    handleSaveConfig({
+                                        voiceEnabled: nextVal,
+                                        sceningEnabled: nextVal ? true : step2On,
+                                        transcribeEnabled: nextVal ? true : step1On
+                                    });
+                                }}
+                                title={!step2On ? 'Requires Step 2 (Scening)' : 'Step 4: Voice enhancing & narration styles'}
+                                className={`p-4 rounded-2xl border-2 text-left flex items-center justify-between gap-3 transition-all ${
+                                    !aiOn || !step1On || !step2On
+                                        ? 'opacity-35 cursor-not-allowed bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        : step4On
+                                        ? 'bg-indigo-500/15 border-indigo-500/50 text-white cursor-pointer'
+                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 cursor-pointer'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <Headphones size={22} className={step4On ? 'text-indigo-400' : 'text-zinc-500'} />
+                                    <span className="text-base font-black truncate">4. Voice</span>
+                                </div>
+                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                    step4On ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-400'
+                                }`}>
+                                    {step4On ? 'ON' : 'OFF'}
+                                </span>
+                            </button>
+                        </div>
+
+                        {/* Audiobook Providers */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-base font-black text-white">OpenLibrary Covers &amp; Synopsis</p>
+                                    <p className="text-xs font-bold text-zinc-400">Auto-fetch book editions, covers &amp; descriptions</p>
+                                </div>
+                                <button
+                                    onClick={() => handleSaveConfig({ openLibraryProvider: studioConfig?.openLibraryProvider === false ? true : false })}
+                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
+                                        studioConfig?.openLibraryProvider !== false ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                    }`}
+                                >
+                                    {studioConfig?.openLibraryProvider !== false ? 'ON' : 'OFF'}
+                                </button>
+                            </div>
+
+                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-base font-black text-white">Apple iTunes Audiobook Lookup</p>
+                                    <p className="text-xs font-bold text-zinc-400">High-res square &amp; portrait audiobook artwork</p>
+                                </div>
+                                <button
+                                    onClick={() => handleSaveConfig({ itunesAudiobookProvider: studioConfig?.itunesAudiobookProvider === false ? true : false })}
+                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${
+                                        studioConfig?.itunesAudiobookProvider !== false ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                                    }`}
+                                >
+                                    {studioConfig?.itunesAudiobookProvider !== false ? 'ON' : 'OFF'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* AI Provider API Key */}
+                        <div className="space-y-3 pt-2 border-t border-zinc-800">
+                            <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                <Sliders size={18} className="text-amber-400" />
+                                <span>AI Provider API Key</span>
+                            </h4>
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <input
+                                    type="password"
+                                    value={apiKeyInput}
+                                    onChange={e => setApiKeyInput(e.target.value)}
+                                    placeholder="Paste Gemini / OpenAI / Claude / Groq API Key (or leave blank for Free Built-in)..."
+                                    className="flex-1 px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono focus:outline-none focus:border-amber-500"
+                                />
+                                <button
+                                    onClick={() => handleSaveConfig({})}
+                                    disabled={savingConfig}
+                                    className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider cursor-pointer"
+                                >
+                                    Save Key
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* ══════════════════════════════════════════════════════════════════════════════
                 BOOK & AI MODAL:
@@ -4507,8 +4668,8 @@ export function AudiobooksMediaManager() {
                                         </div>
                                     </div>
 
-                                    {/* ── THE 3 AI SUBTABS (PIPELINE ORDER: 1. TRANSCRIPTION -> 2. SCENING -> 3. ILLUSTRATION + VOICE) ── */}
-                                    <div className="grid grid-cols-3 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
+                                    {/* ── THE 4 AI SUBTABS (PIPELINE ORDER: 1. TRANSCRIPTION -> 2. SCENING -> 3. ILLUSTRATION -> 4. VOICE) ── */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
                                         <button
                                             onClick={() => setAiSubTab('transcription')}
                                             className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
@@ -4542,7 +4703,19 @@ export function AudiobooksMediaManager() {
                                             }`}
                                         >
                                             <Sparkles size={22} />
-                                            <span>Illustration + Voice</span>
+                                            <span>Illustration</span>
+                                        </button>
+
+                                        <button
+                                            onClick={() => setAiSubTab('voice')}
+                                            className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
+                                                aiSubTab === 'voice'
+                                                    ? 'bg-indigo-500 text-black shadow-xl shadow-indigo-500/25'
+                                                    : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
+                                            }`}
+                                        >
+                                            <Headphones size={22} />
+                                            <span>Voice</span>
                                         </button>
                                     </div>
 
@@ -5184,10 +5357,19 @@ export function AudiobooksMediaManager() {
                                                                     ? 'Requires Stage 2 (Scening) first before painting artwork'
                                                                     : 'Paint artwork for all LLM-detected scenes using Image API'
                                                             }
-                                                            className="sm:col-span-9 py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-xl shadow-emerald-500/30 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                                            className="sm:col-span-6 py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base sm:text-lg uppercase tracking-wider flex items-center justify-center gap-3 shadow-xl shadow-emerald-500/30 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                                         >
                                                             <Sparkles size={22} className={runningStudioAction === 'paint_all_scenes' ? 'animate-spin' : ''} />
                                                             <span>Paint All Scenes</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => setShowExportModal(true)}
+                                                            title="Export Illustrated Manuscript / PDF Artbook with high-res artwork, characters, and transcripts"
+                                                            className="sm:col-span-3 py-4 px-4 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-emerald-300 border-2 border-emerald-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                                                        >
+                                                            <Printer size={18} />
+                                                            <span>Export</span>
                                                         </button>
 
                                                         <button
@@ -5238,6 +5420,159 @@ export function AudiobooksMediaManager() {
                                                         )}
                                                     </div>
                                                 </div>
+
+                                                {/* ── CAST & LORE BIBLE (CHARACTERS & SETTINGS PORTFOLIO) ── */}
+                                                <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-5">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <User size={22} className="text-emerald-400" />
+                                                            <h4 className="text-xl font-black text-white uppercase tracking-wider">Cast &amp; Lore Bible</h4>
+                                                        </div>
+                                                        <button
+                                                            onClick={handleGeneratePortfolio}
+                                                            disabled={isLoadingPortfolio}
+                                                            title="Scan book synopsis and lore to generate reference character portraits and key settings"
+                                                            className="px-4 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-emerald-300 border border-emerald-500/40 text-xs sm:text-sm font-black uppercase flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                                                        >
+                                                            <Sparkles size={16} className={isLoadingPortfolio ? 'animate-spin' : ''} />
+                                                            <span>{isLoadingPortfolio ? 'Analyzing Lore...' : (bookPortfolio ? 'Refresh Lore' : 'Generate Lore')}</span>
+                                                        </button>
+                                                    </div>
+
+                                                    {bookPortfolio && (
+                                                        <div className="space-y-5">
+                                                            {/* Characters */}
+                                                            {bookPortfolio.characters && bookPortfolio.characters.length > 0 && (
+                                                                <div className="space-y-2.5">
+                                                                    <span className="text-xs font-black uppercase text-zinc-400 tracking-wider">
+                                                                        Characters ({bookPortfolio.characters.length})
+                                                                    </span>
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                                        {bookPortfolio.characters.map((char: any) => (
+                                                                            <div key={char.id} className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center gap-3.5 group">
+                                                                                <div
+                                                                                    onClick={() => char.imageUrl && setLightboxImage({
+                                                                                        url: char.imageUrl,
+                                                                                        title: char.name,
+                                                                                        chapterTitle: char.role || 'Character',
+                                                                                        prompt: char.visualPrompt,
+                                                                                        characters: [char.name]
+                                                                                    })}
+                                                                                    className="w-14 h-14 rounded-xl bg-zinc-900 border border-zinc-700/80 overflow-hidden flex items-center justify-center shrink-0 relative cursor-pointer"
+                                                                                    title={char.imageUrl ? "Click to view character portrait" : "Not painted yet"}
+                                                                                >
+                                                                                    {char.imageUrl ? (
+                                                                                        <img src={char.imageUrl} alt={char.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                                                    ) : (
+                                                                                        <User size={22} className="text-zinc-600" />
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="min-w-0 flex-1">
+                                                                                    <div className="flex items-center justify-between gap-1">
+                                                                                        <h5 className="text-sm font-black text-white truncate">{char.name}</h5>
+                                                                                        <button
+                                                                                            onClick={() => handlePaintPortfolioItem(char.id, 'character')}
+                                                                                            disabled={paintingPortfolioItemId === char.id}
+                                                                                            title="Paint character portrait"
+                                                                                            className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-black uppercase cursor-pointer disabled:opacity-50 shrink-0"
+                                                                                        >
+                                                                                            {paintingPortfolioItemId === char.id ? 'Painting...' : (char.imageUrl ? 'Repaint' : 'Paint')}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                    <p className="text-xs text-amber-300 font-bold truncate">{char.role || 'Character'}</p>
+                                                                                    <p className="text-[11px] text-zinc-400 line-clamp-1">{char.visualPrompt}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Locations */}
+                                                            {bookPortfolio.locations && bookPortfolio.locations.length > 0 && (
+                                                                <div className="space-y-2.5 pt-2">
+                                                                    <span className="text-xs font-black uppercase text-zinc-400 tracking-wider">
+                                                                        Key Settings &amp; Locations ({bookPortfolio.locations.length})
+                                                                    </span>
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                                        {bookPortfolio.locations.map((loc: any) => (
+                                                                            <div key={loc.id} className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center gap-3.5 group">
+                                                                                <div
+                                                                                    onClick={() => loc.imageUrl && setLightboxImage({
+                                                                                        url: loc.imageUrl,
+                                                                                        title: loc.name,
+                                                                                        chapterTitle: loc.type || 'Setting',
+                                                                                        prompt: loc.visualPrompt
+                                                                                    })}
+                                                                                    className="w-14 h-14 rounded-xl bg-zinc-900 border border-zinc-700/80 overflow-hidden flex items-center justify-center shrink-0 relative cursor-pointer"
+                                                                                    title={loc.imageUrl ? "Click to view setting artwork" : "Not painted yet"}
+                                                                                >
+                                                                                    {loc.imageUrl ? (
+                                                                                        <img src={loc.imageUrl} alt={loc.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                                                    ) : (
+                                                                                        <Compass size={22} className="text-zinc-600" />
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="min-w-0 flex-1">
+                                                                                    <div className="flex items-center justify-between gap-1">
+                                                                                        <h5 className="text-sm font-black text-white truncate">{loc.name}</h5>
+                                                                                        <button
+                                                                                            onClick={() => handlePaintPortfolioItem(loc.id, 'location')}
+                                                                                            disabled={paintingPortfolioItemId === loc.id}
+                                                                                            title="Paint setting artwork"
+                                                                                            className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-black uppercase cursor-pointer disabled:opacity-50 shrink-0"
+                                                                                        >
+                                                                                            {paintingPortfolioItemId === loc.id ? 'Painting...' : (loc.imageUrl ? 'Repaint' : 'Paint')}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                    <p className="text-xs text-purple-300 font-bold truncate">{loc.type || 'Setting'}</p>
+                                                                                    <p className="text-[11px] text-zinc-400 line-clamp-1">{loc.visualPrompt}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* ── SHOWCASE GALLERY (ALL PAINTED SCENES) ── */}
+                                                {allBookPaintedImages.length > 0 && (
+                                                    <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-3">
+                                                                <ImageIcon size={22} className="text-emerald-400" />
+                                                                <h4 className="text-xl font-black text-white uppercase tracking-wider">Showcase Gallery</h4>
+                                                            </div>
+                                                            <span className="px-3 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-black">
+                                                                {allBookPaintedImages.length} Artwork{allBookPaintedImages.length > 1 ? 's' : ''}
+                                                            </span>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                                            {allBookPaintedImages.map((img: any, gIdx: number) => (
+                                                                <div
+                                                                    key={`${img.url}-${gIdx}`}
+                                                                    onClick={() => setLightboxImage({
+                                                                        ...img,
+                                                                        allImages: allBookPaintedImages,
+                                                                        currentIndex: gIdx
+                                                                    })}
+                                                                    className="aspect-square rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-emerald-500/60 overflow-hidden relative group cursor-pointer shadow-md transition-all"
+                                                                >
+                                                                    <img src={img.url} alt={img.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2.5">
+                                                                        <p className="text-white text-xs font-bold truncate">{img.title}</p>
+                                                                        <p className="text-zinc-400 text-[10px] truncate">{img.chapterTitle}</p>
+                                                                    </div>
+                                                                    <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <Maximize2 size={13} />
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
 
                                                 {/* ── CHAPTERS & PAINTED SCENES GRID ── */}
                                                 <div className="space-y-4">
@@ -5322,11 +5657,34 @@ export function AudiobooksMediaManager() {
                                                                                         >
                                                                                             <div className="aspect-video bg-zinc-900 relative flex items-center justify-center overflow-hidden border-b border-zinc-800">
                                                                                                 {existingImg?.url ? (
-                                                                                                    <img
-                                                                                                        src={existingImg.url}
-                                                                                                        alt={existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
-                                                                                                        className="w-full h-full object-cover"
-                                                                                                    />
+                                                                                                    <div
+                                                                                                        onClick={() => setLightboxImage({
+                                                                                                            url: existingImg.url,
+                                                                                                            title: existingImg?.sceneTitle || `Scene ${sIdx + 1}`,
+                                                                                                            chapterTitle: chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`,
+                                                                                                            prompt: existingImg.prompt || promptVal,
+                                                                                                            date: existingImg.createdAt,
+                                                                                                            startSec,
+                                                                                                            endSec,
+                                                                                                            characters: existingImg.characters,
+                                                                                                            transitionReason: existingImg.transitionReason,
+                                                                                                            chapterKey,
+                                                                                                            imageId: existingImg.id,
+                                                                                                            allImages: allBookPaintedImages,
+                                                                                                            currentIndex: allBookPaintedImages.findIndex((x: any) => x.url === existingImg.url)
+                                                                                                        })}
+                                                                                                        className="w-full h-full relative group cursor-pointer"
+                                                                                                        title="Click to zoom and view details"
+                                                                                                    >
+                                                                                                        <img
+                                                                                                            src={existingImg.url}
+                                                                                                            alt={existingImg?.sceneTitle || `Scene ${sIdx + 1}`}
+                                                                                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                                                                                        />
+                                                                                                        <div className="absolute top-2.5 right-12 p-1.5 rounded-lg bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                                            <Maximize2 size={14} />
+                                                                                                        </div>
+                                                                                                    </div>
                                                                                                 ) : (
                                                                                                     <button
                                                                                                         onClick={() =>
@@ -5425,9 +5783,94 @@ export function AudiobooksMediaManager() {
                                                     })}
                                                 </div>
                                             </div>
+                                        </div>
+                                    )}
 
-                                            {/* ── PART 2: VOICE GENERATION SECTION ── */}
-                                            <div className="pt-6 border-t-2 border-zinc-800 space-y-6">
+                                    {/* ═══════════════════════════════════════════════════════════
+                                        TAB 4: VOICE GENERATION (DECOUPLED SUBTAB)
+                                       ═══════════════════════════════════════════════════════════ */}
+                                    {aiSubTab === 'voice' && (
+                                        <div className="space-y-8">
+                                            {/* Curated Voice Options */}
+                                            <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-5">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <Headphones size={24} className="text-indigo-400" />
+                                                        <h4 className="text-xl font-black text-white uppercase tracking-wider">Curated Voices</h4>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        {(['all', 'iconic', 'classic', 'intimate', 'broadcast'] as const).map(cat => (
+                                                            <button
+                                                                key={cat}
+                                                                onClick={() => setVoiceCategoryFilter(cat)}
+                                                                className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+                                                                    voiceCategoryFilter === cat
+                                                                        ? 'bg-indigo-500 text-black shadow'
+                                                                        : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
+                                                                }`}
+                                                            >
+                                                                {cat}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                    {CURATED_VOICE_PROFILES
+                                                        .filter(profile => voiceCategoryFilter === 'all' || profile.category === voiceCategoryFilter)
+                                                        .map(profile => {
+                                                            const isSelected = editVoicePreset === profile.id;
+                                                            return (
+                                                                <div
+                                                                    key={profile.id}
+                                                                    onClick={() => setEditVoicePreset(profile.id)}
+                                                                    className={`p-5 rounded-3xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                                                                        isSelected
+                                                                            ? 'bg-indigo-950/40 border-indigo-500 shadow-xl shadow-indigo-500/20'
+                                                                            : 'bg-zinc-950/80 border-zinc-800 hover:border-zinc-700'
+                                                                    }`}
+                                                                >
+                                                                    <div>
+                                                                        <div className="flex items-center justify-between gap-2 mb-1">
+                                                                            <span className="text-base sm:text-lg font-black text-white truncate">{profile.name}</span>
+                                                                            <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-zinc-900 border border-zinc-700 text-zinc-300">
+                                                                                {profile.category}
+                                                                            </span>
+                                                                        </div>
+                                                                        <p className="text-xs sm:text-sm font-bold text-indigo-300 truncate">{profile.subtitle}</p>
+                                                                        <p className="text-xs text-zinc-400 mt-2 line-clamp-2 leading-relaxed">{profile.description}</p>
+                                                                    </div>
+
+                                                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-800/80">
+                                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                                            {profile.tags.slice(0, 2).map((t, tidx) => (
+                                                                                <span key={tidx} className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded">
+                                                                                    {t}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setEditVoicePreset(profile.id);
+                                                                            }}
+                                                                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase cursor-pointer ${
+                                                                                isSelected
+                                                                                    ? 'bg-indigo-500 text-black'
+                                                                                    : 'bg-zinc-800 text-zinc-300 hover:text-white'
+                                                                            }`}
+                                                                        >
+                                                                            {isSelected ? 'Active' : 'Select'}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                </div>
+                                            </div>
+
+                                            {/* Voice Action & Controls Bar */}
+                                            <div className="space-y-6">
                                                 {/* Top Voice Menu */}
                                                 <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-950 border-2 border-emerald-500/50 shadow-2xl space-y-5">
                                                     <div className="flex items-center gap-3">
@@ -5536,6 +5979,14 @@ export function AudiobooksMediaManager() {
                                                                                 <span className={isEnhDone ? 'text-emerald-300 font-black' : 'text-zinc-500'}>
                                                                                     {isEnhDone ? `Enhanced (${chMeta.voice_preset || editVoicePreset})` : 'Original Audio'}
                                                                                 </span>
+                                                                            </div>
+                                                                            <div className="pt-2 w-full max-w-md" onClick={e => e.stopPropagation()}>
+                                                                                <audio
+                                                                                    controls
+                                                                                    preload="none"
+                                                                                    src={`/api/theater/stream?path=${encodeURIComponent(chMeta.enhanced_audio_path || chTrack.path || '')}`}
+                                                                                    className="w-full h-8 rounded-lg"
+                                                                                />
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -5647,6 +6098,28 @@ export function AudiobooksMediaManager() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ── LIGHTBOX ZOOM MODAL ── */}
+            {lightboxImage && (
+                <AudiobookImageLightboxModal
+                    item={lightboxImage}
+                    onClose={() => setLightboxImage(null)}
+                    onNavigate={handleNavigateLightbox}
+                    onSetCustomCover={handlePromoteImageToBookCover}
+                    onDeleteImage={handleDeleteImageFromLightbox}
+                />
+            )}
+
+            {/* ── DOCUMENT & PDF EXPORT MODAL ── */}
+            {showExportModal && currentModalBook && (
+                <AudiobookDocumentExportModal
+                    book={currentModalBook}
+                    portfolio={bookPortfolio}
+                    chapters={currentModalBook.chapters || []}
+                    resolveChapterMeta={resolveChapterMeta}
+                    onClose={() => setShowExportModal(false)}
+                />
             )}
 
             {/* Custom Confirm Modal */}
