@@ -5,7 +5,7 @@ import {
     X, Printer, Download, BookOpen, Sparkles, User, FileText, Check, Compass, Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { BookVisualPortfolio } from '@/lib/audiobookStudio';
+import { BookVisualPortfolio } from '@/lib/audiobookStudioShared';
 
 interface AudiobookDocumentExportModalProps {
     book: any;

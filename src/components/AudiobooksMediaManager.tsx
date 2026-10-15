@@ -17,7 +17,7 @@ import {
     BookVisualPortfolio,
     BookPortfolioCharacter,
     BookPortfolioLocation
-} from '@/lib/audiobookStudio';
+} from '@/lib/audiobookStudioShared';
 
 const CLIENT_BOOK_CATALOG: Array<{ pattern: RegExp; cleanTitle: string; collection: string; bookNumber: number; releaseYear: string; summary?: string }> = [
     // Alastair Reynolds — Poseidon's Children
