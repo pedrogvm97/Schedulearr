@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { PasswordPromptModal } from "@/components/PasswordPromptModal";
+import { UnifiedCleanerModal } from "@/components/UnifiedCleanerModal";
 import { twColorToHex } from "@/lib/instanceColor";
 
 export default function Settings() {
@@ -321,12 +322,16 @@ export default function Settings() {
     }[]>([]);
     const [cleaningLibraryId, setCleaningLibraryId] = useState<string | null>(null);
 
+    const [unifiedCleanerModalOpen, setUnifiedCleanerModalOpen] = useState(false);
+
     // Curated Audiobook AI Studio, Unified API Auto-Detect, Quotas & Schedules Config
     const [audiobookStudioConfig, setAudiobookStudioConfig] = useState<{
         enabled: boolean;
+        aiFeaturesEnabled?: boolean;
         transcribeEnabled?: boolean;
         sceningEnabled?: boolean;
         imagingEnabled?: boolean;
+        voiceEnabled?: boolean;
         scheduleMode: 'continuous_low_cpu' | 'hourly' | 'overnight' | 'manual_only';
         sttEngine: 'whisper_tiny_local' | 'openai_whisper' | 'gemini_audio' | 'acoustic_cadence';
         cpuThreads: number;
@@ -3012,92 +3017,251 @@ export default function Settings() {
                         </div>
                     )}
 
-                    {/* AUDIOBOOKS: 2. AUTOMATED PIPELINE STAGES */}
+                    {/* AUDIOBOOKS: 2. MASTER AI FEATURES & AUTOMATED PIPELINE STAGES */}
                     {(aiMediaCategory === 'general' || aiMediaCategory === 'audiobooks') && (
-                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
-                            <div className="flex items-center justify-between gap-3 pb-3 border-b border-zinc-800">
-                                <div className="flex items-center gap-2.5">
-                                    <Layers className="w-6 h-6 text-indigo-400" />
-                                    <h2 className="text-xl font-black text-white">2. Automated Pipeline Stages</h2>
-                                </div>
-                                <span className="text-xs font-bold text-zinc-400">Audiobook Processing Pipeline</span>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {/* Stage 1: Transcription */}
-                                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Mic className="w-5 h-5 text-sky-400" />
-                                            <span className="text-xs font-black uppercase text-sky-400">Stage 1: Speech-to-Text</span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => saveAudiobookStudioConfig({ transcribeEnabled: audiobookStudioConfig.transcribeEnabled === false })}
-                                            className={`px-3 py-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
-                                                audiobookStudioConfig.transcribeEnabled !== false ? 'bg-sky-500 text-black' : 'bg-zinc-800 text-zinc-400'
-                                            }`}
-                                        >
-                                            {audiobookStudioConfig.transcribeEnabled !== false ? 'ON' : 'OFF'}
-                                        </button>
-                                    </div>
-                                    <select
-                                        value={audiobookStudioConfig.sttEngine || 'whisper_tiny_local'}
-                                        onChange={e => saveAudiobookStudioConfig({ sttEngine: e.target.value as any })}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
-                                    >
-                                        <option value="whisper_tiny_local">Whisper Tiny Local (Free, 0 Quota)</option>
-                                        <option value="openai_whisper">OpenAI Whisper-1 (API Key)</option>
-                                        <option value="gemini_audio">Google Gemini Audio (API Key)</option>
-                                        <option value="acoustic_cadence">Acoustic Cadence (DSP)</option>
-                                    </select>
-                                </div>
-
-                                {/* Stage 2: Scene Detection */}
-                                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Wand2 className="w-5 h-5 text-amber-400" />
-                                            <span className="text-xs font-black uppercase text-amber-400">Stage 2: Scene Detection</span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => saveAudiobookStudioConfig({ sceningEnabled: audiobookStudioConfig.sceningEnabled === false })}
-                                            className={`px-3 py-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
-                                                audiobookStudioConfig.sceningEnabled !== false ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'
-                                            }`}
-                                        >
-                                            {audiobookStudioConfig.sceningEnabled !== false ? 'ON' : 'OFF'}
-                                        </button>
-                                    </div>
-                                    <p className="text-xs text-zinc-400">Analyzes chapter narrative to extract character moments and vivid scene beats.</p>
-                                </div>
-
-                                {/* Stage 3: Scene Artwork */}
-                                <div className="p-4 rounded-xl bg-zinc-950/70 border border-zinc-800 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <ImageIcon className="w-5 h-5 text-purple-400" />
-                                            <span className="text-xs font-black uppercase text-purple-400">Stage 3: Scene Artwork</span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => saveAudiobookStudioConfig({ imagingEnabled: audiobookStudioConfig.imagingEnabled === false })}
-                                            className={`px-3 py-1 rounded-lg text-xs font-black uppercase cursor-pointer ${
-                                                audiobookStudioConfig.imagingEnabled !== false ? 'bg-purple-500 text-black' : 'bg-zinc-800 text-zinc-400'
-                                            }`}
-                                        >
-                                            {audiobookStudioConfig.imagingEnabled !== false ? 'ON' : 'OFF'}
-                                        </button>
-                                    </div>
-                                    <div className="flex items-center justify-between text-xs">
-                                        <span className="text-zinc-400">Daily Meter:</span>
-                                        <span className="font-mono font-bold text-amber-300">
-                                            {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-7 space-y-6 shadow-xl">
+                            {/* Master Toggle & Unified Clean Button */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-zinc-800">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-3">
+                                        <Sparkles className={`w-7 h-7 ${audiobookStudioConfig.aiFeaturesEnabled !== false ? 'text-amber-400' : 'text-zinc-500'}`} />
+                                        <h2 className="text-xl sm:text-2xl font-black text-white">AI Features</h2>
+                                        <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
+                                            audiobookStudioConfig.aiFeaturesEnabled !== false
+                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                : 'bg-zinc-800 text-zinc-500 border-zinc-700'
+                                        }`}>
+                                            {audiobookStudioConfig.aiFeaturesEnabled !== false ? 'Active' : 'Disabled'}
                                         </span>
                                     </div>
+                                    <p className="text-xs sm:text-sm text-zinc-400 font-medium">
+                                        Master switch for all automated speech-to-text, scene breakdowns, illustration artwork, and voice enhancement.
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center gap-3 shrink-0 flex-wrap">
+                                    <button
+                                        type="button"
+                                        onClick={() => setUnifiedCleanerModalOpen(true)}
+                                        title="Open unified cleaner to remove generated images, scenes, transcripts, or voice exports"
+                                        className="px-4 py-2.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 text-xs sm:text-sm font-black uppercase flex items-center gap-2 cursor-pointer transition-all shadow-md"
+                                    >
+                                        <Trash2 size={16} />
+                                        <span>Clean Assets</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const nextAi = audiobookStudioConfig.aiFeaturesEnabled === false ? true : false;
+                                            saveAudiobookStudioConfig({ aiFeaturesEnabled: nextAi });
+                                        }}
+                                        title={audiobookStudioConfig.aiFeaturesEnabled !== false ? "Click to switch off all AI features" : "Click to switch on all AI features"}
+                                        className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all shadow-md ${
+                                            audiobookStudioConfig.aiFeaturesEnabled !== false
+                                                ? 'bg-amber-500 text-black shadow-amber-500/25'
+                                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                                        }`}
+                                    >
+                                        <Sparkles size={16} />
+                                        <span>{audiobookStudioConfig.aiFeaturesEnabled !== false ? 'AI: ON' : 'AI: OFF'}</span>
+                                    </button>
                                 </div>
                             </div>
+
+                            {/* 4 Cascading Pipeline Stages (1. Transcribing -> 2. Scening -> 3. Illustrating -> 4. Voice) */}
+                            {(() => {
+                                const masterOn = audiobookStudioConfig.aiFeaturesEnabled !== false;
+                                const stage1On = masterOn && audiobookStudioConfig.transcribeEnabled !== false;
+                                const stage2On = stage1On && audiobookStudioConfig.sceningEnabled !== false;
+                                const stage3On = stage2On && audiobookStudioConfig.imagingEnabled !== false;
+                                const stage4On = masterOn && audiobookStudioConfig.voiceEnabled !== false;
+
+                                return (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        {/* Stage 1: Transcription */}
+                                        <div className={`p-5 rounded-2xl border transition-all space-y-3 ${
+                                            !masterOn
+                                                ? 'bg-zinc-950/40 border-zinc-800/60 opacity-40 grayscale'
+                                                : stage1On
+                                                ? 'bg-sky-950/20 border-sky-500/40 shadow-lg shadow-sky-500/5'
+                                                : 'bg-zinc-950/70 border-zinc-800'
+                                        }`}>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <Mic className={`w-5 h-5 ${stage1On ? 'text-sky-400' : 'text-zinc-500'}`} />
+                                                    <span className={`text-xs font-black uppercase ${stage1On ? 'text-sky-400' : 'text-zinc-400'}`}>1. Transcribing</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    disabled={!masterOn}
+                                                    onClick={() => {
+                                                        if (!masterOn) {
+                                                            toast.info("Enable master AI Features first");
+                                                            return;
+                                                        }
+                                                        const nextVal = !stage1On;
+                                                        saveAudiobookStudioConfig({
+                                                            transcribeEnabled: nextVal,
+                                                            ...(nextVal ? {} : { sceningEnabled: false, imagingEnabled: false })
+                                                        });
+                                                    }}
+                                                    title={!masterOn ? "Master AI switch is OFF" : "Toggle Stage 1: Speech-to-Text Verbatim Transcription"}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer transition-all ${
+                                                        !masterOn
+                                                            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                                                            : stage1On
+                                                            ? 'bg-sky-500 text-black shadow'
+                                                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    {stage1On ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+                                            <select
+                                                disabled={!stage1On}
+                                                value={audiobookStudioConfig.sttEngine || 'whisper_tiny_local'}
+                                                onChange={e => saveAudiobookStudioConfig({ sttEngine: e.target.value as any })}
+                                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none disabled:opacity-40"
+                                            >
+                                                <option value="whisper_tiny_local">Whisper Tiny Local (Free)</option>
+                                                <option value="openai_whisper">OpenAI Whisper-1</option>
+                                                <option value="gemini_audio">Google Gemini Audio</option>
+                                                <option value="acoustic_cadence">Acoustic Cadence (DSP)</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Stage 2: Scene Detection */}
+                                        <div className={`p-5 rounded-2xl border transition-all space-y-3 ${
+                                            !stage1On
+                                                ? 'bg-zinc-950/40 border-zinc-800/60 opacity-40 grayscale'
+                                                : stage2On
+                                                ? 'bg-purple-950/20 border-purple-500/40 shadow-lg shadow-purple-500/5'
+                                                : 'bg-zinc-950/70 border-zinc-800'
+                                        }`}>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <Wand2 className={`w-5 h-5 ${stage2On ? 'text-purple-400' : 'text-zinc-500'}`} />
+                                                    <span className={`text-xs font-black uppercase ${stage2On ? 'text-purple-400' : 'text-zinc-400'}`}>2. Scening</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (!stage1On) {
+                                                            toast.info("Scening requires Stage 1 (Transcribing) to be enabled first");
+                                                            return;
+                                                        }
+                                                        const nextVal = !stage2On;
+                                                        saveAudiobookStudioConfig({
+                                                            sceningEnabled: nextVal,
+                                                            ...(nextVal ? {} : { imagingEnabled: false })
+                                                        });
+                                                    }}
+                                                    title={!stage1On ? "Requires Stage 1 (Transcribing) first" : "Toggle Stage 2: Narrative Scene Detection"}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer transition-all ${
+                                                        !stage1On
+                                                            ? 'bg-zinc-800 text-zinc-600'
+                                                            : stage2On
+                                                            ? 'bg-purple-500 text-black shadow'
+                                                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    {stage2On ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-zinc-400">Analyzes chapter narrative to extract character moments and vivid scene beats.</p>
+                                        </div>
+
+                                        {/* Stage 3: Scene Artwork */}
+                                        <div className={`p-5 rounded-2xl border transition-all space-y-3 ${
+                                            !stage2On
+                                                ? 'bg-zinc-950/40 border-zinc-800/60 opacity-40 grayscale'
+                                                : stage3On
+                                                ? 'bg-emerald-950/20 border-emerald-500/40 shadow-lg shadow-emerald-500/5'
+                                                : 'bg-zinc-950/70 border-zinc-800'
+                                        }`}>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <ImageIcon className={`w-5 h-5 ${stage3On ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                                                    <span className={`text-xs font-black uppercase ${stage3On ? 'text-emerald-400' : 'text-zinc-400'}`}>3. Illustrating</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (!stage2On) {
+                                                            toast.info("Illustrating requires Stage 2 (Scening) to be enabled first");
+                                                            return;
+                                                        }
+                                                        saveAudiobookStudioConfig({ imagingEnabled: !stage3On });
+                                                    }}
+                                                    title={!stage2On ? "Requires Stage 2 (Scening) first" : "Toggle Stage 3: Scene Artwork Painting"}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer transition-all ${
+                                                        !stage2On
+                                                            ? 'bg-zinc-800 text-zinc-600'
+                                                            : stage3On
+                                                            ? 'bg-emerald-500 text-black shadow'
+                                                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    {stage3On ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+                                            <div className="flex items-center justify-between text-xs pt-1">
+                                                <span className="text-zinc-400">Daily Meter:</span>
+                                                <span className="font-mono font-bold text-amber-300">
+                                                    {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Stage 4: Voice */}
+                                        <div className={`p-5 rounded-2xl border transition-all space-y-3 ${
+                                            !masterOn
+                                                ? 'bg-zinc-950/40 border-zinc-800/60 opacity-40 grayscale'
+                                                : stage4On
+                                                ? 'bg-indigo-950/20 border-indigo-500/40 shadow-lg shadow-indigo-500/5'
+                                                : 'bg-zinc-950/70 border-zinc-800'
+                                        }`}>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <Headphones className={`w-5 h-5 ${stage4On ? 'text-indigo-400' : 'text-zinc-500'}`} />
+                                                    <span className={`text-xs font-black uppercase ${stage4On ? 'text-indigo-400' : 'text-zinc-400'}`}>4. Voice</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    disabled={!masterOn}
+                                                    onClick={() => {
+                                                        if (!masterOn) {
+                                                            toast.info("Enable master AI Features first");
+                                                            return;
+                                                        }
+                                                        saveAudiobookStudioConfig({ voiceEnabled: !stage4On });
+                                                    }}
+                                                    title={!masterOn ? "Master AI switch is OFF" : "Toggle Stage 4: Voice Narration & Audio Enhancing"}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer transition-all ${
+                                                        !masterOn
+                                                            ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                                                            : stage4On
+                                                            ? 'bg-indigo-500 text-black shadow'
+                                                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    {stage4On ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+                                            <select
+                                                disabled={!stage4On}
+                                                value={audiobookStudioConfig.audioEnhancePreset || 'denoise_clarity'}
+                                                onChange={e => saveAudiobookStudioConfig({ audioEnhancePreset: e.target.value as any })}
+                                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none disabled:opacity-40"
+                                            >
+                                                <option value="denoise_clarity">Studio Denoise & Clarity</option>
+                                                <option value="vintage_restore">Warm Vintage Master</option>
+                                                <option value="crystal_voice">Crystal Presence EQ</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     )}
 
@@ -3432,7 +3596,28 @@ export default function Settings() {
                                 </button>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black uppercase tracking-wider text-zinc-400 block">
+                                        Default Art Style
+                                    </label>
+                                    <select
+                                        value={audiobookStudioConfig.artStyle || 'Auto'}
+                                        onChange={e => saveAudiobookStudioConfig({ artStyle: e.target.value })}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none cursor-pointer"
+                                    >
+                                        <option value="Auto">Auto (Smart Genre Auto-Select)</option>
+                                        <option value="Cinematic Concept Art">Cinematic Concept Art</option>
+                                        <option value="Oil Painting">Classic Oil Painting</option>
+                                        <option value="Dark Fantasy">Dark Atmospheric Painting</option>
+                                        <option value="Watercolor">Storybook Watercolor</option>
+                                        <option value="Graphic Novel">Graphic Novel Ink</option>
+                                        <option value="Anime">Anime Masterpiece</option>
+                                        <option value="Vintage Book Plate">Vintage Book Engraving</option>
+                                        <option value="Photorealistic">Photorealistic Film Still</option>
+                                    </select>
+                                </div>
+
                                 <div className="space-y-2">
                                     <label className="text-xs font-black uppercase tracking-wider text-zinc-400 block">
                                         Art Resolution
@@ -4246,6 +4431,17 @@ export default function Settings() {
                 description={passwordModal.description}
                 confirmText={passwordModal.confirmText}
             />
+
+            {/* Unified AI Asset Cleaner Modal */}
+            {unifiedCleanerModalOpen && (
+                <UnifiedCleanerModal
+                    isOpen={unifiedCleanerModalOpen}
+                    onClose={() => setUnifiedCleanerModalOpen(false)}
+                    onSuccess={() => {
+                        toast.success('Clean operation completed');
+                    }}
+                />
+            )}
         </div>
     );
 }

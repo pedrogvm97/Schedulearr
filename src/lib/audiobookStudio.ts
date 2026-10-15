@@ -121,7 +121,8 @@ import {
     BookPortfolioLocation,
     BookVisualPortfolio,
     CuratedVoiceProfile,
-    CURATED_VOICE_PROFILES
+    CURATED_VOICE_PROFILES,
+    resolveSmartAutoArtStyle
 } from './audiobookStudioShared';
 export * from './audiobookStudioShared';
 
@@ -132,6 +133,7 @@ export interface AudiobookStudioConfig {
     transcribeEnabled?: boolean;
     sceningEnabled?: boolean;
     imagingEnabled?: boolean;
+    voiceEnabled?: boolean;
     scheduleMode: 'continuous_low_cpu' | 'hourly' | 'overnight' | 'manual_only';
     sttEngine: 'whisper_tiny_local' | 'openai_whisper' | 'gemini_audio' | 'acoustic_cadence';
     cpuThreads: number;
@@ -202,6 +204,7 @@ const DEFAULT_STUDIO_CONFIG: AudiobookStudioConfig = {
     transcribeEnabled: true,
     sceningEnabled: true,
     imagingEnabled: true,
+    voiceEnabled: true,
     scheduleMode: 'continuous_low_cpu',
     sttEngine: 'whisper_tiny_local',
     cpuThreads: 1,
@@ -417,24 +420,33 @@ export const saveAudiobookStudioConfig = (partial: Partial<AudiobookStudioConfig
         ? partial.apiKeys
         : (partial.keyPool !== undefined ? partial.keyPool : (current.apiKeys || []));
 
+    let transcribeEnabled = partial.transcribeEnabled !== undefined ? Boolean(partial.transcribeEnabled) : (current.transcribeEnabled ?? true);
     let sceningEnabled = partial.sceningEnabled !== undefined ? Boolean(partial.sceningEnabled) : (current.sceningEnabled ?? true);
     let imagingEnabled = partial.imagingEnabled !== undefined ? Boolean(partial.imagingEnabled) : (current.imagingEnabled ?? true);
-    if (partial.sceningEnabled === false) {
+    let voiceEnabled = partial.voiceEnabled !== undefined ? Boolean(partial.voiceEnabled) : (current.voiceEnabled ?? true);
+
+    if (transcribeEnabled === false) {
+        sceningEnabled = false;
         imagingEnabled = false;
-    } else if (partial.imagingEnabled === true) {
-        sceningEnabled = true;
+    } else if (sceningEnabled === false) {
+        imagingEnabled = false;
     }
-    if (!sceningEnabled) {
-        imagingEnabled = false;
+    if (imagingEnabled === true) {
+        sceningEnabled = true;
+        transcribeEnabled = true;
+    }
+    if (sceningEnabled === true) {
+        transcribeEnabled = true;
     }
 
     const updated: AudiobookStudioConfig = {
         ...current,
         ...partial,
         aiFeaturesEnabled: partial.aiFeaturesEnabled !== undefined ? Boolean(partial.aiFeaturesEnabled) : (current.aiFeaturesEnabled ?? true),
-        transcribeEnabled: partial.transcribeEnabled !== undefined ? Boolean(partial.transcribeEnabled) : (current.transcribeEnabled ?? true),
+        transcribeEnabled,
         sceningEnabled,
         imagingEnabled,
+        voiceEnabled,
         apiMetrics: partial.apiMetrics ? { ...(current.apiMetrics || DEFAULT_API_METRICS), ...partial.apiMetrics } : (current.apiMetrics || DEFAULT_API_METRICS),
         apiKeys: incomingKeys,
         keyPool: incomingKeys,
@@ -4653,7 +4665,7 @@ export const generateAudiobookCoverArt = async (
         lastLog: `Painting custom book cover for "${book.title}" by ${book.author}...`
     });
 
-    const effectiveStyle = (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Cinematic Concept Art');
+    const effectiveStyle = resolveSmartAutoArtStyle(book, (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Auto'));
     const effectiveFocus = (book.art_focus && book.art_focus.trim()) ? book.art_focus.trim() : (freshConfig.artFocus || 'auto-choice');
     const effectiveCustomPrompt = (book.custom_prompt && book.custom_prompt.trim()) ? book.custom_prompt.trim() : (freshConfig.customPromptTemplate || '');
 
@@ -5013,7 +5025,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
         ? durationSec
         : Math.min(durationSec, Math.max(180, Math.round(maxTranscribedLineSec + 30)));
 
-    const effectiveStyle = (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Cinematic Concept Art');
+    const effectiveStyle = resolveSmartAutoArtStyle(book, (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Auto'));
 
     let currentBook = book;
     if (!currentBook.real_structure_json) {
@@ -5352,7 +5364,7 @@ export const paintAudiobookChapterScenes = async (
         return [];
     }
 
-    const effectiveStyle = (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Cinematic Concept Art');
+    const effectiveStyle = resolveSmartAutoArtStyle(book, (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Auto'));
     const [widthStr, heightStr] = (freshConfig.artResolution || '1280x720').split('x');
     const width = parseInt(widthStr, 10) || 1280;
     const height = parseInt(heightStr, 10) || 720;
@@ -5515,7 +5527,7 @@ export const regenerateSingleAudiobookSceneImage = async (params: {
     if (!book || !chapter) return null;
 
     const freshConfig = getAudiobookStudioConfig();
-    const effectiveStyle = (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Cinematic Concept Art');
+    const effectiveStyle = resolveSmartAutoArtStyle(book, (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Auto'));
     const effectiveFocus = (book.art_focus && book.art_focus.trim()) ? book.art_focus.trim() : (freshConfig.artFocus || 'auto-choice');
     const effectiveCustomPrompt = (book.custom_prompt && book.custom_prompt.trim()) ? book.custom_prompt.trim() : (freshConfig.customPromptTemplate || '');
 
@@ -7414,7 +7426,7 @@ export const paintBookPortfolioItem = async (params: {
     if (!portfolio) return null;
 
     const config = getAudiobookStudioConfig();
-    const effectiveStyle = config.artStyle || 'Cinematic Concept Art';
+    const effectiveStyle = resolveSmartAutoArtStyle(book, config.artStyle || 'Auto');
 
     if (itemType === 'character') {
         const char = portfolio.characters.find(c => c.id === itemId);

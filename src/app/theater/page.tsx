@@ -30,6 +30,8 @@ import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 import { logClientEvent } from '@/lib/clientLogger';
 import { AuthorDetailsModal } from '@/components/AuthorDetailsModal';
 import { MediaGradingModal } from '@/components/MediaGradingModal';
+import { AudiobookTranscriptViewerModal } from '@/components/AudiobookTranscriptViewerModal';
+import { UnifiedCleanerModal } from '@/components/UnifiedCleanerModal';
 
 interface TheaterLibrary {
     id: string;
@@ -2280,6 +2282,9 @@ function TheaterPageContent() {
     ];
 
     const [bookModalAiSubTab, setBookModalAiSubTab] = useState<'transcription' | 'scening' | 'illustration'>('transcription');
+    const [theaterTranscriptViewerState, setTheaterTranscriptViewerState] = useState<{ isOpen: boolean; chapterIndex: number | null } | null>(null);
+    const [theaterUnifiedCleanerModal, setTheaterUnifiedCleanerModal] = useState<{ isOpen: boolean; bookKey?: string; bookTitle?: string }>({ isOpen: false });
+    const [theaterAiDisabledAlert, setTheaterAiDisabledAlert] = useState<{ feature: string; reason: string } | null>(null);
     const [selectedAuthorForModal, setSelectedAuthorForModal] = useState<string | null>(null);
     const [theaterScenePromptDrafts, setTheaterScenePromptDrafts] = useState<Record<string, string>>({});
     const [theaterRepaintingSceneKey, setTheaterRepaintingSceneKey] = useState<string | null>(null);
@@ -8738,44 +8743,102 @@ function TheaterPageContent() {
                         {bookModalTab === 'generate' && (
                             <div className="space-y-6">
                                 {/* 3 AI Subtabs strictly in order */}
-                                <div className="grid grid-cols-3 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
-                                    <button
-                                        onClick={() => setBookModalAiSubTab('transcription')}
-                                        title="Stage 1: Generate full book timestamped transcripts from audio"
-                                        className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
-                                            bookModalAiSubTab === 'transcription'
-                                                ? 'bg-amber-500 text-black shadow-lg'
-                                                : 'text-zinc-300 hover:text-white'
-                                        }`}
-                                    >
-                                        <FileText size={20} />
-                                        <span>1. Transcription</span>
-                                    </button>
-                                    <button
-                                        onClick={() => setBookModalAiSubTab('scening')}
-                                        title="Stage 2: LLM analyzes transcripts to detect scene transitions"
-                                        className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
-                                            bookModalAiSubTab === 'scening'
-                                                ? 'bg-cyan-500 text-black shadow-lg'
-                                                : 'text-zinc-300 hover:text-white'
-                                        }`}
-                                    >
-                                        <Wand2 size={20} />
-                                        <span>2. Scening</span>
-                                    </button>
-                                    <button
-                                        onClick={() => setBookModalAiSubTab('illustration')}
-                                        title="Stage 3: Paint raster scene artwork and generate voice audio"
-                                        className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
-                                            bookModalAiSubTab === 'illustration'
-                                                ? 'bg-purple-500 text-black shadow-lg'
-                                                : 'text-zinc-300 hover:text-white'
-                                        }`}
-                                    >
-                                        <Sparkles size={20} />
-                                        <span>3. Illustration &amp; Voice</span>
-                                    </button>
-                                </div>
+                                {(() => {
+                                    const isTranscribeDisabled = audiobookStudioConfig?.aiFeaturesEnabled === false || audiobookStudioConfig?.transcribeEnabled === false;
+                                    const isSceningDisabled = isTranscribeDisabled || audiobookStudioConfig?.sceningEnabled === false;
+                                    const isIllustrationDisabled = isSceningDisabled || audiobookStudioConfig?.imagingEnabled === false;
+
+                                    const onSubTabClick = (tab: 'transcription' | 'scening' | 'illustration') => {
+                                        if (audiobookStudioConfig?.aiFeaturesEnabled === false) {
+                                            toast.info("AI Features are disabled in Settings", {
+                                                action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                            });
+                                            setTheaterAiDisabledAlert({
+                                                feature: 'AI Features',
+                                                reason: 'All automated AI audiobook features are currently switched OFF in Settings.'
+                                            });
+                                            return;
+                                        }
+                                        if (tab === 'transcription' && isTranscribeDisabled) {
+                                            toast.info("Transcribing is disabled in Settings", {
+                                                action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                            });
+                                            setTheaterAiDisabledAlert({
+                                                feature: '1. Transcribing',
+                                                reason: 'Speech-to-Text Transcription is currently turned OFF in Settings.'
+                                            });
+                                            return;
+                                        }
+                                        if (tab === 'scening' && isSceningDisabled) {
+                                            toast.info("Scening is disabled in Settings", {
+                                                action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                            });
+                                            setTheaterAiDisabledAlert({
+                                                feature: '2. Scening',
+                                                reason: 'Scene Detection is currently turned OFF in Settings (requires Transcribing to be enabled).'
+                                            });
+                                            return;
+                                        }
+                                        if (tab === 'illustration' && isIllustrationDisabled) {
+                                            toast.info("Illustrating is disabled in Settings", {
+                                                action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                            });
+                                            setTheaterAiDisabledAlert({
+                                                feature: '3. Illustration & Voice',
+                                                reason: 'Scene Artwork painting is currently turned OFF in Settings (requires Scening to be enabled).'
+                                            });
+                                            return;
+                                        }
+                                        setBookModalAiSubTab(tab);
+                                    };
+
+                                    return (
+                                        <div className="grid grid-cols-3 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
+                                            <button
+                                                onClick={() => onSubTabClick('transcription')}
+                                                title={isTranscribeDisabled ? "Transcribing is disabled in Settings (click to open Settings)" : "Stage 1: Generate full book timestamped transcripts from audio"}
+                                                className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                                                    isTranscribeDisabled
+                                                        ? 'opacity-40 grayscale border border-dashed border-zinc-700 hover:border-amber-500/60'
+                                                        : bookModalAiSubTab === 'transcription'
+                                                        ? 'bg-amber-500 text-black shadow-lg'
+                                                        : 'text-zinc-300 hover:text-white'
+                                                }`}
+                                            >
+                                                <FileText size={20} />
+                                                <span>1. Transcription</span>
+                                            </button>
+                                            <button
+                                                onClick={() => onSubTabClick('scening')}
+                                                title={isSceningDisabled ? "Scening is disabled in Settings (click to open Settings)" : "Stage 2: LLM analyzes transcripts to detect scene transitions"}
+                                                className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                                                    isSceningDisabled
+                                                        ? 'opacity-40 grayscale border border-dashed border-zinc-700 hover:border-cyan-500/60'
+                                                        : bookModalAiSubTab === 'scening'
+                                                        ? 'bg-cyan-500 text-black shadow-lg'
+                                                        : 'text-zinc-300 hover:text-white'
+                                                }`}
+                                            >
+                                                <Wand2 size={20} />
+                                                <span>2. Scening</span>
+                                            </button>
+                                            <button
+                                                onClick={() => onSubTabClick('illustration')}
+                                                title={isIllustrationDisabled ? "Illustrating is disabled in Settings (click to open Settings)" : "Stage 3: Paint raster scene artwork and generate voice audio"}
+                                                className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                                                    isIllustrationDisabled
+                                                        ? 'opacity-40 grayscale border border-dashed border-zinc-700 hover:border-purple-500/60'
+                                                        : bookModalAiSubTab === 'illustration'
+                                                        ? 'bg-purple-500 text-black shadow-lg'
+                                                        : 'text-zinc-300 hover:text-white'
+                                                }`}
+                                            >
+                                                <Sparkles size={20} />
+                                                <span>3. Illustration &amp; Voice</span>
+                                            </button>
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* SUBTAB 1: TRANSCRIPTION (ALWAYS FIRST - FULL BOOK TIMESTAMPED TRANSCRIPTS ONLY) */}
                                 {bookModalAiSubTab === 'transcription' && (
@@ -8786,26 +8849,26 @@ function TheaterPageContent() {
                                                     onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
                                                     disabled={runningBookModalTask !== null}
                                                     title="Transcribe full book timestamped audio across all chapters"
-                                                    className="sm:col-span-9 py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                                                    className="sm:col-span-6 py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
                                                 >
                                                     <Sparkles size={20} />
                                                     <span>Transcribe All Chapters</span>
                                                 </button>
                                                 <button
-                                                    onClick={async () => {
-                                                        await fetch('/api/theater/audiobooks/studio', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'transcriptions', redoNow: false })
-                                                        });
-                                                        toast.success('Deleted transcripts');
-                                                        loadBookStudioChapters(selectedAudiobook);
-                                                    }}
-                                                    title="Delete all transcripts for this book"
-                                                    className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                                                    onClick={() => setTheaterTranscriptViewerState({ isOpen: true, chapterIndex: null })}
+                                                    title="Open full book transcript reader modal across all chapters"
+                                                    className="sm:col-span-3 py-4 px-4 rounded-2xl bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-amber-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                                                >
+                                                    <FileText size={18} />
+                                                    <span>Full Transcript</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => setTheaterUnifiedCleanerModal({ isOpen: true, bookKey: bKey, bookTitle: (selectedAudiobook as any).cleanTitle || selectedAudiobook.title })}
+                                                    title="Open unified asset cleaner for this book"
+                                                    className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer shadow"
                                                 >
                                                     <Trash2 size={16} />
-                                                    <span>Delete All</span>
+                                                    <span>Clean Assets</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -8831,7 +8894,20 @@ function TheaterPageContent() {
                                                             </span>
                                                             <div className="min-w-0">
                                                                 <h5 className="font-bold text-white text-base truncate">{ch.title || ch.name}</h5>
-                                                                <span className={`text-xs font-bold ${lines.length > 0 ? 'text-amber-300' : 'text-zinc-500'}`}>
+                                                                <span
+                                                                    onClick={(e) => {
+                                                                        if (lines.length > 0) {
+                                                                            e.stopPropagation();
+                                                                            setTheaterTranscriptViewerState({ isOpen: true, chapterIndex: idx });
+                                                                        }
+                                                                    }}
+                                                                    title={lines.length > 0 ? "Click to view full transcript lines for this chapter" : "Not transcribed yet"}
+                                                                    className={`text-xs font-bold transition-all ${
+                                                                        lines.length > 0
+                                                                            ? 'text-amber-300 font-black cursor-pointer hover:underline hover:text-amber-200'
+                                                                            : 'text-zinc-500'
+                                                                    }`}
+                                                                >
                                                                     {lines.length > 0 ? `${lines.length} Synced Lines` : 'Not Transcribed'}
                                                                 </span>
                                                             </div>
@@ -12722,6 +12798,79 @@ function TheaterPageContent() {
                 confirmText={fileDeleteConfirm?.confirmText || 'Delete File'}
                 variant="danger"
             />
+
+            {/* Full Audiobook Transcript Viewer Modal */}
+            {theaterTranscriptViewerState?.isOpen && selectedAudiobook && (() => {
+                const modalBookKey = (selectedAudiobook as any).bookKey || `${selectedAudiobook.author || "Unknown Author"} - ${selectedAudiobook.title}`.toLowerCase().trim();
+                return (
+                    <AudiobookTranscriptViewerModal
+                        isOpen={theaterTranscriptViewerState.isOpen}
+                        bookTitle={(selectedAudiobook as any).cleanTitle || selectedAudiobook.title || "Audiobook"}
+                        bookAuthor={selectedAudiobook.author}
+                        bookCoverUrl={(selectedAudiobook as any).customCoverUrl || selectedAudiobook.posterUrl}
+                        chapters={(selectedAudiobook.chapters || []).map((ch: any, idx: number) => {
+                            const cKey = `${modalBookKey}::ch${idx + 1}`;
+                            const cMeta =
+                                audiobookChaptersStudioMap[cKey] ||
+                                audiobookChaptersStudioMap[(ch as any).chapterKey] ||
+                                audiobookChaptersStudioMap[ch.id] ||
+                                Object.values(audiobookChaptersStudioMap).find(
+                                    (m: any) => m.book_key === modalBookKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
+                                );
+                            return {
+                                index: idx,
+                                title: ch.title || ch.name || `Chapter ${idx + 1}`,
+                                syncedLyrics: cMeta?.synced_lyrics,
+                                durationSec: cMeta?.duration_sec || ch.durationSec,
+                                audioPath: cMeta?.enhanced_audio_path || ch.path
+                            };
+                        })}
+                        initialChapterIndex={theaterTranscriptViewerState.chapterIndex}
+                        onClose={() => setTheaterTranscriptViewerState(null)}
+                    />
+                );
+            })()}
+
+            {/* Unified Asset Cleaner Modal */}
+            {theaterUnifiedCleanerModal.isOpen && (
+                <UnifiedCleanerModal
+                    isOpen={theaterUnifiedCleanerModal.isOpen}
+                    bookKey={theaterUnifiedCleanerModal.bookKey}
+                    bookTitle={theaterUnifiedCleanerModal.bookTitle}
+                    onClose={() => setTheaterUnifiedCleanerModal({ isOpen: false })}
+                    onSuccess={() => {
+                        fetchAudiobooksStudioOverview();
+                        if (selectedAudiobook) loadBookStudioChapters(selectedAudiobook);
+                    }}
+                />
+            )}
+
+            {/* Disabled AI Feature Alert Modal */}
+            {theaterAiDisabledAlert && (
+                <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+                    <div className="w-full max-w-md bg-zinc-950 border-2 border-amber-500/60 rounded-3xl p-6 shadow-2xl space-y-4 text-center">
+                        <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center mx-auto border border-amber-500/40">
+                            <AlertTriangle size={28} />
+                        </div>
+                        <h3 className="text-xl font-black text-white">{theaterAiDisabledAlert.feature} Disabled</h3>
+                        <p className="text-sm text-zinc-300 leading-relaxed">{theaterAiDisabledAlert.reason}</p>
+                        <div className="flex items-center gap-3 pt-2">
+                            <button
+                                onClick={() => setTheaterAiDisabledAlert(null)}
+                                className="flex-1 py-3 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-bold text-sm cursor-pointer border border-zinc-800"
+                            >
+                                Dismiss
+                            </button>
+                            <a
+                                href="/settings?subtopic=ai"
+                                className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                            >
+                                Open Settings
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

@@ -5,12 +5,14 @@ import {
     BookOpen, Sparkles, Sliders, FolderPlus, Edit3, Trash2, Check,
     RefreshCw, Play, Pause, Zap, FileText, Image as ImageIcon, Mic2,
     Search, User, Layers, Wrench, X, Plus, Headphones, ChevronDown, ChevronUp, Wand2, ArrowUp, Save,
-    Maximize2, ZoomIn, ZoomOut, Info, Download, Printer, Share2, Volume2, ArrowLeft, ArrowRight, Star, Heart, Compass
+    Maximize2, ZoomIn, ZoomOut, Info, Download, Printer, Share2, Volume2, ArrowLeft, ArrowRight, Star, Heart, Compass, AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { AudiobookImageLightboxModal } from '@/components/AudiobookImageLightboxModal';
 import { AudiobookDocumentExportModal } from '@/components/AudiobookDocumentExportModal';
+import { AudiobookTranscriptViewerModal } from '@/components/AudiobookTranscriptViewerModal';
+import { UnifiedCleanerModal } from '@/components/UnifiedCleanerModal';
 import {
     CURATED_VOICE_PROFILES,
     CuratedVoiceProfile,
@@ -346,6 +348,11 @@ export function AudiobooksMediaManager() {
     const [exportIncludeArtwork, setExportIncludeArtwork] = useState(true);
     const [exportIncludeSceneDesc, setExportIncludeSceneDesc] = useState(true);
     const [exportIncludeTranscripts, setExportIncludeTranscripts] = useState(false);
+
+    // Full Transcript Modal, Unified Cleaner Modal, and Disabled Feature Alert
+    const [transcriptViewerState, setTranscriptViewerState] = useState<{ isOpen: boolean; chapterIndex: number | null } | null>(null);
+    const [unifiedCleanerModal, setUnifiedCleanerModal] = useState<{ isOpen: boolean; bookKey?: string | null; bookTitle?: string | null }>({ isOpen: false });
+    const [aiDisabledFeatureAlert, setAiDisabledFeatureAlert] = useState<{ feature: string; reason: string } | null>(null);
 
     // Voice subtab curated filter
     const [curatedVoiceCategory, setCuratedVoiceCategory] = useState<'all' | 'iconic' | 'classic' | 'intimate' | 'broadcast'>('all');
@@ -3556,7 +3563,7 @@ export function AudiobooksMediaManager() {
                                     </button>
 
                                     <button
-                                        onClick={() => handleCleanGeneratedData('all', 'Everything (Pause AI + Full Reset)')}
+                                        onClick={() => setUnifiedCleanerModal({ isOpen: true, bookKey: undefined, bookTitle: 'Entire Audiobook Library' })}
                                         disabled={savingConfig}
                                         title="Permanently clean all generated transcripts, detected scenes, scene artwork, and voice exports"
                                         className="px-6 py-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-base uppercase tracking-wider flex items-center justify-center gap-2.5 cursor-pointer transition-all shrink-0 disabled:opacity-50"
@@ -3729,7 +3736,7 @@ export function AudiobooksMediaManager() {
                             </button>
 
                             <button
-                                onClick={() => handleCleanGeneratedData('all', 'Everything (Pause AI + Full Reset)')}
+                                onClick={() => setUnifiedCleanerModal({ isOpen: true, bookKey: undefined, bookTitle: 'Entire Audiobook Library' })}
                                 disabled={savingConfig}
                                 title="Permanently clean all generated transcripts, detected scenes, scene artwork, and voice exports"
                                 className="px-5 py-3.5 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 cursor-pointer transition-all shrink-0 disabled:opacity-50"
@@ -4612,112 +4619,149 @@ export function AudiobooksMediaManager() {
                                             </button>
                                         </div>
 
-                                        {/* Per-book Granular Cleanup Row */}
+                                        {/* Per-book Unified Cleanup */}
                                         <div className="pt-3 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
                                             <span className="text-xs sm:text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2">
                                                 <Trash2 size={16} className="text-red-400" />
-                                                <span>Book Cleanup</span>
+                                                <span>Clean Assets</span>
                                             </span>
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <button
-                                                    onClick={() => handleCleanGeneratedData('images', `Images for "${currentModalBook.title}"`, currentModalBook.bookKey)}
-                                                    disabled={savingConfig}
-                                                    title="Delete generated scene images for this book only (keeps transcripts and detected scene prompts intact)"
-                                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                >
-                                                    <ImageIcon size={15} />
-                                                    <span>Images</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleCleanGeneratedData('scenes', `Scenes & Images for "${currentModalBook.title}"`, currentModalBook.bookKey)}
-                                                    disabled={savingConfig}
-                                                    title="Delete generated scenes and images for this book only (keeps transcripts intact)"
-                                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                >
-                                                    <Layers size={15} />
-                                                    <span>Scenes</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleCleanGeneratedData('transcripts', `Transcripts for "${currentModalBook.title}"`, currentModalBook.bookKey)}
-                                                    disabled={savingConfig}
-                                                    title="Delete Speech-to-Text transcripts for this book only"
-                                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                >
-                                                    <FileText size={15} />
-                                                    <span>Transcripts</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleCleanGeneratedData('voices', `Voice Exports for "${currentModalBook.title}"`, currentModalBook.bookKey)}
-                                                    disabled={savingConfig}
-                                                    title="Delete generated voice preset exports for this book only"
-                                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                >
-                                                    <Mic2 size={15} />
-                                                    <span>Voices</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleCleanGeneratedData('all', `All AI Assets for "${currentModalBook.title}"`, currentModalBook.bookKey)}
-                                                    disabled={savingConfig}
-                                                    title="Delete all generated images, scenes, transcripts, and voice exports for this book"
-                                                    className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-black border border-red-500/40 text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                >
-                                                    <Trash2 size={15} />
-                                                    <span>Clean Book</span>
-                                                </button>
-                                            </div>
+                                            <button
+                                                onClick={() => setUnifiedCleanerModal({ isOpen: true, bookKey: currentModalBook.bookKey, bookTitle: currentModalBook.cleanTitle || currentModalBook.title })}
+                                                disabled={savingConfig}
+                                                title="Open unified asset cleaner to delete images, scenes, transcripts, or voices for this book"
+                                                className="px-4 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-black border border-red-500/40 text-xs sm:text-sm font-black uppercase flex items-center gap-2 cursor-pointer disabled:opacity-50 transition-all shadow-md"
+                                            >
+                                                <Trash2 size={16} />
+                                                <span>Clean Assets...</span>
+                                            </button>
                                         </div>
                                     </div>
 
                                     {/* ── THE 4 AI SUBTABS (PIPELINE ORDER: 1. TRANSCRIPTION -> 2. SCENING -> 3. ILLUSTRATION -> 4. VOICE) ── */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
-                                        <button
-                                            onClick={() => setAiSubTab('transcription')}
-                                            className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
-                                                aiSubTab === 'transcription'
-                                                    ? 'bg-amber-500 text-black shadow-xl shadow-amber-500/25'
-                                                    : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
-                                            }`}
-                                        >
-                                            <FileText size={22} />
-                                            <span>Transcription</span>
-                                        </button>
+                                    {(() => {
+                                        const isTranscribeDisabled = studioConfig?.aiFeaturesEnabled === false || studioConfig?.transcribeEnabled === false;
+                                        const isSceningDisabled = isTranscribeDisabled || studioConfig?.sceningEnabled === false;
+                                        const isIllustrationDisabled = isSceningDisabled || studioConfig?.imagingEnabled === false;
+                                        const isVoiceDisabled = studioConfig?.aiFeaturesEnabled === false || studioConfig?.voiceEnabled === false;
 
-                                        <button
-                                            onClick={() => setAiSubTab('scening')}
-                                            className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
-                                                aiSubTab === 'scening'
-                                                    ? 'bg-purple-500 text-black shadow-xl shadow-purple-500/25'
-                                                    : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
-                                            }`}
-                                        >
-                                            <Wand2 size={22} />
-                                            <span>Scening</span>
-                                        </button>
+                                        const onSubTabClick = (target: 'transcription' | 'scening' | 'illustration' | 'voice') => {
+                                            if (studioConfig?.aiFeaturesEnabled === false) {
+                                                toast.info("AI Features are disabled in Settings", {
+                                                    action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                                });
+                                                setAiDisabledFeatureAlert({
+                                                    feature: 'AI Features',
+                                                    reason: 'All automated AI audiobook features are currently switched OFF in Settings.'
+                                                });
+                                                return;
+                                            }
+                                            if (target === 'transcription' && isTranscribeDisabled) {
+                                                toast.info("Transcribing is disabled in Settings", {
+                                                    action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                                });
+                                                setAiDisabledFeatureAlert({
+                                                    feature: '1. Transcribing',
+                                                    reason: 'Speech-to-Text Transcription is currently turned OFF in Settings.'
+                                                });
+                                                return;
+                                            }
+                                            if (target === 'scening' && isSceningDisabled) {
+                                                toast.info("Scening is disabled in Settings", {
+                                                    action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                                });
+                                                setAiDisabledFeatureAlert({
+                                                    feature: '2. Scening',
+                                                    reason: 'Scene Detection is currently turned OFF in Settings (requires Transcribing to be enabled).'
+                                                });
+                                                return;
+                                            }
+                                            if (target === 'illustration' && isIllustrationDisabled) {
+                                                toast.info("Illustrating is disabled in Settings", {
+                                                    action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                                });
+                                                setAiDisabledFeatureAlert({
+                                                    feature: '3. Illustrating',
+                                                    reason: 'Scene Artwork painting is currently turned OFF in Settings (requires Scening to be enabled).'
+                                                });
+                                                return;
+                                            }
+                                            if (target === 'voice' && isVoiceDisabled) {
+                                                toast.info("Voice Enhancing is disabled in Settings", {
+                                                    action: { label: "Open Settings", onClick: () => { window.location.href = '/settings?subtopic=ai'; } }
+                                                });
+                                                setAiDisabledFeatureAlert({
+                                                    feature: '4. Voice',
+                                                    reason: 'Voice Narration & Audio Enhancing is currently turned OFF in Settings.'
+                                                });
+                                                return;
+                                            }
+                                            setAiSubTab(target);
+                                        };
 
-                                        <button
-                                            onClick={() => setAiSubTab('illustration')}
-                                            className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
-                                                aiSubTab === 'illustration'
-                                                    ? 'bg-emerald-500 text-black shadow-xl shadow-emerald-500/25'
-                                                    : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
-                                            }`}
-                                        >
-                                            <Sparkles size={22} />
-                                            <span>Illustration</span>
-                                        </button>
+                                        return (
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
+                                                <button
+                                                    onClick={() => onSubTabClick('transcription')}
+                                                    title={isTranscribeDisabled ? "Transcribing is disabled in Settings (click to open Settings)" : "Speech-to-Text verbatim synced transcription"}
+                                                    className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
+                                                        isTranscribeDisabled
+                                                            ? 'opacity-40 grayscale border border-dashed border-zinc-700 hover:border-amber-500/60'
+                                                            : aiSubTab === 'transcription'
+                                                            ? 'bg-amber-500 text-black shadow-xl shadow-amber-500/25'
+                                                            : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
+                                                    }`}
+                                                >
+                                                    <FileText size={22} />
+                                                    <span>Transcription</span>
+                                                </button>
 
-                                        <button
-                                            onClick={() => setAiSubTab('voice')}
-                                            className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
-                                                aiSubTab === 'voice'
-                                                    ? 'bg-indigo-500 text-black shadow-xl shadow-indigo-500/25'
-                                                    : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
-                                            }`}
-                                        >
-                                            <Headphones size={22} />
-                                            <span>Voice</span>
-                                        </button>
-                                    </div>
+                                                <button
+                                                    onClick={() => onSubTabClick('scening')}
+                                                    title={isSceningDisabled ? "Scening is disabled in Settings (click to open Settings)" : "LLM-powered scene breakdown and narrative chunking"}
+                                                    className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
+                                                        isSceningDisabled
+                                                            ? 'opacity-40 grayscale border border-dashed border-zinc-700 hover:border-purple-500/60'
+                                                            : aiSubTab === 'scening'
+                                                            ? 'bg-purple-500 text-black shadow-xl shadow-purple-500/25'
+                                                            : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
+                                                    }`}
+                                                >
+                                                    <Wand2 size={22} />
+                                                    <span>Scening</span>
+                                                </button>
+
+                                                <button
+                                                    onClick={() => onSubTabClick('illustration')}
+                                                    title={isIllustrationDisabled ? "Illustrating is disabled in Settings (click to open Settings)" : "Scene painting and custom AI book cover"}
+                                                    className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
+                                                        isIllustrationDisabled
+                                                            ? 'opacity-40 grayscale border border-dashed border-zinc-700 hover:border-emerald-500/60'
+                                                            : aiSubTab === 'illustration'
+                                                            ? 'bg-emerald-500 text-black shadow-xl shadow-emerald-500/25'
+                                                            : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
+                                                    }`}
+                                                >
+                                                    <Sparkles size={22} />
+                                                    <span>Illustration</span>
+                                                </button>
+
+                                                <button
+                                                    onClick={() => onSubTabClick('voice')}
+                                                    title={isVoiceDisabled ? "Voice Enhancing is disabled in Settings (click to open Settings)" : "Voice styles, studio denoise, and narrator mastering"}
+                                                    className={`py-4 px-4 rounded-2xl text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-3 transition-all cursor-pointer ${
+                                                        isVoiceDisabled
+                                                            ? 'opacity-40 grayscale border border-dashed border-zinc-700 hover:border-indigo-500/60'
+                                                            : aiSubTab === 'voice'
+                                                            ? 'bg-indigo-500 text-black shadow-xl shadow-indigo-500/25'
+                                                            : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
+                                                    }`}
+                                                >
+                                                    <Headphones size={22} />
+                                                    <span>Voice</span>
+                                                </button>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {/* ── LIVE PROGRESS & STEP LOG BANNER (VISIBLE WHENEVER AI WORK IS RUNNING) ── */}
                                     {(workerState?.isRunning ||
@@ -4784,16 +4828,12 @@ export function AudiobooksMediaManager() {
 
                                                 <div className="flex items-center gap-3 flex-wrap">
                                                     <button
-                                                        onClick={() => setShowFullBookTranscript(prev => !prev)}
-                                                        title={showFullBookTranscript ? 'View transcripts chapter by chapter' : 'View continuous full-book transcript across all chapters'}
-                                                        className={`px-5 py-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer border transition-all ${
-                                                            showFullBookTranscript
-                                                                ? 'bg-amber-500 text-black border-amber-400 shadow-lg'
-                                                                : 'bg-zinc-950 hover:bg-zinc-800 text-amber-300 border-amber-500/40'
-                                                        }`}
+                                                        onClick={() => setTranscriptViewerState({ isOpen: true, chapterIndex: null })}
+                                                        title="Open full-book transcript reader modal across all chapters"
+                                                        className="px-5 py-3.5 rounded-2xl bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-amber-500/40 font-black text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg"
                                                     >
                                                         <FileText size={18} />
-                                                        <span>{showFullBookTranscript ? 'By Chapter' : 'Full Transcript'}</span>
+                                                        <span>Full Transcript</span>
                                                     </button>
 
                                                     <button
@@ -4925,7 +4965,20 @@ export function AudiobooksMediaManager() {
                                                                             <div className="flex items-center gap-2.5 text-xs font-bold text-zinc-400 flex-wrap">
                                                                                 <span className="font-mono">{formatMMSS(durSec)}</span>
                                                                                 <span>•</span>
-                                                                                <span className={lines.length > 0 ? 'text-amber-300 font-black' : 'text-zinc-500'}>
+                                                                                <span
+                                                                                    onClick={(e) => {
+                                                                                        if (lines.length > 0) {
+                                                                                            e.stopPropagation();
+                                                                                            setTranscriptViewerState({ isOpen: true, chapterIndex: chIdx });
+                                                                                        }
+                                                                                    }}
+                                                                                    title={lines.length > 0 ? "Click to view full transcript lines for this chapter" : "Not transcribed yet"}
+                                                                                    className={`text-xs font-bold transition-all ${
+                                                                                        lines.length > 0
+                                                                                            ? 'text-amber-300 font-black cursor-pointer hover:underline hover:text-amber-200'
+                                                                                            : 'text-zinc-500'
+                                                                                    }`}
+                                                                                >
                                                                                     {lines.length > 0 ? `${lines.length} Synced Lines` : 'Not Transcribed'}
                                                                                 </span>
                                                                                 {isTranscribing && (
@@ -5092,7 +5145,7 @@ export function AudiobooksMediaManager() {
                                                     </button>
 
                                                     <button
-                                                        onClick={() => handleCleanGeneratedData('scenes', `Scenes for "${currentModalBook.title}"`, currentModalBook.bookKey)}
+                                                        onClick={() => setUnifiedCleanerModal({ isOpen: true, bookKey: currentModalBook.bookKey, bookTitle: currentModalBook.cleanTitle || currentModalBook.title })}
                                                         disabled={runningStudioAction !== null}
                                                         title="Delete all detected scenes for this book"
                                                         className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
@@ -5320,6 +5373,7 @@ export function AudiobooksMediaManager() {
                                                                 onChange={e => setEditArtStyle(e.target.value)}
                                                                 className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-base font-bold text-white cursor-pointer"
                                                             >
+                                                                <option value="Auto">Auto (Smart Genre)</option>
                                                                 <option value="Cinematic Concept Art">Cinematic Concept Art</option>
                                                                 <option value="Oil Painting">Classic Oil Painting</option>
                                                                 <option value="Dark Fantasy">Dark Atmospheric Painting</option>
@@ -5373,7 +5427,7 @@ export function AudiobooksMediaManager() {
                                                         </button>
 
                                                         <button
-                                                            onClick={() => handleCleanGeneratedData('images', `Images for "${currentModalBook.title}"`, currentModalBook.bookKey)}
+                                                            onClick={() => setUnifiedCleanerModal({ isOpen: true, bookKey: currentModalBook.bookKey, bookTitle: currentModalBook.cleanTitle || currentModalBook.title })}
                                                             disabled={runningStudioAction !== null}
                                                             title="Delete all generated scene images for this book"
                                                             className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
@@ -6120,6 +6174,68 @@ export function AudiobooksMediaManager() {
                     resolveChapterMeta={resolveChapterMeta}
                     onClose={() => setShowExportModal(false)}
                 />
+            )}
+
+            {/* ── FULL TRANSCRIPT VIEWER MODAL ── */}
+            {transcriptViewerState?.isOpen && currentModalBook && (
+                <AudiobookTranscriptViewerModal
+                    isOpen={transcriptViewerState.isOpen}
+                    bookTitle={currentModalBook.cleanTitle || currentModalBook.title || 'Audiobook'}
+                    bookAuthor={currentModalBook.author}
+                    bookCoverUrl={currentModalBook.customCoverUrl || currentModalBook.coverUrl || currentModalBook.posterUrl}
+                    chapters={(currentModalBook.chapters || []).map((ch: any, idx: number) => {
+                        const cm = resolveChapterMeta(currentModalBook.bookKey, ch, idx);
+                        return {
+                            index: idx,
+                            title: ch.title || ch.name || `Chapter ${idx + 1}`,
+                            syncedLyrics: cm.synced_lyrics,
+                            durationSec: cm.duration_sec,
+                            audioPath: cm.enhanced_audio_path || ch.path
+                        };
+                    })}
+                    initialChapterIndex={transcriptViewerState.chapterIndex}
+                    onClose={() => setTranscriptViewerState(null)}
+                />
+            )}
+
+            {/* ── UNIFIED CLEANER MODAL ── */}
+            {unifiedCleanerModal.isOpen && (
+                <UnifiedCleanerModal
+                    isOpen={unifiedCleanerModal.isOpen}
+                    bookKey={unifiedCleanerModal.bookKey}
+                    bookTitle={unifiedCleanerModal.bookTitle}
+                    onClose={() => setUnifiedCleanerModal({ isOpen: false })}
+                    onSuccess={() => {
+                        fetchAll();
+                    }}
+                />
+            )}
+
+            {/* ── DISABLED FEATURE ALERT MODAL ── */}
+            {aiDisabledFeatureAlert && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+                    <div className="w-full max-w-md bg-zinc-950 border-2 border-amber-500/60 rounded-3xl p-6 shadow-2xl space-y-4 text-center">
+                        <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center mx-auto border border-amber-500/40">
+                            <AlertTriangle size={28} />
+                        </div>
+                        <h3 className="text-xl font-black text-white">{aiDisabledFeatureAlert.feature} Disabled</h3>
+                        <p className="text-sm text-zinc-300 leading-relaxed">{aiDisabledFeatureAlert.reason}</p>
+                        <div className="flex items-center gap-3 pt-2">
+                            <button
+                                onClick={() => setAiDisabledFeatureAlert(null)}
+                                className="flex-1 py-3 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-bold text-sm cursor-pointer border border-zinc-800"
+                            >
+                                Dismiss
+                            </button>
+                            <a
+                                href="/settings?subtopic=ai"
+                                className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                            >
+                                Open Settings
+                            </a>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Custom Confirm Modal */}

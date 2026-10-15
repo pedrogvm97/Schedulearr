@@ -6311,6 +6311,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                         className="w-full px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white font-semibold"
                                                                     >
                                                                         <option value="">Shelf Default Style</option>
+                                                                        <option value="Auto">Auto (Smart Genre Auto-Select)</option>
                                                                         <option value="Cinematic Concept Art">Cinematic Concept Art</option>
                                                                         <option value="Dark Fantasy Oil Painting">Dark Fantasy Oil Painting</option>
                                                                         <option value="Studio Ghibli Anime">Studio Ghibli Anime</option>

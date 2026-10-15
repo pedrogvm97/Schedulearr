@@ -144,3 +144,32 @@ export const CURATED_VOICE_PROFILES: CuratedVoiceProfile[] = [
         color: 'from-zinc-600 to-zinc-800'
     }
 ];
+
+export const resolveSmartAutoArtStyle = (book?: any, rawStyle?: string): string => {
+    const chosen = (rawStyle || '').trim();
+    if (chosen && chosen.toLowerCase() !== 'auto') {
+        return chosen;
+    }
+    const haystack = `${book?.title || ''} ${book?.cleanTitle || ''} ${book?.genre || ''} ${book?.inferredCollection || ''} ${book?.collection || ''} ${book?.author || ''} ${book?.summary || ''}`.toLowerCase();
+    
+    if (/sci-fi|science fiction|space|galaxy|cyber|star|quantum|orbit|dune|revelation|robot|alien|void/.test(haystack)) {
+        return 'Cinematic Sci-Fi Concept Art';
+    }
+    if (/fantasy|magic|dragon|sword|witch|wizard|lord|realm|king|queen|throne|sorcery/.test(haystack)) {
+        return 'Atmospheric High Fantasy Painting';
+    }
+    if (/horror|dark|gothic|vampire|ghost|demon|lovecraft|nightmare|macabre/.test(haystack)) {
+        return 'Dark Atmospheric Gothic Illustration';
+    }
+    if (/history|historical|war|biography|memoir|classic|philosophy|ancient/.test(haystack)) {
+        return 'Vintage Classic Book Engraving & Oil';
+    }
+    if (/watercolor|children|fable|tale|storybook|cozy/.test(haystack)) {
+        return 'Storybook Watercolor';
+    }
+    if (/noir|detective|crime|mystery|thriller|spy/.test(haystack)) {
+        return 'Moody Noir & Neon Film Still';
+    }
+    return 'Cinematic Concept Art';
+};
+
