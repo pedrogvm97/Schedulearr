@@ -132,7 +132,7 @@ const db = {
 };
 
 function initializeSchema(d: any) {
-    const CURRENT_SCHEMA_VER = 15;
+    const CURRENT_SCHEMA_VER = 16;
     try {
         const v = d.pragma('user_version', { simple: true });
         if (typeof v === 'number' && v >= CURRENT_SCHEMA_VER) {
@@ -615,6 +615,48 @@ function initializeSchema(d: any) {
                 source TEXT,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+        `);
+    } catch (e) { }
+    try {
+        d.exec(`
+            CREATE TABLE IF NOT EXISTS video_ai_subtitles (
+                id TEXT PRIMARY KEY,
+                video_path TEXT NOT NULL,
+                media_title TEXT NOT NULL,
+                media_type TEXT DEFAULT 'movie',
+                library_id TEXT DEFAULT '',
+                library_name TEXT DEFAULT '',
+                language TEXT DEFAULT 'en',
+                language_name TEXT DEFAULT 'English',
+                sub_path TEXT NOT NULL,
+                sub_size_bytes INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'completed',
+                duration_ms INTEGER DEFAULT 0,
+                cpu_power_pct REAL DEFAULT 0,
+                cpu_threads INTEGER DEFAULT 2,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                error_message TEXT DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_video_ai_subtitles_created ON video_ai_subtitles (created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_video_ai_subtitles_status ON video_ai_subtitles (status);
+
+            CREATE TABLE IF NOT EXISTS video_ai_history (
+                id TEXT PRIMARY KEY,
+                video_path TEXT NOT NULL,
+                media_title TEXT NOT NULL,
+                library_id TEXT DEFAULT '',
+                library_name TEXT DEFAULT '',
+                language TEXT DEFAULT 'en',
+                action TEXT DEFAULT 'transcribe',
+                status TEXT DEFAULT 'completed',
+                duration_ms INTEGER DEFAULT 0,
+                cpu_power_pct REAL DEFAULT 0,
+                cpu_threads INTEGER DEFAULT 2,
+                details TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_video_ai_history_created ON video_ai_history (created_at DESC);
         `);
     } catch (e) { }
     try { d.pragma(`user_version = ${CURRENT_SCHEMA_VER}`); } catch (e) { }
@@ -4435,6 +4477,145 @@ export const getInstantStreamDownloadsForMedia = (params: { tmdbId?: number; imd
         );
     } catch {
         return [];
+    }
+};
+
+// ── Video AI Subtitles & History ──
+export interface VideoAiSubtitle {
+    id: string;
+    video_path: string;
+    media_title: string;
+    media_type?: string;
+    library_id?: string;
+    library_name?: string;
+    language?: string;
+    language_name?: string;
+    sub_path: string;
+    sub_size_bytes?: number;
+    status: 'completed' | 'processing' | 'failed' | 'queued';
+    duration_ms?: number;
+    cpu_power_pct?: number;
+    cpu_threads?: number;
+    created_at?: string;
+    updated_at?: string;
+    error_message?: string;
+}
+
+export interface VideoAiHistoryEntry {
+    id: string;
+    video_path: string;
+    media_title: string;
+    library_id?: string;
+    library_name?: string;
+    language?: string;
+    action?: string;
+    status: 'completed' | 'failed' | 'running';
+    duration_ms?: number;
+    cpu_power_pct?: number;
+    cpu_threads?: number;
+    details?: string;
+    created_at?: string;
+}
+
+export const getVideoAiSubtitles = (limit = 200): VideoAiSubtitle[] => {
+    try {
+        const stmt = db.prepare('SELECT * FROM video_ai_subtitles ORDER BY created_at DESC LIMIT ?');
+        return stmt.all(limit) as VideoAiSubtitle[];
+    } catch {
+        return [];
+    }
+};
+
+export const upsertVideoAiSubtitle = (sub: VideoAiSubtitle) => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO video_ai_subtitles (
+                id, video_path, media_title, media_type, library_id, library_name,
+                language, language_name, sub_path, sub_size_bytes, status,
+                duration_ms, cpu_power_pct, cpu_threads, updated_at, error_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                status = excluded.status,
+                sub_path = excluded.sub_path,
+                sub_size_bytes = excluded.sub_size_bytes,
+                duration_ms = excluded.duration_ms,
+                cpu_power_pct = excluded.cpu_power_pct,
+                cpu_threads = excluded.cpu_threads,
+                updated_at = CURRENT_TIMESTAMP,
+                error_message = excluded.error_message
+        `);
+        stmt.run(
+            sub.id,
+            sub.video_path,
+            sub.media_title,
+            sub.media_type || 'movie',
+            sub.library_id || '',
+            sub.library_name || '',
+            sub.language || 'en',
+            sub.language_name || 'English',
+            sub.sub_path,
+            sub.sub_size_bytes || 0,
+            sub.status,
+            sub.duration_ms || 0,
+            sub.cpu_power_pct || 0,
+            sub.cpu_threads || 2,
+            sub.error_message || ''
+        );
+    } catch (e) {
+        console.error('Error upserting video ai subtitle:', e);
+    }
+};
+
+export const deleteVideoAiSubtitle = (id: string) => {
+    try {
+        const stmt = db.prepare('DELETE FROM video_ai_subtitles WHERE id = ?');
+        stmt.run(id);
+    } catch (e) {
+        console.error('Error deleting video ai subtitle:', e);
+    }
+};
+
+export const getVideoAiHistory = (limit = 100): VideoAiHistoryEntry[] => {
+    try {
+        const stmt = db.prepare('SELECT * FROM video_ai_history ORDER BY created_at DESC LIMIT ?');
+        return stmt.all(limit) as VideoAiHistoryEntry[];
+    } catch {
+        return [];
+    }
+};
+
+export const logVideoAiHistory = (entry: VideoAiHistoryEntry) => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO video_ai_history (
+                id, video_path, media_title, library_id, library_name,
+                language, action, status, duration_ms, cpu_power_pct, cpu_threads, details
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(
+            entry.id,
+            entry.video_path,
+            entry.media_title,
+            entry.library_id || '',
+            entry.library_name || '',
+            entry.language || 'en',
+            entry.action || 'transcribe',
+            entry.status,
+            entry.duration_ms || 0,
+            entry.cpu_power_pct || 0,
+            entry.cpu_threads || 2,
+            entry.details || ''
+        );
+    } catch (e) {
+        console.error('Error logging video ai history:', e);
+    }
+};
+
+export const clearVideoAiHistory = () => {
+    try {
+        db.prepare('DELETE FROM video_ai_history').run();
+    } catch (e) {
+        console.error('Error clearing video ai history:', e);
     }
 };
 
