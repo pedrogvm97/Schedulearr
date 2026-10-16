@@ -171,12 +171,15 @@ function getMimeType(filePath: string): string {
 
 function buildAudioVoiceFilter(voicePreset: string): string {
     switch (voicePreset) {
+        // ── Tone Presets ──
         case 'clear_voice':
         case 'denoise_clarity':
             return 'highpass=f=80,lowpass=f=13500,afftdn=nf=-24,equalizer=f=3000:width_type=h:width=1200:g=3.5,dynaudnorm=f=150:g=13';
         case 'warm_bass':
         case 'warm_storyteller':
             return 'highpass=f=70,lowpass=f=13500,asetrate=44100*0.96,aresample=44100,atempo=1.0417,equalizer=f=190:width_type=h:width=110:g=5,dynaudnorm=f=150:g=13';
+        case 'crystal_voice':
+            return 'highpass=f=75,afftdn=nf=-25,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=200,equalizer=f=3200:width_type=h:width=1400:g=3.5,loudnorm=I=-16:TP=-1.5:LRA=11';
         case 'deep_pitch':
         case 'deep_narrator':
         case 'deep_cinema':
@@ -185,13 +188,39 @@ function buildAudioVoiceFilter(voicePreset: string): string {
         case 'crisp_clear':
         case 'crisp_modern':
             return 'highpass=f=90,lowpass=f=15500,equalizer=f=3500:width_type=h:width=1300:g=5,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=180,dynaudnorm=f=150:g=13';
-        case 'bright_pitch':
-        case 'soft_velvet':
-        case 'velvet_narrator':
-            return 'highpass=f=80,lowpass=f=12500,asetrate=44100*1.05,aresample=44100,atempo=0.9524,equalizer=f=240:width_type=h:width=120:g=2.5,dynaudnorm=f=150:g=13';
         case 'night_compress':
         case 'late_night_radio':
             return 'highpass=f=75,lowpass=f=11500,equalizer=f=170:width_type=h:width=110:g=3.5,acompressor=threshold=-20dB:ratio=3.5:attack=10:release=150,dynaudnorm=f=120:g=15';
+        case 'vintage_restore':
+            return 'highpass=f=85,lowpass=f=11000,afftdn=nf=-22:nt=w,equalizer=f=2800:width_type=h:width=1200:g=3.5,dynaudnorm=f=150:g=13';
+
+        // ── Timbre & Custom Personas ──
+        case 'nelson_mandela':
+            // Deep statesman dignity, slow deliberate cadence, warm chest rumble
+            return 'highpass=f=65,lowpass=f=10500,asetrate=44100*0.88,aresample=44100,atempo=1.1364,equalizer=f=120:width_type=h:width=80:g=4.5,equalizer=f=2200:width_type=h:width=800:g=2.5,dynaudnorm=f=200:g=15';
+        case 'mlk':
+            // Powerful oratorical resonance, passionate mid-bass cadence
+            return 'highpass=f=70,lowpass=f=12500,asetrate=44100*0.92,aresample=44100,atempo=1.087,equalizer=f=180:width_type=h:width=90:g=4.0,equalizer=f=2800:width_type=h:width=1000:g=3.2,dynaudnorm=f=170:g=14';
+        case 'scarlett_johansson':
+            // Intimate velvet warmth, close-mic presence, breathy articulation
+            return 'highpass=f=80,lowpass=f=13000,asetrate=44100*1.02,aresample=44100,atempo=0.9804,equalizer=f=220:width_type=h:width=100:g=2.2,equalizer=f=4500:width_type=h:width=1200:g=3.5,dynaudnorm=f=250:g=16';
+        case 'morgan_freeman':
+            // Deep authoritative wisdom, rich chest resonance, slow cadence
+            return 'highpass=f=60,lowpass=f=12000,asetrate=44100*0.89,aresample=44100,atempo=1.1236,equalizer=f=110:width_type=h:width=80:g=4.8,equalizer=f=2400:width_type=h:width=900:g=3.2,dynaudnorm=f=200:g=15';
+        case 'barack_obama':
+            // Melodic rhetorical cadence, signature deliberate pacing, warm mid-range baritone
+            return 'highpass=f=75,lowpass=f=13000,asetrate=44100*0.93,aresample=44100,atempo=1.0753,equalizer=f=180:width_type=h:width=90:g=3.0,equalizer=f=3100:width_type=h:width=1100:g=3.0,dynaudnorm=f=180:g=14';
+        case 'attenborough':
+            // Naturalist British wonder, gentle grandfatherly warmth, clear BBC articulation
+            return 'highpass=f=80,lowpass=f=13500,asetrate=44100*0.97,aresample=44100,atempo=1.0309,equalizer=f=190:width_type=h:width=90:g=2.2,equalizer=f=3600:width_type=h:width=1200:g=3.5,dynaudnorm=f=160:g=12';
+        case 'tom_cruise':
+            // Dynamic cinematic drive, crisp commanding energy, forward articulation
+            return 'highpass=f=85,lowpass=f=14500,asetrate=44100*1.03,aresample=44100,atempo=0.9709,equalizer=f=3400:width_type=h:width=1200:g=4.0,acompressor=threshold=-18dB:ratio=2.8:attack=10:release=140,dynaudnorm=f=150:g=13';
+        case 'ana_de_armas':
+            // Soft melodic warmth, breathy intimate cinema tone
+            return 'highpass=f=85,lowpass=f=12500,asetrate=44100*1.05,aresample=44100,atempo=0.9524,equalizer=f=240:width_type=h:width=110:g=2.2,equalizer=f=5000:width_type=h:width=1300:g=3.2,dynaudnorm=f=220:g=15';
+
+        case 'original':
         default:
             return '';
     }

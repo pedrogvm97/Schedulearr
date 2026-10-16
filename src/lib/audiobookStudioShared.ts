@@ -36,21 +36,160 @@ export interface CuratedVoiceProfile {
     name: string;
     subtitle: string;
     gender: 'male' | 'female' | 'neutral';
-    category: 'iconic' | 'classic' | 'intimate' | 'broadcast';
+    category: 'tone' | 'timbre' | 'iconic' | 'classic' | 'intimate' | 'broadcast';
+    type: 'tone' | 'timbre';
     description: string;
     tags: string[];
     pitchOffset: number;
     color: string;
 }
 
-export const CURATED_VOICE_PROFILES: CuratedVoiceProfile[] = [
+// ── Column 1: Tone (Acoustic Clarity & Studio Mastering) ──
+export const AUDIOBOOK_VOICE_TONE_PRESETS: CuratedVoiceProfile[] = [
+    {
+        id: 'clear_voice',
+        name: 'Studio Clarity',
+        subtitle: 'Denoise & Vocal Presence',
+        gender: 'neutral',
+        category: 'tone',
+        type: 'tone',
+        description: 'Clean acoustic denoise, balanced speech EQ, vocal presence boost, and dynamic normalization.',
+        tags: ['Speech Clarity', 'Anti-Rumble', 'Balanced'],
+        pitchOffset: 0,
+        color: 'from-emerald-600 to-teal-800'
+    },
+    {
+        id: 'warm_bass',
+        name: 'Warm Storyteller',
+        subtitle: 'Fireside Warmth & Zero Fatigue',
+        gender: 'neutral',
+        category: 'tone',
+        type: 'tone',
+        description: 'Cozy, inviting acoustic balance with gentle lower-mid warmth, smooth compression, and zero listener fatigue.',
+        tags: ['Cozy Fireside', 'Zero Fatigue', 'Natural Warmth'],
+        pitchOffset: -4,
+        color: 'from-amber-500 to-orange-700'
+    },
+    {
+        id: 'crystal_voice',
+        name: 'Crystal Presence',
+        subtitle: 'High-Fidelity Intelligibility',
+        gender: 'neutral',
+        category: 'tone',
+        type: 'tone',
+        description: 'Pristine high-definition articulation, cutting-edge sibilance management, and razor-sharp intelligibility.',
+        tags: ['Crisp Presence', 'High Intelligibility', 'Modern EQ'],
+        pitchOffset: 2,
+        color: 'from-cyan-500 to-blue-700'
+    },
+    {
+        id: 'deep_pitch',
+        name: 'Deep Baritone',
+        subtitle: 'Cinematic Sub-Harmonics & Depth',
+        gender: 'male',
+        category: 'tone',
+        type: 'tone',
+        description: 'Imposing cinematic depth with rich sub-harmonics, tailored for high-stakes space operas and epic fantasy.',
+        tags: ['Epic Depth', 'Resonant Sub-Bass', 'Cinematic'],
+        pitchOffset: -8,
+        color: 'from-purple-600 to-indigo-900'
+    },
+    {
+        id: 'crisp_treble',
+        name: 'Crisp Articulation',
+        subtitle: 'Modern Podcast & Voiceover',
+        gender: 'neutral',
+        category: 'tone',
+        type: 'tone',
+        description: 'Fast-response broadcast compression, upper-mid presence lift, and articulate consonants for clarity.',
+        tags: ['Broadcast', 'Articulate', 'Airy Top-End'],
+        pitchOffset: 3,
+        color: 'from-sky-500 to-indigo-700'
+    },
+    {
+        id: 'night_compress',
+        name: 'Midnight FM',
+        subtitle: 'Vintage Tube Warmth & Rolled-Off Highs',
+        gender: 'neutral',
+        category: 'tone',
+        type: 'tone',
+        description: 'Analog broadcast compression, silky rolled-off highs, and intimate FM broadcast presence for late-night listening.',
+        tags: ['Analog Tube', 'FM Broadcast', 'Night Companion'],
+        pitchOffset: -5,
+        color: 'from-violet-600 to-fuchsia-900'
+    },
+    {
+        id: 'vintage_restore',
+        name: 'Vintage Tape',
+        subtitle: 'Warm Analog Tape Restoration',
+        gender: 'neutral',
+        category: 'tone',
+        type: 'tone',
+        description: 'Nostalgic tape saturation curves, gentle flutter reduction, and warm rounded acoustic dynamics.',
+        tags: ['Analog Tape', 'Vintage Warmth', 'Classic Book'],
+        pitchOffset: 0,
+        color: 'from-amber-700 to-yellow-900'
+    },
+    {
+        id: 'original',
+        name: 'Original Master',
+        subtitle: 'Clean Normalization Only',
+        gender: 'neutral',
+        category: 'tone',
+        type: 'tone',
+        description: 'Preserves the original narrator voice with zero pitch manipulation, applying only clean studio noise reduction.',
+        tags: ['Pure Voice', 'Original Actor', 'Lossless Pitch'],
+        pitchOffset: 0,
+        color: 'from-zinc-600 to-zinc-800'
+    }
+];
+
+// ── Column 2: Timbre (Custom Personas & Iconic Resonances) ──
+export const AUDIOBOOK_VOICE_TIMBRE_PRESETS: CuratedVoiceProfile[] = [
+    {
+        id: 'nelson_mandela',
+        name: 'Nelson Mandela',
+        subtitle: 'Wise Dignity & Moral Gravitas',
+        gender: 'male',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Profound statesman dignity, slow deliberate cadence, deep warm chest resonance, and reflective wisdom.',
+        tags: ['Wise Statesman', 'Deep Gravitas', 'Slow Measured Cadence'],
+        pitchOffset: -12,
+        color: 'from-amber-600 to-emerald-800'
+    },
+    {
+        id: 'mlk',
+        name: 'Martin Luther King Jr.',
+        subtitle: 'Resonant Oratorical Passion',
+        gender: 'male',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Melodic rhetorical rise and fall, commanding mid-baritone resonance, and stirring historical oratorical power.',
+        tags: ['Oratorical Power', 'Melodic Rhythm', 'Passionate Mid-Bass'],
+        pitchOffset: -8,
+        color: 'from-indigo-600 to-blue-900'
+    },
+    {
+        id: 'scarlett_johansson',
+        name: 'Scarlett Johansson',
+        subtitle: 'Intimate Velvet & Bedside Whisper',
+        gender: 'female',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Silky close-mic presence, breathy subtle huskiness, intimate bedside storytelling tone, and velvet warmth.',
+        tags: ['Intimate Velvet', 'Breathy Whisper', 'Bedside', 'Sensual Warmth'],
+        pitchOffset: 2,
+        color: 'from-rose-500 to-pink-800'
+    },
     {
         id: 'morgan_freeman',
         name: 'Morgan Freeman',
-        subtitle: 'The Voice of God & Wisdom',
+        subtitle: 'Authoritative Wisdom & Chest Rumble',
         gender: 'male',
-        category: 'iconic',
-        description: 'Deep authoritative resonance, warm baritone chest rumble, slow deliberate cadence and profound gravitas.',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Deep authoritative resonance, warm baritone chest rumble, slow deliberate cadence, and iconic gravitas.',
         tags: ['Authoritative', 'Deep Bass', 'Cinematic', 'Gravitas'],
         pitchOffset: -11,
         color: 'from-amber-600 to-yellow-800'
@@ -58,92 +197,72 @@ export const CURATED_VOICE_PROFILES: CuratedVoiceProfile[] = [
     {
         id: 'barack_obama',
         name: 'Barack Obama',
-        subtitle: 'Oratorical Rhythm & Presence',
+        subtitle: 'Melodic Rhetoric & Measured Cadence',
         gender: 'male',
-        category: 'iconic',
+        category: 'timbre',
+        type: 'timbre',
         description: 'Melodic rhetorical cadence, signature deliberate pacing, warm mid-range baritone clarity, and measured gravitas.',
         tags: ['Rhythmic', 'Oratorical', 'Warm Baritone', 'Measured'],
         pitchOffset: -7,
         color: 'from-blue-600 to-indigo-800'
     },
     {
-        id: 'scarlett_johansson',
-        name: 'Scarlett Johansson',
-        subtitle: 'Intimate Velvet & Warm Whisper',
-        gender: 'female',
-        category: 'intimate',
-        description: 'Silky close-mic presence, breathy subtle huskiness, intimate bedside storytelling tone, and velvet warmth.',
-        tags: ['Intimate', 'Breathy Velvet', 'Bedside', 'Sensual Warmth'],
-        pitchOffset: 2,
-        color: 'from-rose-500 to-pink-800'
-    },
-    {
         id: 'attenborough',
         name: 'Sir David Attenborough',
         subtitle: 'Naturalist Wonder & British Cadence',
         gender: 'male',
-        category: 'iconic',
-        description: 'Quiet breathless wonder, precise BBC naturalist articulation, gentle grandfatherly warmth and awe.',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Quiet breathless wonder, precise BBC naturalist articulation, gentle grandfatherly warmth, and reverence.',
         tags: ['British Accent', 'Naturalist', 'Quiet Wonder', 'Articulate'],
         pitchOffset: -3,
         color: 'from-emerald-600 to-teal-800'
     },
     {
-        id: 'deep_narrator',
-        name: 'Deep Studio Baritone',
-        subtitle: 'Epic Sci-Fi & Fantasy Narrator',
+        id: 'tom_cruise',
+        name: 'Tom Cruise',
+        subtitle: 'Dynamic Cinematic Drive & Energy',
         gender: 'male',
-        category: 'classic',
-        description: 'Imposing cinematic depth with rich sub-harmonics, tailored for high-stakes space operas and epic mythos.',
-        tags: ['Epic Depth', 'Resonant Sub-Bass', 'Sci-Fi Voice'],
-        pitchOffset: -8,
-        color: 'from-purple-600 to-indigo-900'
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Crisp energetic articulation, commanding forward focus, charismatic cinematic drive, and confident pacing.',
+        tags: ['Cinematic Energy', 'Dynamic Drive', 'Confident Articulation'],
+        pitchOffset: 3,
+        color: 'from-red-600 to-amber-700'
     },
     {
-        id: 'warm_storyteller',
-        name: 'Warm Fireside Storyteller',
-        subtitle: 'Balanced Classic Audio Edition',
-        gender: 'neutral',
-        category: 'classic',
-        description: 'Cozy, inviting acoustic balance with boosted speech clarity, gentle compression, and zero listener fatigue.',
-        tags: ['All-Genre', 'Cozy', 'Zero Fatigue', 'Natural'],
-        pitchOffset: -4,
-        color: 'from-amber-500 to-orange-700'
-    },
-    {
-        id: 'crisp_clear',
-        name: 'Crystal Clear Voice',
-        subtitle: 'Modern High-Fidelity Presence',
-        gender: 'neutral',
-        category: 'broadcast',
-        description: 'Pristine high-definition articulation, cutting-edge sibilance management, and razor-sharp intelligibility.',
-        tags: ['Crisp Presence', 'High Intelligibility', 'Modern Podcast'],
-        pitchOffset: 4,
-        color: 'from-cyan-500 to-blue-700'
-    },
-    {
-        id: 'late_night_radio',
-        name: 'Midnight FM Host',
-        subtitle: 'Vintage Tube Warmth & Compression',
-        gender: 'male',
-        category: 'broadcast',
-        description: 'Analog broadcast compression, silky rolled-off highs, and intimate FM broadcast presence for late-night listening.',
-        tags: ['Analog Tube', 'FM Broadcast', 'Night Companion'],
-        pitchOffset: -6,
-        color: 'from-violet-600 to-fuchsia-900'
-    },
-    {
-        id: 'original',
-        name: 'Original Recording Master',
-        subtitle: 'Studio Denoise & Normalization Only',
-        gender: 'neutral',
-        category: 'classic',
-        description: 'Preserves the original narrator voice without pitch manipulation, applying only clean studio noise reduction and loudness mastering.',
-        tags: ['Pure Voice', 'Original Actor', 'Lossless Pitch'],
-        pitchOffset: 0,
-        color: 'from-zinc-600 to-zinc-800'
+        id: 'ana_de_armas',
+        name: 'Ana de Armas',
+        subtitle: 'Soft Melodic Warmth & Intimacy',
+        gender: 'female',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Soft expressive cadence, gentle breathy warmth, delicate melodic inflection, and intimate cinema tone.',
+        tags: ['Melodic Warmth', 'Delicate Presence', 'Intimate Cinema'],
+        pitchOffset: 5,
+        color: 'from-pink-500 to-purple-800'
     }
 ];
+
+export const ALL_AUDIOBOOK_VOICE_PRESETS: CuratedVoiceProfile[] = [
+    ...AUDIOBOOK_VOICE_TONE_PRESETS,
+    ...AUDIOBOOK_VOICE_TIMBRE_PRESETS
+];
+
+export const CURATED_VOICE_PROFILES: CuratedVoiceProfile[] = ALL_AUDIOBOOK_VOICE_PRESETS;
+
+export const getVoicePresetById = (id?: string): CuratedVoiceProfile => {
+    if (!id) return AUDIOBOOK_VOICE_TONE_PRESETS[0];
+    const match = ALL_AUDIOBOOK_VOICE_PRESETS.find(p => p.id === id);
+    if (match) return match;
+    // Map legacy aliases
+    if (id === 'denoise_clarity') return AUDIOBOOK_VOICE_TONE_PRESETS[0];
+    if (id === 'warm_storyteller') return AUDIOBOOK_VOICE_TONE_PRESETS[1];
+    if (id === 'deep_narrator') return AUDIOBOOK_VOICE_TONE_PRESETS[3];
+    if (id === 'crisp_clear') return AUDIOBOOK_VOICE_TONE_PRESETS[4];
+    if (id === 'late_night_radio') return AUDIOBOOK_VOICE_TONE_PRESETS[5];
+    return AUDIOBOOK_VOICE_TONE_PRESETS[0];
+};
 
 export const resolveSmartAutoArtStyle = (book?: any, rawStyle?: string): string => {
     const chosen = (rawStyle || '').trim();

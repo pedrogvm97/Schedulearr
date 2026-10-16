@@ -11,7 +11,7 @@ import {
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
     Star, ListPlus, Heart, Youtube, Wrench, Settings,
     Globe, HardDrive, Server, CheckCircle2, AlertCircle, Folder, FolderOpen,
-    BookOpen, Headphones, Wand2
+    BookOpen, Headphones, Wand2, Compass
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
@@ -27,6 +27,9 @@ import {
     detectPitchFromAudioBuffer
 } from '@/lib/chordAnalyzer';
 import { MusicDownloadModal } from '@/components/MusicDownloadModal';
+import { AudiobookVoiceSelector } from '@/components/AudiobookVoiceSelector';
+import { AudiobookSettingsModal } from '@/components/AudiobookSettingsModal';
+import { AudiobookExportModal } from '@/components/AudiobookExportModal';
 import { logClientEvent } from '@/lib/clientLogger';
 
 export interface MediaItem {
@@ -577,6 +580,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [audiobookLeftTab, setAudiobookLeftTab] = useState<'player' | 'generate'>('player');
     const [audiobookStageMode, setAudiobookStageMode] = useState<'storyboard' | 'live_art' | 'gallery'>('storyboard');
     const [photoBookModalIndex, setPhotoBookModalIndex] = useState<number | null>(null);
+    const [browsedSceneIdx, setBrowsedSceneIdx] = useState<number | null>(null);
+    const [showAudiobookSettingsModal, setShowAudiobookSettingsModal] = useState<boolean>(false);
+    const [showAudiobookExportModal, setShowAudiobookExportModal] = useState<boolean>(false);
     const [galleryChapterFilter, setGalleryChapterFilter] = useState<string>('all');
     const [highlightedLiveSceneId, setHighlightedLiveSceneId] = useState<string | null>(null);
     const [showVoiceMenuPopup, setShowVoiceMenuPopup] = useState<boolean>(false);
@@ -4157,119 +4163,25 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                AUDIO FILTER & VOICE ENHANCER POPOVER
                ══════════════════════════════════════════════════════════════ */}
             {showVoiceMenuPopup && playingAudio && (
-                <div className="fixed bottom-36 sm:bottom-24 right-3 sm:right-24 w-full max-w-md z-[290] bg-zinc-950/98 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-3.5 animate-in slide-in-from-bottom-5 duration-200">
-                    <div className="flex items-center justify-between pb-2.5 border-b border-zinc-900">
-                        <div>
-                            <span className="text-base font-black uppercase text-emerald-400 tracking-wider flex items-center gap-2">
-                                <Mic2 size={18} /> Audio Filter &amp; Pitch
-                            </span>
-                        </div>
+                <div className="fixed bottom-24 right-3 sm:right-16 w-full max-w-3xl z-[290] bg-zinc-950/98 border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 animate-in slide-in-from-bottom-5 duration-200">
+                    <div className="flex items-center justify-between pb-3 border-b border-zinc-900">
+                        <span className="text-base font-black uppercase text-amber-400 tracking-wider flex items-center gap-2">
+                            <Mic2 size={20} /> Voice Profile
+                        </span>
                         <button
                             onClick={() => setShowVoiceMenuPopup(false)}
                             className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
-                            title="Close Audio Filter Menu"
+                            title="Close Voice Menu"
                         >
                             <X size={18} />
                         </button>
                     </div>
 
-                    <div className="space-y-2 max-h-[52vh] overflow-y-auto custom-scrollbar pr-1">
-                        {[
-                            { id: 'original', label: 'Original Audio', desc: 'Untouched original stream (Bypass EQ & Pitch)' },
-                            { id: 'clear_voice', label: 'Clear Voice', desc: '+7dB vocal presence (3.1kHz) + 115Hz rumble cut + compressor' },
-                            { id: 'warm_bass', label: 'Warm Studio', desc: '+8dB low-mid warmth (190Hz) + smooth 10.5kHz roll-off' },
-                            { id: 'deep_pitch', label: 'Deeper Voice (-8%)', desc: '-8% pitch shift + +6.5dB chest resonance (155Hz)' },
-                            { id: 'crisp_treble', label: 'Crisp Treble', desc: '+8.5dB articulation boost (3.8kHz) + tight low-cut' },
-                            { id: 'bright_pitch', label: 'Higher Voice (+6%)', desc: '+6% pitch shift + intimate vocal presence' },
-                            { id: 'night_compress', label: 'Night Leveler', desc: 'Heavy 6:1 dynamic compression for quiet listening' },
-                        ].map(preset => {
-                            const isOriginal = preset.id === 'original';
-                            const generatedPath = isOriginal
-                                ? playingAudio.path
-                                : (audiobookChapterMeta?.processed_voices?.[preset.id] ||
-                                   (audiobookChapterMeta?.voice_preset === preset.id ? audiobookChapterMeta?.enhanced_audio_path : null));
-                            const isGenerated = Boolean(!isOriginal && generatedPath);
-                            const isActive = selectedVoicePreset === preset.id;
-                            const isGeneratingThis = isRunningChapterStudioTask === `enhance:${preset.id}`;
-
-                            return (
-                                <div
-                                    key={preset.id}
-                                    onClick={() => handleSwitchProcessedVoice(preset.id, 'live')}
-                                    className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 cursor-pointer ${
-                                        isActive
-                                            ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
-                                            : 'bg-zinc-900/70 border-zinc-800 text-zinc-200 hover:border-emerald-500/40'
-                                    }`}
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="text-base font-black text-white">{preset.label}</span>
-                                            {isActive && (
-                                                <span className="px-2 py-0.5 rounded-lg bg-emerald-500 text-black text-[11px] font-black">
-                                                    ACTIVE
-                                                </span>
-                                            )}
-                                            {isGenerated && (
-                                                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-black">
-                                                    .m4a Saved
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="text-xs text-zinc-400 mt-0.5">{preset.desc}</div>
-                                    </div>
-
-                                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSwitchProcessedVoice(preset.id, 'live')}
-                                            className={`px-3 py-2 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ${
-                                                isActive
-                                                    ? 'bg-emerald-500 text-black border-emerald-400'
-                                                    : 'bg-zinc-900 hover:bg-zinc-800 text-emerald-300 border-emerald-500/30'
-                                            }`}
-                                            title={`Apply "${preset.label}" live right now`}
-                                        >
-                                            {isActive ? <Check size={14} /> : <Volume2 size={14} />}
-                                            <span>{isActive ? 'On' : 'Live'}</span>
-                                        </button>
-                                        {!isOriginal && (
-                                            isGenerated ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleSwitchProcessedVoice(preset.id, 'file')}
-                                                    className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-emerald-500 hover:text-black text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer"
-                                                    title={`Play pre-rendered .m4a file for "${preset.label}"`}
-                                                >
-                                                    <Play size={13} />
-                                                    <span>File</span>
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    disabled={Boolean(isRunningChapterStudioTask)}
-                                                    onClick={() => handleRunInPlayerChapterTask('enhance', preset.id)}
-                                                    className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                                    title={`Render & save permanent .m4a file on disk for "${preset.label}"`}
-                                                >
-                                                    <RefreshCw size={13} className={isGeneratingThis ? 'animate-spin' : ''} />
-                                                    <span>{isGeneratingThis ? '...' : 'Save'}</span>
-                                                </button>
-                                            )
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    <div className="pt-2.5 border-t border-zinc-900 flex items-center justify-between gap-2 text-xs text-zinc-400">
-                        <span>
-                            Speed: <strong className="text-white">{playbackSpeed}x</strong>
-                        </span>
-                        <span className="text-emerald-400 font-semibold">
-                            Filter: {selectedVoicePreset.replace(/_/g, ' ')}
-                        </span>
+                    <div className="max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
+                        <AudiobookVoiceSelector
+                            selectedPreset={selectedVoicePreset}
+                            onSelectPreset={(pId) => handleSwitchProcessedVoice(pId, 'live')}
+                        />
                     </div>
                 </div>
             )}
@@ -4424,8 +4336,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 activeSceneObj = shuffledSceneImages[activeSceneIdx] || shuffledSceneImages[0];
                             }
 
-                            const prevSceneObj = activeSceneIdx > 0 ? shuffledSceneImages[activeSceneIdx - 1] : null;
-                            const nextSceneObj = activeSceneIdx >= 0 && activeSceneIdx < totalScenes - 1 ? shuffledSceneImages[activeSceneIdx + 1] : null;
+                            const currentBrowsedIdx = (browsedSceneIdx !== null && browsedSceneIdx >= 0 && browsedSceneIdx < totalScenes)
+                                ? browsedSceneIdx
+                                : (activeSceneIdx >= 0 ? activeSceneIdx : 0);
+                            const displayedSceneObj = totalScenes > 0
+                                ? (shuffledSceneImages[currentBrowsedIdx] || activeSceneObj)
+                                : null;
+                            const prevSceneObj = currentBrowsedIdx > 0 ? shuffledSceneImages[currentBrowsedIdx - 1] : null;
+                            const nextSceneObj = currentBrowsedIdx >= 0 && currentBrowsedIdx < totalScenes - 1 ? shuffledSceneImages[currentBrowsedIdx + 1] : null;
+                            const isBrowsingDetached = browsedSceneIdx !== null && browsedSceneIdx !== activeSceneIdx;
 
                             // ── Construct Full-Book Scene Collection for Photo Book & Gallery (All Chapters, No Fake SVGs) ──
                             const orderedChapters = Array.isArray(audiobookAllChaptersMeta) && audiobookAllChaptersMeta.length > 0
@@ -4546,9 +4465,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                             const customCoverActive = Boolean(audiobookBookMeta?.use_custom_cover && audiobookBookMeta?.custom_cover_url);
                             const effectiveCoverUrl = customCoverActive ? audiobookBookMeta.custom_cover_url : playingAudio.posterUrl;
-                            const currentPrimaryArtUrl = activeSceneObj?.url || audiobookChapterMeta?.illustration_path || effectiveCoverUrl;
-                            const currentPrimaryArtBadge = activeSceneObj
-                                ? `Scene ${activeSceneIdx + 1} of ${totalScenes}`
+                            const currentPrimaryArtUrl = displayedSceneObj?.url || audiobookChapterMeta?.illustration_path || effectiveCoverUrl;
+                            const currentPrimaryArtBadge = displayedSceneObj
+                                ? `Scene ${currentBrowsedIdx + 1} of ${totalScenes}${isBrowsingDetached ? ' (Browsing)' : ''}`
                                 : audiobookChapterMeta?.illustration_path
                                 ? 'Chapter Art'
                                 : customCoverActive
@@ -4642,18 +4561,18 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <button
                                                     type="button"
                                                     onClick={() => skipSeconds(-15)}
-                                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer"
+                                                    className="p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 cursor-pointer transition-all"
                                                     title="Rewind 15 seconds"
                                                 >
-                                                    <RotateCcw size={15} /> 15s
+                                                    <RotateCcw size={20} />
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={prevTrack}
-                                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer"
+                                                    className="p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer transition-all"
                                                     title="Previous Chapter"
                                                 >
-                                                    <SkipBack size={18} />
+                                                    <SkipBack size={20} />
                                                 </button>
                                                 <button
                                                     type="button"
@@ -4664,64 +4583,78 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
                                                         <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
                                                     ) : isAudioPlaying ? (
-                                                        <Pause size={24} />
+                                                        <Pause size={26} />
                                                     ) : (
-                                                        <Play size={24} className="ml-0.5" />
+                                                        <Play size={26} className="ml-0.5" />
                                                     )}
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={nextTrack}
-                                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer"
+                                                    className="p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer transition-all"
                                                     title="Next Chapter"
                                                 >
-                                                    <SkipForward size={18} />
+                                                    <SkipForward size={20} />
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => skipSeconds(30)}
-                                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer"
+                                                    className="p-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 cursor-pointer transition-all"
                                                     title="Forward 30 seconds"
                                                 >
-                                                    30s <RotateCcw size={15} className="scale-x-[-1]" />
+                                                    <RotateCcw size={20} className="scale-x-[-1]" />
                                                 </button>
                                             </div>
 
-                                            {/* Quick Playback Settings: Speed, Audio Filter Preset, Cover Toggle, Volume */}
+                                            {/* Quick Playback Settings: Speed, Audio Filter Preset, Cover Toggle, Settings, Export, Volume */}
                                             <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-900 shrink-0 flex-wrap">
-                                                <div className="flex items-center gap-2 flex-wrap">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
                                                     <button
                                                         type="button"
                                                         onClick={cyclePlaybackSpeed}
-                                                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-mono font-black cursor-pointer"
-                                                        title="Cycle Playback Speed"
+                                                        className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-mono font-black text-sm cursor-pointer transition-all"
+                                                        title={`Cycle Playback Speed: ${playbackSpeed}x`}
                                                     >
-                                                        {playbackSpeed}x Speed
+                                                        {playbackSpeed}x
                                                     </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => setShowVoiceMenuPopup(prev => !prev)}
-                                                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                                                        className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
                                                             selectedVoicePreset !== 'original'
                                                                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
                                                         }`}
-                                                        title="Audio Filter & Pitch Enhancer"
+                                                        title={`Voice Preset: ${selectedVoicePreset.replace(/_/g, ' ')}`}
                                                     >
-                                                        <Mic2 size={14} className="text-emerald-400" />
-                                                        <span className="capitalize">{selectedVoicePreset === 'original' ? 'Filter' : selectedVoicePreset.replace(/_/g, ' ')}</span>
+                                                        <Mic2 size={18} className="text-emerald-400" />
                                                     </button>
                                                     {audiobookBookMeta?.custom_cover_url && (
                                                         <button
                                                             type="button"
                                                             onClick={handleToggleCustomCover}
-                                                            className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                                                            title="Switch displayed cover between Original and AI Cover"
+                                                            className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-zinc-800 cursor-pointer transition-all"
+                                                            title={customCoverActive ? "Switch to Original Cover" : "Switch to AI Cover"}
                                                         >
-                                                            <ImageIcon size={14} />
-                                                            <span>{customCoverActive ? 'AI Cover' : 'Original'}</span>
+                                                            <ImageIcon size={18} />
                                                         </button>
                                                     )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowAudiobookSettingsModal(true)}
+                                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 cursor-pointer transition-all"
+                                                        title="Audiobook Settings"
+                                                    >
+                                                        <Settings size={18} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowAudiobookExportModal(true)}
+                                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 hover:text-white border border-amber-500/30 cursor-pointer transition-all"
+                                                        title="Export Audiobook (Audio, Transcripts, Artwork, Metadata)"
+                                                    >
+                                                        <Download size={18} />
+                                                    </button>
                                                 </div>
 
                                                 <div className="flex items-center gap-2">
@@ -4828,46 +4761,100 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         {!audiobookTranscriptExpanded && (
                                             <>
                                                 {/* Top View Switcher: Storyboard (3-Card Carousel) | Live Art | Story Gallery */}
+                                                {/* Top View Switcher: Storyboard (3-Card Carousel) | Live Art | Story Gallery + Action Controls */}
                                                 <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-900 shrink-0 pr-24">
-                                                    <div className="flex items-center gap-1.5 bg-zinc-900 p-1 rounded-2xl border border-zinc-800">
+                                                    <div className="flex items-center gap-1.5 bg-zinc-900 p-1.5 rounded-2xl border border-zinc-800">
                                                         <button
                                                             type="button"
                                                             onClick={() => setAudiobookStageMode('storyboard')}
-                                                            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                            className={`p-2.5 sm:p-3 rounded-xl transition-all flex items-center justify-center cursor-pointer ${
                                                                 audiobookStageMode === 'storyboard'
                                                                     ? 'bg-amber-500 text-black shadow-sm'
                                                                     : 'text-zinc-400 hover:text-white'
                                                             }`}
+                                                            title="Storyboard Carousel"
                                                         >
-                                                            <Layers size={15} /> Storyboard
+                                                            <Layers size={22} />
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={() => setAudiobookStageMode('live_art')}
-                                                            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                            className={`p-2.5 sm:p-3 rounded-xl transition-all flex items-center justify-center cursor-pointer ${
                                                                 audiobookStageMode === 'live_art'
                                                                     ? 'bg-amber-500 text-black shadow-sm'
                                                                     : 'text-zinc-400 hover:text-white'
                                                             }`}
+                                                            title="Current Art Focus"
                                                         >
-                                                            <ImageIcon size={15} /> Current Art
+                                                            <ImageIcon size={22} />
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={() => setAudiobookStageMode('gallery')}
-                                                            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                            className={`p-2.5 sm:p-3 rounded-xl transition-all flex items-center justify-center cursor-pointer ${
                                                                 audiobookStageMode === 'gallery'
                                                                     ? 'bg-amber-500 text-black shadow-sm'
                                                                     : 'text-zinc-400 hover:text-white'
                                                             }`}
-                                                            title="Open full Photo Book & Story Gallery across all chapters"
+                                                            title={`Photo Book (${allBookSceneImages.length || totalScenes} scenes)`}
                                                         >
-                                                            <BookOpen size={15} /> Photo Book ({allBookSceneImages.length || totalScenes})
+                                                            <BookOpen size={22} />
                                                         </button>
                                                     </div>
 
+                                                    {/* Dedicated Action Controls: Jump to Current Art & Jump to Live Scene + Settings + Export */}
                                                     <div className="flex items-center gap-2">
-                                                        <span className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-amber-300">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (displayedSceneObj && typeof displayedSceneObj.startSec === 'number') {
+                                                                    seekTo(displayedSceneObj.startSec);
+                                                                    toast.success(`Jumped audio to Scene ${currentBrowsedIdx + 1}`);
+                                                                } else {
+                                                                    toast.info('No timestamp for current art');
+                                                                }
+                                                            }}
+                                                            className="p-2.5 sm:p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-400 border border-zinc-800 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                                            title="Jump to current art (sync audio to viewed scene)"
+                                                        >
+                                                            <Compass size={22} />
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setBrowsedSceneIdx(null);
+                                                                handleJumpToLiveScene();
+                                                            }}
+                                                            className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95 ${
+                                                                isBrowsingDetached
+                                                                    ? 'bg-amber-500 text-black border-amber-400 shadow-amber-500/30 animate-pulse'
+                                                                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                                            }`}
+                                                            title="Jump to live scene (track active audio scene)"
+                                                        >
+                                                            <Radio size={22} />
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowAudiobookSettingsModal(true)}
+                                                            className="p-2.5 sm:p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                                            title="Audiobook Settings & Voice Presets"
+                                                        >
+                                                            <Settings size={22} />
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowAudiobookExportModal(true)}
+                                                            className="p-2.5 sm:p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                                            title="Export Audiobook (Audio, Transcripts, Artwork & Metadata)"
+                                                        >
+                                                            <Download size={22} />
+                                                        </button>
+
+                                                        <span className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs sm:text-sm font-bold text-amber-300">
                                                             {currentPrimaryArtBadge}
                                                         </span>
                                                     </div>
@@ -4879,25 +4866,24 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         <div className="w-full h-full flex items-center justify-center gap-3 sm:gap-5 px-2 py-1 overflow-hidden">
                                                             <div
                                                                 onClick={() => {
-                                                                    if (prevSceneObj && typeof prevSceneObj.startSec === 'number') {
-                                                                        seekTo(prevSceneObj.startSec);
+                                                                    if (prevSceneObj) {
+                                                                        setBrowsedSceneIdx(Math.max(0, currentBrowsedIdx - 1));
                                                                     }
                                                                 }}
                                                                 className={`hidden sm:flex flex-col w-1/4 max-w-[210px] aspect-[4/3] rounded-2xl border border-zinc-800 bg-zinc-900/70 overflow-hidden relative transition-all duration-500 scale-90 opacity-60 hover:opacity-90 ${
                                                                     prevSceneObj ? 'cursor-pointer' : 'opacity-25 pointer-events-none'
                                                                 }`}
-                                                                title={prevSceneObj ? 'Click to jump to Previous Scene' : 'Start of Chapter'}
+                                                                title={prevSceneObj ? `Browse Previous Scene (${currentBrowsedIdx})` : 'Start of Chapter'}
                                                             >
                                                                 {prevSceneObj?.url ? (
                                                                     <img src={prevSceneObj.url} alt="" className="w-full h-full object-cover" />
                                                                 ) : (
                                                                     <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 p-3 text-center">
-                                                                        <SkipBack size={22} className="mb-1" />
-                                                                        <span className="text-xs font-bold">Previous Scene</span>
+                                                                        <SkipBack size={26} className="mb-1" />
                                                                     </div>
                                                                 )}
-                                                                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/80 text-xs font-bold text-zinc-300">
-                                                                    {prevSceneObj ? `Scene ${activeSceneIdx}` : 'Start'}
+                                                                <div className="absolute top-2 left-2 px-2.5 py-1 rounded-lg bg-black/80 text-xs font-bold text-zinc-300">
+                                                                    {prevSceneObj ? `Scene ${currentBrowsedIdx}` : 'Start'}
                                                                 </div>
                                                             </div>
 
@@ -4910,7 +4896,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                     />
                                                                 ) : (
                                                                     <div className="flex flex-col items-center justify-center text-zinc-500 p-6 text-center">
-                                                                        <BookOpen size={48} className="text-amber-500/50 mb-2" />
+                                                                        <BookOpen size={56} className="text-amber-500/50 mb-2" />
                                                                         <span className="text-sm font-bold text-zinc-300">{playingAudio.title}</span>
                                                                     </div>
                                                                 )}
@@ -4918,29 +4904,58 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
                                                                     {currentPrimaryArtBadge}
                                                                 </div>
+
+                                                                {/* Arrow overlays for rapid scene browsing without touching audio */}
+                                                                {totalScenes > 1 && (
+                                                                    <>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setBrowsedSceneIdx(Math.max(0, currentBrowsedIdx - 1));
+                                                                            }}
+                                                                            disabled={currentBrowsedIdx === 0}
+                                                                            className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-black/70 hover:bg-amber-500 hover:text-black text-white backdrop-blur-md border border-white/10 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-0 cursor-pointer"
+                                                                            title="Browse previous scene"
+                                                                        >
+                                                                            <ChevronLeft size={24} />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setBrowsedSceneIdx(Math.min(totalScenes - 1, currentBrowsedIdx + 1));
+                                                                            }}
+                                                                            disabled={currentBrowsedIdx >= totalScenes - 1}
+                                                                            className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-black/70 hover:bg-amber-500 hover:text-black text-white backdrop-blur-md border border-white/10 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-0 cursor-pointer"
+                                                                            title="Browse next scene"
+                                                                        >
+                                                                            <ChevronRight size={24} />
+                                                                        </button>
+                                                                    </>
+                                                                )}
                                                             </div>
 
                                                             <div
                                                                 onClick={() => {
-                                                                    if (nextSceneObj && typeof nextSceneObj.startSec === 'number') {
-                                                                        seekTo(nextSceneObj.startSec);
+                                                                    if (nextSceneObj) {
+                                                                        setBrowsedSceneIdx(Math.min(totalScenes - 1, currentBrowsedIdx + 1));
                                                                     }
                                                                 }}
                                                                 className={`hidden sm:flex flex-col w-1/4 max-w-[210px] aspect-[4/3] rounded-2xl border border-zinc-800 bg-zinc-900/70 overflow-hidden relative transition-all duration-500 scale-90 opacity-60 hover:opacity-90 ${
                                                                     nextSceneObj ? 'cursor-pointer' : 'opacity-25 pointer-events-none'
                                                                 }`}
-                                                                title={nextSceneObj ? 'Click to jump to Upcoming Scene' : 'Next Scene'}
+                                                                title={nextSceneObj ? `Browse Next Scene (${currentBrowsedIdx + 2})` : 'Next Scene'}
                                                             >
                                                                 {nextSceneObj?.url ? (
                                                                     <img src={nextSceneObj.url} alt="" className="w-full h-full object-cover" />
                                                                 ) : (
                                                                     <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 p-3 text-center">
-                                                                        <SkipForward size={22} className="mb-1" />
-                                                                        <span className="text-xs font-bold">Upcoming Scene</span>
+                                                                        <SkipForward size={26} className="mb-1" />
                                                                     </div>
                                                                 )}
-                                                                <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/80 text-xs font-bold text-zinc-300">
-                                                                    {nextSceneObj ? `Scene ${activeSceneIdx + 2}` : 'Upcoming'}
+                                                                <div className="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-black/80 text-xs font-bold text-zinc-300">
+                                                                    {nextSceneObj ? `Scene ${currentBrowsedIdx + 2}` : 'Upcoming'}
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -6372,12 +6387,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                     {/* 4. Settings / Fix Match icon button */}
                                     <button
-                                        onClick={() => openFixMatchModal()}
-                                        className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 transition-all cursor-pointer shadow-sm"
-                                        title="Fix Match & Edit Song Metadata"
+                                        onClick={() => (isAudiobook ? setShowAudiobookSettingsModal(true) : openFixMatchModal())}
+                                        className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 transition-all cursor-pointer shadow-sm"
+                                        title={isAudiobook ? 'Audiobook Settings & Voice Presets' : 'Fix Match & Edit Song Metadata'}
                                     >
-                                        <Settings size={15} />
+                                        <Settings size={18} />
                                     </button>
+
+                                    {/* 5. Audiobook Export button */}
+                                    {isAudiobook && (
+                                        <button
+                                            onClick={() => setShowAudiobookExportModal(true)}
+                                            className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 transition-all cursor-pointer shadow-sm"
+                                            title="Export Audiobook (Audio, Transcripts, Artwork & Metadata)"
+                                        >
+                                            <Download size={18} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -10245,6 +10271,26 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     }}
                 />
             )}
+
+            {/* Audiobook Settings & Voice Preset Modal */}
+            <AudiobookSettingsModal
+                isOpen={showAudiobookSettingsModal}
+                onClose={() => setShowAudiobookSettingsModal(false)}
+                bookKey={audiobookBookMeta?.book_key || (playingAudio as any)?.bookKey || ''}
+                bookTitle={audiobookBookMeta?.title || playingAudio?.album || playingAudio?.title || 'Audiobook'}
+                selectedVoicePreset={selectedVoicePreset}
+                onSelectVoicePreset={(presetId) => {
+                    handleSwitchProcessedVoice(presetId);
+                }}
+            />
+
+            {/* Audiobook Multi-Asset Streaming ZIP Export Modal */}
+            <AudiobookExportModal
+                isOpen={showAudiobookExportModal}
+                onClose={() => setShowAudiobookExportModal(false)}
+                bookKey={audiobookBookMeta?.book_key || (playingAudio as any)?.bookKey || ''}
+                bookTitle={audiobookBookMeta?.title || playingAudio?.album || playingAudio?.title || 'Audiobook'}
+            />
         </MusicPlayerContext.Provider>
     );
 }

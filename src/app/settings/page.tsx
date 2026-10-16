@@ -13,6 +13,7 @@ import { PasswordPromptModal } from "@/components/PasswordPromptModal";
 import { UnifiedCleanerModal } from "@/components/UnifiedCleanerModal";
 import { CleanersSettingsPanel } from "@/components/CleanersSettingsPanel";
 import { VideoAiToolsPanel } from "@/components/VideoAiToolsPanel";
+import { AudiobookVoiceSelector } from "@/components/AudiobookVoiceSelector";
 import { twColorToHex } from "@/lib/instanceColor";
 
 export default function Settings() {
@@ -339,8 +340,8 @@ export default function Settings() {
         scheduleMode: 'continuous_low_cpu' | 'hourly' | 'overnight' | 'manual_only';
         sttEngine: 'whisper_tiny_local' | 'openai_whisper' | 'gemini_audio' | 'acoustic_cadence';
         cpuThreads: number;
-        audioEnhancePreset: 'denoise_clarity' | 'vintage_restore' | 'crystal_voice';
-        defaultVoicePreset: 'original' | 'deep_narrator' | 'warm_storyteller' | 'crisp_clear' | 'soft_velvet';
+        audioEnhancePreset: string;
+        defaultVoicePreset: string;
         artProvider: 'pollinations_flux' | 'openai' | 'gemini' | 'custom';
         detectedProvider?: 'gemini' | 'claude' | 'openai' | 'groq' | 'custom_url' | 'free_builtin';
         rawUnifiedApiKey?: string;
@@ -2653,99 +2654,65 @@ export default function Settings() {
                                 <span className="text-xs font-bold text-zinc-400">RVC v2 Timbre Conversion &amp; Neural TTS Reread</span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Transformation Method */}
-                                <div className="space-y-4 p-4 rounded-xl bg-zinc-950 border border-zinc-800">
-                                    <span className="text-xs font-black uppercase text-emerald-400 block">Audio Engine Mode</span>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setVoiceNarrationMode('rvc_filter')}
-                                            className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                                                voiceNarrationMode === 'rvc_filter'
-                                                    ? 'bg-emerald-500/20 text-white border-emerald-500/50'
-                                                    : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                                            }`}
-                                        >
-                                            <div className="text-xs font-black uppercase text-emerald-300">Timbre Filter (RVC v2)</div>
-                                            <div className="text-[11px] text-zinc-400 mt-1">Converts vocal timbre over original audio while preserving acting, pacing &amp; pauses.</div>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setVoiceNarrationMode('neural_tts')}
-                                            className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                                                voiceNarrationMode === 'neural_tts'
-                                                    ? 'bg-emerald-500/20 text-white border-emerald-500/50'
-                                                    : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                                            }`}
-                                        >
-                                            <div className="text-xs font-black uppercase text-emerald-300">Neural TTS Reread</div>
-                                            <div className="text-[11px] text-zinc-400 mt-1">Rereads transcript with Kokoro-82M / Piper models from scratch.</div>
-                                        </button>
-                                    </div>
+                            <div className="space-y-6">
+                                {/* Two-Column Voice Selector: Tone vs Timbre */}
+                                <AudiobookVoiceSelector
+                                    selectedPreset={audiobookStudioConfig.defaultVoicePreset || audiobookStudioConfig.audioEnhancePreset || 'clear_voice'}
+                                    onSelectPreset={val => {
+                                        saveAudiobookStudioConfig({ defaultVoicePreset: val, audioEnhancePreset: val as any });
+                                        toast.success('Default voice preset updated');
+                                    }}
+                                />
 
-                                    {/* Celebrity Voice Model Library */}
-                                    <div className="space-y-2 pt-2">
-                                        <span className="text-xs font-black uppercase text-zinc-400 block">Voice Model Timbre</span>
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                            {[
-                                                { id: 'morgan_freeman', name: 'Morgan Freeman', desc: 'Deep cinematic' },
-                                                { id: 'barack_obama', name: 'Barack Obama', desc: 'Measured orator' },
-                                                { id: 'scarlett_johansson', name: 'Scarlett Johansson', desc: 'Warm intimate' },
-                                                { id: 'david_attenborough', name: 'David Attenborough', desc: 'Natural history' },
-                                                { id: 'original', name: 'Original Narrator', desc: 'Default audio' }
-                                            ].map(vm => (
-                                                <button
-                                                    key={vm.id}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedVoiceModel(vm.id);
-                                                        toast.success(`Voice set to ${vm.name}`);
-                                                    }}
-                                                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                                                        selectedVoiceModel === vm.id
-                                                            ? 'bg-emerald-500 text-black border-emerald-400 font-black'
-                                                            : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:border-zinc-600'
-                                                    }`}
-                                                >
-                                                    <div className="text-xs font-bold leading-tight">{vm.name}</div>
-                                                    <div className={`text-[10px] mt-0.5 ${selectedVoiceModel === vm.id ? 'text-black/80' : 'text-zinc-500'}`}>
-                                                        {vm.desc}
-                                                    </div>
-                                                </button>
-                                            ))}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-zinc-800">
+                                    {/* Audio Engine Mode */}
+                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
+                                        <span className="text-xs font-black uppercase text-emerald-400 block">Audio Engine Mode</span>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setVoiceNarrationMode('rvc_filter')}
+                                                className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                                                    voiceNarrationMode === 'rvc_filter'
+                                                        ? 'bg-emerald-500/20 text-white border-emerald-500/50'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                                }`}
+                                                title="Converts vocal timbre over original audio while preserving acting, pacing & pauses"
+                                            >
+                                                <div className="text-xs font-black uppercase text-emerald-300">Timbre Filter</div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setVoiceNarrationMode('neural_tts')}
+                                                className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                                                    voiceNarrationMode === 'neural_tts'
+                                                        ? 'bg-emerald-500/20 text-white border-emerald-500/50'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                                }`}
+                                                title="Rereads transcript with Kokoro-82M / Piper neural TTS from scratch"
+                                            >
+                                                <div className="text-xs font-black uppercase text-emerald-300">Neural TTS</div>
+                                            </button>
                                         </div>
                                     </div>
-                                </div>
 
-                                {/* DSP Audio Enhancements & CPU Load */}
-                                <div className="space-y-4 p-4 rounded-xl bg-zinc-950 border border-zinc-800">
-                                    <span className="text-xs font-black uppercase text-zinc-400 block">Audio Enhancement Filter</span>
-                                    <select
-                                        value={audiobookStudioConfig.audioEnhancePreset}
-                                        onChange={e => saveAudiobookStudioConfig({ audioEnhancePreset: e.target.value as any })}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none"
-                                    >
-                                        <option value="denoise_clarity">Denoise &amp; Clarity (High Quality)</option>
-                                        <option value="vintage_restore">Vintage Audio Tape Restore</option>
-                                        <option value="crystal_voice">Crystal Voice Vocal Booster</option>
-                                    </select>
-
-                                    <div className="space-y-2 pt-2">
+                                    {/* CPU Processing Threads */}
+                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
                                         <div className="flex items-center justify-between">
-                                            <span className="text-xs font-black uppercase text-zinc-400">CPU Processing Threads</span>
+                                            <span className="text-xs font-black uppercase text-zinc-400">Local CPU Threads</span>
                                             <span className="text-xs font-mono font-bold text-amber-300">
-                                                {audiobookStudioConfig.cpuThreads} {audiobookStudioConfig.cpuThreads === 1 ? 'Thread (Low CPU)' : 'Threads'}
+                                                {audiobookStudioConfig.cpuThreads} {audiobookStudioConfig.cpuThreads === 1 ? 'Core' : 'Cores'}
                                             </span>
                                         </div>
                                         <input
                                             type="range"
                                             min="1"
-                                            max="4"
+                                            max="8"
                                             step="1"
                                             value={audiobookStudioConfig.cpuThreads}
                                             onChange={e => saveAudiobookStudioConfig({ cpuThreads: Number(e.target.value) })}
                                             className="w-full accent-amber-500 cursor-pointer"
+                                            title="CPU processing threads for local voice audio generation"
                                         />
                                     </div>
                                 </div>

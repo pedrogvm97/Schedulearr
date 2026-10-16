@@ -13,6 +13,8 @@ import { AudiobookImageLightboxModal } from '@/components/AudiobookImageLightbox
 import { AudiobookDocumentExportModal } from '@/components/AudiobookDocumentExportModal';
 import { AudiobookTranscriptViewerModal } from '@/components/AudiobookTranscriptViewerModal';
 import { UnifiedCleanerModal } from '@/components/UnifiedCleanerModal';
+import { AudiobookVoiceSelector } from '@/components/AudiobookVoiceSelector';
+import { AudiobookExportModal } from '@/components/AudiobookExportModal';
 import {
     CURATED_VOICE_PROFILES,
     CuratedVoiceProfile,
@@ -5845,82 +5847,16 @@ export function AudiobooksMediaManager() {
                                        ═══════════════════════════════════════════════════════════ */}
                                     {aiSubTab === 'voice' && (
                                         <div className="space-y-8">
-                                            {/* Curated Voice Options */}
+                                            {/* Curated Voice Options: Unified Two-Column Tone vs Timbre Selector */}
                                             <div className="p-6 rounded-3xl bg-zinc-900/60 border border-zinc-800 space-y-5">
-                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                                    <div className="flex items-center gap-3">
-                                                        <Headphones size={24} className="text-indigo-400" />
-                                                        <h4 className="text-xl font-black text-white uppercase tracking-wider">Curated Voices</h4>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                                        {(['all', 'iconic', 'classic', 'intimate', 'broadcast'] as const).map(cat => (
-                                                            <button
-                                                                key={cat}
-                                                                onClick={() => setVoiceCategoryFilter(cat)}
-                                                                className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
-                                                                    voiceCategoryFilter === cat
-                                                                        ? 'bg-indigo-500 text-black shadow'
-                                                                        : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
-                                                                }`}
-                                                            >
-                                                                {cat}
-                                                            </button>
-                                                        ))}
-                                                    </div>
+                                                <div className="flex items-center gap-3 pb-2 border-b border-zinc-800">
+                                                    <Headphones size={24} className="text-amber-400" />
+                                                    <h4 className="text-xl font-black text-white uppercase tracking-wider">Voice Profile</h4>
                                                 </div>
-
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                    {CURATED_VOICE_PROFILES
-                                                        .filter(profile => voiceCategoryFilter === 'all' || profile.category === voiceCategoryFilter)
-                                                        .map(profile => {
-                                                            const isSelected = editVoicePreset === profile.id;
-                                                            return (
-                                                                <div
-                                                                    key={profile.id}
-                                                                    onClick={() => setEditVoicePreset(profile.id)}
-                                                                    className={`p-5 rounded-3xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
-                                                                        isSelected
-                                                                            ? 'bg-indigo-950/40 border-indigo-500 shadow-xl shadow-indigo-500/20'
-                                                                            : 'bg-zinc-950/80 border-zinc-800 hover:border-zinc-700'
-                                                                    }`}
-                                                                >
-                                                                    <div>
-                                                                        <div className="flex items-center justify-between gap-2 mb-1">
-                                                                            <span className="text-base sm:text-lg font-black text-white truncate">{profile.name}</span>
-                                                                            <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-zinc-900 border border-zinc-700 text-zinc-300">
-                                                                                {profile.category}
-                                                                            </span>
-                                                                        </div>
-                                                                        <p className="text-xs sm:text-sm font-bold text-indigo-300 truncate">{profile.subtitle}</p>
-                                                                        <p className="text-xs text-zinc-400 mt-2 line-clamp-2 leading-relaxed">{profile.description}</p>
-                                                                    </div>
-
-                                                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-800/80">
-                                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                                            {profile.tags.slice(0, 2).map((t, tidx) => (
-                                                                                <span key={tidx} className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded">
-                                                                                    {t}
-                                                                                </span>
-                                                                            ))}
-                                                                        </div>
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setEditVoicePreset(profile.id);
-                                                                            }}
-                                                                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase cursor-pointer ${
-                                                                                isSelected
-                                                                                    ? 'bg-indigo-500 text-black'
-                                                                                    : 'bg-zinc-800 text-zinc-300 hover:text-white'
-                                                                            }`}
-                                                                        >
-                                                                            {isSelected ? 'Active' : 'Select'}
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                </div>
+                                                <AudiobookVoiceSelector
+                                                    selectedPreset={editVoicePreset}
+                                                    onSelectPreset={(pId) => setEditVoicePreset(pId)}
+                                                />
                                             </div>
 
                                             {/* Voice Action & Controls Bar */}

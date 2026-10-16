@@ -3374,7 +3374,13 @@ export const enhanceAudiobookChapterAudio = async (
         filters.push('highpass=f=80', 'lowpass=f=13500', 'afftdn=nf=-24', 'dynaudnorm=f=200:g=15');
     }
 
-    if (effectiveVoice === 'morgan_freeman') {
+    if (effectiveVoice === 'nelson_mandela') {
+        // Deep statesman dignity, slow deliberate cadence, warm chest rumble
+        filters.push('highpass=f=65,lowpass=f=10500,asetrate=44100*0.88,aresample=44100,atempo=1.1364,equalizer=f=120:width_type=h:width=80:g=4.5,equalizer=f=2200:width_type=h:width=800:g=2.5,dynaudnorm=f=200:g=15');
+    } else if (effectiveVoice === 'mlk') {
+        // Powerful oratorical resonance, passionate mid-bass cadence
+        filters.push('highpass=f=70,lowpass=f=12500,asetrate=44100*0.92,aresample=44100,atempo=1.087,equalizer=f=180:width_type=h:width=90:g=4.0,equalizer=f=2800:width_type=h:width=1000:g=3.2,dynaudnorm=f=170:g=14');
+    } else if (effectiveVoice === 'morgan_freeman') {
         // Deep authoritative resonance, rich chest gravitas, warm bass presence, deliberate cadence
         filters.push('asetrate=44100*0.89,aresample=44100,atempo=1.1235955,equalizer=f=110:width_type=h:width=80:g=4.8,equalizer=f=2400:width_type=h:width=900:g=3.2,acompressor=threshold=-19dB:ratio=3:attack=15:release=220,dynaudnorm=f=200:g=15');
     } else if (effectiveVoice === 'barack_obama') {
@@ -3386,15 +3392,21 @@ export const enhanceAudiobookChapterAudio = async (
     } else if (effectiveVoice === 'attenborough') {
         // Naturalist British wonder, gentle grandfatherly warmth, clear BBC acoustic headroom
         filters.push('asetrate=44100*0.97,aresample=44100,atempo=1.0309278,equalizer=f=190:width_type=h:width=90:g=2.2,equalizer=f=3600:width_type=h:width=1200:g=3.5,acompressor=threshold=-16dB:ratio=2.2:attack=10:release=160,dynaudnorm=f=160:g=12');
-    } else if (effectiveVoice === 'deep_narrator' || effectiveVoice === 'deep_cinema') {
+    } else if (effectiveVoice === 'tom_cruise') {
+        // Dynamic cinematic drive, crisp commanding energy, forward articulation
+        filters.push('highpass=f=85,lowpass=f=14500,asetrate=44100*1.03,aresample=44100,atempo=0.9709,equalizer=f=3400:width_type=h:width=1200:g=4.0,acompressor=threshold=-18dB:ratio=2.8:attack=10:release=140,dynaudnorm=f=150:g=13');
+    } else if (effectiveVoice === 'ana_de_armas') {
+        // Soft melodic warmth, breathy intimate cinema tone
+        filters.push('highpass=f=85,lowpass=f=12500,asetrate=44100*1.05,aresample=44100,atempo=0.9524,equalizer=f=240:width_type=h:width=110:g=2.2,equalizer=f=5000:width_type=h:width=1300:g=3.2,dynaudnorm=f=220:g=15');
+    } else if (effectiveVoice === 'deep_narrator' || effectiveVoice === 'deep_cinema' || effectiveVoice === 'deep_pitch') {
         filters.push('asetrate=44100*0.92,aresample=44100,atempo=1.0869565,equalizer=f=140:width_type=h:width=90:g=3');
-    } else if (effectiveVoice === 'warm_storyteller') {
+    } else if (effectiveVoice === 'warm_storyteller' || effectiveVoice === 'warm_bass') {
         filters.push('asetrate=44100*0.96,aresample=44100,atempo=1.0416667,equalizer=f=220:width_type=h:width=120:g=2.5');
-    } else if (effectiveVoice === 'crisp_clear' || effectiveVoice === 'crisp_modern') {
+    } else if (effectiveVoice === 'crisp_clear' || effectiveVoice === 'crisp_modern' || effectiveVoice === 'crisp_treble') {
         filters.push('asetrate=44100*1.04,aresample=44100,atempo=0.9615385,equalizer=f=3600:width_type=h:width=1200:g=3');
     } else if (effectiveVoice === 'soft_velvet' || effectiveVoice === 'velvet_narrator') {
         filters.push('asetrate=44100*0.97,aresample=44100,atempo=1.0309278,lowpass=f=10500,equalizer=f=180:width_type=h:width=100:g=2.5');
-    } else if (effectiveVoice === 'late_night_radio') {
+    } else if (effectiveVoice === 'late_night_radio' || effectiveVoice === 'night_compress') {
         filters.push('asetrate=44100*0.94,aresample=44100,atempo=1.0638298,highpass=f=90,lowpass=f=10000,equalizer=f=160:width_type=h:width=90:g=3.5,acompressor=threshold=-18dB:ratio=3:attack=10:release=180');
     }
 
@@ -3650,7 +3662,7 @@ export const formatActionFirstVisualPrompt = (params: {
         cleanSetting || cleanEra ? `Setting: ${cleanEra}${cleanSetting ? `, ${cleanSetting}` : ''}` : '',
         cleanFocus ? `Visual focus: ${cleanFocus}` : '',
         cleanStyle ? `Style: ${cleanStyle}` : '',
-        'cinematic lighting, rich details, coherent anatomy, no text, no watermark, no frame'
+        'expressive realistic face, symmetrical natural eyes, accurate human facial proportions, natural skin texture, cinematic lighting, rich details, coherent anatomy, no text, no watermark, no frame'
     ].filter(Boolean);
 
     return parts.join('. ');
@@ -4248,8 +4260,9 @@ const generateRawCandidateImageBuffer = async (params: {
     width: number;
     height: number;
     attempt: number;
+    sceneIndex?: number;
 }): Promise<{ buf: Buffer; providerUsed: string } | null> => {
-    const { promptToUse, book, chapterTitle, width, height, attempt } = params;
+    const { promptToUse, book, chapterTitle, width, height, attempt, sceneIndex = 0 } = params;
     const freshConfig = getAudiobookStudioConfig();
 
     // 1. Try configured API keys in failover / load-balance order (Gemini Image / Imagen 3, OpenAI DALL-E 3)
@@ -4364,7 +4377,7 @@ const generateRawCandidateImageBuffer = async (params: {
                 freshConfig.customApiUrl,
                 {
                     prompt: promptToUse,
-                    negative_prompt: 'body horror, gore, deformed face, mutated insect hybrid, nightmare fuel, extra limbs, text, watermark',
+                    negative_prompt: 'deformed face, crooked face, asymmetric eyes, weird face, melted features, distorted mouth, extra limbs, body horror, text, watermark',
                     width,
                     height,
                     steps: 20
@@ -4383,11 +4396,15 @@ const generateRawCandidateImageBuffer = async (params: {
 
     // 3. SubNP Free Flux / Magic Image Generator (fast 4s real JPEG generation, no API key required)
     const subnpModels = ['magic', 'flux', 'turbo'];
+    const uniqueSceneEntropy = `scene_${sceneIndex + 1}_${Date.now() % 10000}_${Math.floor(Math.random() * 89999 + 10000)}`;
     for (const subModel of subnpModels) {
         try {
             const subResp = await axios.post(
                 'https://subnp.com/api/free/generate',
-                { prompt: `${promptToUse.slice(0, 900)}, no text, no watermark`, model: subModel },
+                {
+                    prompt: `${promptToUse.slice(0, 780)}, unique shot #${sceneIndex + 1} (${uniqueSceneEntropy}), realistic expressive face, natural symmetrical eyes, no text, no watermark`,
+                    model: subModel
+                },
                 { timeout: 35000, responseType: 'text', headers: { 'Content-Type': 'application/json' } }
             );
             const sseText = String(subResp.data || '');
@@ -4415,11 +4432,12 @@ const generateRawCandidateImageBuffer = async (params: {
     ];
     const hfW = Math.min(1024, Math.max(512, Math.round(width / 32) * 32));
     const hfH = Math.min(1024, Math.max(512, Math.round(height / 32) * 32));
+    const hfSeed = Math.floor(Math.random() * 10000000) + (sceneIndex * 7919) + (attempt * 1337);
     for (const spaceBase of hfSpaces) {
         try {
             const callResp = await axios.post(
                 `${spaceBase}/gradio_api/call/infer`,
-                { data: [promptToUse.slice(0, 900), Math.floor(Math.random() * 1000000), true, hfW, hfH, 4] },
+                { data: [promptToUse.slice(0, 900), hfSeed, true, hfW, hfH, 4] },
                 { timeout: 15000, headers: { 'Content-Type': 'application/json' } }
             );
             const eventId = callResp.data?.event_id;
@@ -4449,14 +4467,14 @@ const generateRawCandidateImageBuffer = async (params: {
     }
 
     // 5. Sanitized Pollinations Flux / Turbo endpoints with retry backoff and explicit negative prompt
-    const seed = Math.floor(Math.random() * 900000) + attempt * 1337;
+    const seed = Math.floor(Math.random() * 900000) + (attempt * 1337) + (sceneIndex * 19997) + (Date.now() % 10000);
     const sanitizedPrompt = promptToUse
         .replace(/[^a-zA-Z0-9 ,.-]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 850);
     const encodedPrompt = encodeURIComponent(sanitizedPrompt);
-    const negPrompt = encodeURIComponent('body horror, gore, deformed face, mutated bug, nightmare fuel, extra limbs, text, watermark, ugly');
+    const negPrompt = encodeURIComponent('deformed face, crooked face, weird face, asymmetrical eyes, distorted eyes, cross-eyed, melted facial features, unnatural teeth, crooked mouth, bad anatomy, mutated hands, extra limbs, body horror, gore, nightmare fuel, text, watermark, blurry, ugly');
     const pW = Math.min(1024, Math.max(512, Math.round(width / 16) * 16));
     const pH = Math.min(1024, Math.max(512, Math.round(height / 16) * 16));
     const candidateUrls = [
@@ -4492,16 +4510,18 @@ const generateRawCandidateImageBuffer = async (params: {
 
     // 6. AI Horde anonymous community GPU cluster (512x512 avoids 403 KudosUpfront)
     try {
+        const hordeSeed = String(Math.floor(Math.random() * 900000000) + (sceneIndex * 33333));
         const hordeInit = await axios.post(
             'https://stablehorde.net/api/v2/generate/async',
             {
-                prompt: `${promptToUse.slice(0, 620)} ### body horror, gore, mutated insect hybrid, deformed face, nightmare fuel, text, watermark, signature, blurry, ugly`,
+                prompt: `${promptToUse.slice(0, 620)} ### deformed face, crooked face, weird face, asymmetrical eyes, cross-eyed, melted facial features, bad anatomy, text, watermark, signature, blurry, ugly`,
                 params: {
                     width: 512,
                     height: 512,
                     steps: 20,
                     cfg_scale: 7,
                     sampler_name: 'k_euler_a',
+                    seed: hordeSeed,
                     n: 1
                 },
                 models: ['Deliberate', 'stable_diffusion'],
@@ -4585,7 +4605,8 @@ const paintAndSaveStudioImage = async (params: {
             chapterTitle,
             width,
             height,
-            attempt
+            attempt,
+            sceneIndex: params.sceneIndex ?? 0
         });
 
         if (!candidate) {
