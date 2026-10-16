@@ -5268,7 +5268,7 @@ export const detectAudiobookChapterScenesWithLlm = async (
             });
 
             // Preserve existing painted URL if a scene at the same index/timestamp was already painted
-            const prevMatch = existingScenes.find(e => e.sceneIndex === slotIndex && e.url);
+            const prevMatch = existingScenes.find(e => e.sceneIndex === slotIndex && e.url && !String(e.url).toLowerCase().includes('.svg'));
             const sceneDef: AudiobookChapterSceneImage = {
                 id: prevMatch?.id || `scene_${Date.now()}_${slotIndex}_${Math.random().toString(36).slice(2, 6)}`,
                 url: prevMatch?.url || '',

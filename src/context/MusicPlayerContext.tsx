@@ -6,7 +6,7 @@ import {
     Shuffle, Repeat, Repeat1, SkipForward, SkipBack,
     Disc, Music, ListMusic, Download, ArrowDownToLine,
     Info, Mic2, Edit3, Search, Sparkles, Check,
-    RefreshCw, ChevronDown, ChevronUp, ArrowLeft, Sliders, Cast, Tv, Trash2, Plus,
+    RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowLeft, Sliders, Cast, Tv, Trash2, Plus,
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
     Star, ListPlus, Heart, Youtube, Wrench, Settings,
@@ -576,6 +576,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [audiobookArtMode, setAudiobookArtMode] = useState<'open_book' | 'plain_art'>('open_book');
     const [audiobookLeftTab, setAudiobookLeftTab] = useState<'player' | 'generate'>('player');
     const [audiobookStageMode, setAudiobookStageMode] = useState<'storyboard' | 'live_art' | 'gallery'>('storyboard');
+    const [photoBookModalIndex, setPhotoBookModalIndex] = useState<number | null>(null);
+    const [galleryChapterFilter, setGalleryChapterFilter] = useState<string>('all');
+    const [highlightedLiveSceneId, setHighlightedLiveSceneId] = useState<string | null>(null);
     const [showVoiceMenuPopup, setShowVoiceMenuPopup] = useState<boolean>(false);
     const [editingChapterIdx, setEditingChapterIdx] = useState<number | null>(null);
     const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
@@ -700,7 +703,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 if (ch) {
                     setAudiobookChapterMeta(ch);
                     const kept = (ch.images || [])
-                        .filter((img: any) => img.kept !== false)
+                        .filter((img: any) => img.kept !== false && img.url && !String(img.url).toLowerCase().includes('.svg'))
                         .sort((a: any, b: any) => (a.startSec ?? 0) - (b.startSec ?? 0));
                     setShuffledSceneImages(kept);
 
@@ -897,7 +900,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 setAudiobookChapterMeta(data.chapter);
                 setAudiobookBookMeta(data.book || null);
                 const kept = (data.chapter.images || [])
-                    .filter((img: any) => img.kept !== false)
+                    .filter((img: any) => img.kept !== false && img.url && !String(img.url).toLowerCase().includes('.svg'))
                     .sort((a: any, b: any) => (a.startSec ?? 0) - (b.startSec ?? 0));
                 setShuffledSceneImages(kept);
                 if (data.chapter.synced_lyrics && !isFakeOrWikiTranscript(data.chapter.synced_lyrics)) {
@@ -4160,9 +4163,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             <span className="text-base font-black uppercase text-emerald-400 tracking-wider flex items-center gap-2">
                                 <Mic2 size={18} /> Audio Filter &amp; Pitch
                             </span>
-                            <p className="text-xs text-zinc-400 mt-0.5">
-                                Click any filter for instant live WebAudio EQ/Pitch, or save a permanent .m4a file
-                            </p>
                         </div>
                         <button
                             onClick={() => setShowVoiceMenuPopup(false)}
@@ -4426,6 +4426,123 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                             const prevSceneObj = activeSceneIdx > 0 ? shuffledSceneImages[activeSceneIdx - 1] : null;
                             const nextSceneObj = activeSceneIdx >= 0 && activeSceneIdx < totalScenes - 1 ? shuffledSceneImages[activeSceneIdx + 1] : null;
+
+                            // ── Construct Full-Book Scene Collection for Photo Book & Gallery (All Chapters, No Fake SVGs) ──
+                            const orderedChapters = Array.isArray(audiobookAllChaptersMeta) && audiobookAllChaptersMeta.length > 0
+                                ? [...audiobookAllChaptersMeta].sort((a, b) => (Number(a.chapter_index) || 0) - (Number(b.chapter_index) || 0))
+                                : (audiobookChapterMeta ? [audiobookChapterMeta] : []);
+
+                            const allBookSceneImages: Array<{
+                                id: string;
+                                url: string;
+                                prompt?: string;
+                                sceneTitle?: string;
+                                transitionReason?: string;
+                                startSec?: number;
+                                endSec?: number;
+                                chapterKey: string;
+                                chapterIndex: number;
+                                chapterTitle: string;
+                                chapterTrack: MediaItem | null;
+                                sceneIdx: number;
+                                globalIdx: number;
+                                isLive: boolean;
+                            }> = [];
+
+                            orderedChapters.forEach((ch: any, chIdx: number) => {
+                                const chTrack = audioQueue.find(q =>
+                                    (q.chapterKey && q.chapterKey === ch.chapter_key) ||
+                                    (q.id && q.id === ch.chapter_key) ||
+                                    (typeof q.trackNumber === 'number' && q.trackNumber === Number(ch.chapter_index))
+                                ) || (audiobookChapterMeta?.chapter_key === ch.chapter_key ? playingAudio : null);
+
+                                const validKept = (ch.images || [])
+                                    .filter((img: any) => img && img.kept !== false && img.url && !String(img.url).toLowerCase().includes('.svg'))
+                                    .sort((a: any, b: any) => (a.startSec ?? 0) - (b.startSec ?? 0));
+
+                                const isThisChapterLive = Boolean(
+                                    playingAudio && (
+                                        (ch.chapter_key && (playingAudio.chapterKey === ch.chapter_key || playingAudio.id === ch.chapter_key)) ||
+                                        (chTrack && chTrack.id === playingAudio.id) ||
+                                        (audiobookChapterMeta && audiobookChapterMeta.chapter_key === ch.chapter_key)
+                                    )
+                                );
+
+                                validKept.forEach((img: any, sIdx: number) => {
+                                    const isTimeMatch = typeof img.startSec === 'number' && typeof img.endSec === 'number' &&
+                                        audioCurrentTime >= img.startSec && audioCurrentTime <= img.endSec;
+                                    const isLive = isThisChapterLive && (isTimeMatch || validKept.length === 1 || (activeSceneObj && activeSceneObj.id === img.id));
+
+                                    allBookSceneImages.push({
+                                        id: img.id || `img_${ch.chapter_key}_${sIdx}`,
+                                        url: img.url,
+                                        prompt: img.prompt || '',
+                                        sceneTitle: img.sceneTitle || `Scene ${sIdx + 1}`,
+                                        transitionReason: img.transitionReason || '',
+                                        startSec: img.startSec,
+                                        endSec: img.endSec,
+                                        chapterKey: ch.chapter_key,
+                                        chapterIndex: Number(ch.chapter_index) || (chIdx + 1),
+                                        chapterTitle: ch.title || `Chapter ${ch.chapter_index || chIdx + 1}`,
+                                        chapterTrack: chTrack,
+                                        sceneIdx: sIdx,
+                                        globalIdx: allBookSceneImages.length,
+                                        isLive: Boolean(isLive)
+                                    });
+                                });
+                            });
+
+                            const displayedGalleryImages = galleryChapterFilter === 'all'
+                                ? allBookSceneImages
+                                : allBookSceneImages.filter(s => s.chapterKey === galleryChapterFilter);
+
+                            const handlePlayAudioFromScene = (scene: any) => {
+                                if (!scene) return;
+                                if (scene.chapterTrack && playingAudio && scene.chapterTrack.id !== playingAudio.id) {
+                                    setPlayingAudio(scene.chapterTrack);
+                                    setIsAudioPlaying(true);
+                                    if (typeof scene.startSec === 'number') {
+                                        setTimeout(() => seekTo(scene.startSec), 250);
+                                    }
+                                } else if (typeof scene.startSec === 'number') {
+                                    seekTo(scene.startSec);
+                                    if (!isAudioPlaying) setIsAudioPlaying(true);
+                                }
+                                toast.success(`Playing from Chapter ${scene.chapterIndex} • Scene ${scene.sceneIdx + 1}`);
+                            };
+
+                            const handleJumpToLiveScene = () => {
+                                const liveScene = allBookSceneImages.find(s => s.isLive) ||
+                                    (allBookSceneImages.length > 0 ? (activeSceneObj ? allBookSceneImages.find(s => s.id === activeSceneObj.id) : allBookSceneImages[0]) : null);
+                                if (liveScene) {
+                                    if (galleryChapterFilter !== 'all' && galleryChapterFilter !== liveScene.chapterKey) {
+                                        setGalleryChapterFilter('all');
+                                    }
+                                    setTimeout(() => {
+                                        const el = document.getElementById(`scene-card-${liveScene.id}`);
+                                        if (el) {
+                                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            setHighlightedLiveSceneId(liveScene.id);
+                                            setTimeout(() => setHighlightedLiveSceneId(null), 2500);
+                                        }
+                                    }, 80);
+                                    if (photoBookModalIndex !== null) {
+                                        const fIdx = allBookSceneImages.findIndex(s => s.id === liveScene.id);
+                                        if (fIdx >= 0) setPhotoBookModalIndex(fIdx);
+                                    }
+                                    toast.success(`Jumped to live scene: Chapter ${liveScene.chapterIndex} • Scene ${liveScene.sceneIdx + 1}`);
+                                } else {
+                                    toast.info('Narration playing, but no scene image exists for this timestamp yet');
+                                }
+                            };
+
+                            const handlePhotoBookPrev = () => {
+                                setPhotoBookModalIndex(prev => (prev !== null && prev > 0 ? prev - 1 : prev));
+                            };
+
+                            const handlePhotoBookNext = () => {
+                                setPhotoBookModalIndex(prev => (prev !== null && prev < allBookSceneImages.length - 1 ? prev + 1 : prev));
+                            };
 
                             const customCoverActive = Boolean(audiobookBookMeta?.use_custom_cover && audiobookBookMeta?.custom_cover_url);
                             const effectiveCoverUrl = customCoverActive ? audiobookBookMeta.custom_cover_url : playingAudio.posterUrl;
@@ -4743,8 +4860,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                     ? 'bg-amber-500 text-black shadow-sm'
                                                                     : 'text-zinc-400 hover:text-white'
                                                             }`}
+                                                            title="Open full Photo Book & Story Gallery across all chapters"
                                                         >
-                                                            <BookOpen size={15} /> Scenes ({totalScenes})
+                                                            <BookOpen size={15} /> Photo Book ({allBookSceneImages.length || totalScenes})
                                                         </button>
                                                     </div>
 
@@ -4842,8 +4960,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <div className="w-full h-full overflow-y-auto custom-scrollbar p-2">
-                                                            {totalScenes === 0 ? (
+                                                        <div className="w-full h-full flex flex-col min-h-0 overflow-hidden p-2">
+                                                            {allBookSceneImages.length === 0 ? (
                                                                 <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
                                                                     <ImageIcon size={36} className="text-zinc-600" />
                                                                     <p className="text-sm font-bold text-zinc-300">No Scene Illustrations Generated Yet</p>
@@ -4867,28 +4985,119 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                     </div>
                                                                 </div>
                                                             ) : (
-                                                                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
-                                                                    {shuffledSceneImages.map((img: any, idx: number) => {
-                                                                        const isCurrentScene = idx === activeSceneIdx;
-                                                                        return (
-                                                                            <div
-                                                                                key={img.id || idx}
-                                                                                onClick={() => {
-                                                                                    if (typeof img.startSec === 'number') seekTo(img.startSec);
-                                                                                }}
-                                                                                className={`group relative aspect-[16/10] rounded-2xl overflow-hidden border-2 bg-zinc-900 cursor-pointer transition-all ${
-                                                                                    isCurrentScene ? 'border-amber-500 shadow-lg shadow-amber-500/20' : 'border-zinc-800 hover:border-zinc-700'
-                                                                                }`}
-                                                                                title={`Click to jump to Scene ${idx + 1}`}
+                                                                <>
+                                                                    {/* Photo Book Top Controls Bar: Chapter Filter + Jump to Live */}
+                                                                    <div className="flex items-center justify-between gap-3 pb-2.5 mb-2 border-b border-zinc-900 shrink-0 flex-wrap">
+                                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                                            <select
+                                                                                value={galleryChapterFilter}
+                                                                                onChange={e => setGalleryChapterFilter(e.target.value)}
+                                                                                className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs sm:text-sm font-bold text-zinc-200 cursor-pointer"
+                                                                                title="Filter Photo Book by chapter"
                                                                             >
-                                                                                <img src={img.url} alt={`Scene ${idx + 1}`} className="w-full h-full object-cover" />
-                                                                                <div className="absolute top-2 left-2 px-2.5 py-0.5 rounded-lg bg-black/80 text-xs font-black text-white">
-                                                                                    Scene {idx + 1} of {totalScenes}
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })}
-                                                                </div>
+                                                                                <option value="all">All Chapters ({allBookSceneImages.length} Scenes)</option>
+                                                                                {orderedChapters.map((c: any) => {
+                                                                                    const count = (c.images || []).filter((i: any) => i && i.kept !== false && i.url && !String(i.url).toLowerCase().includes('.svg')).length;
+                                                                                    return (
+                                                                                        <option key={c.chapter_key} value={c.chapter_key}>
+                                                                                            {c.chapter_index ? `Chapter ${c.chapter_index}: ` : ''}{c.title || 'Chapter'} ({count})
+                                                                                        </option>
+                                                                                    );
+                                                                                })}
+                                                                            </select>
+                                                                            <span className="text-xs text-zinc-400 font-bold">
+                                                                                {displayedGalleryImages.length} {displayedGalleryImages.length === 1 ? 'Scene' : 'Scenes'}
+                                                                            </span>
+                                                                        </div>
+
+                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={handleJumpToLiveScene}
+                                                                                className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-amber-500/20 active:scale-95"
+                                                                                title="Jump to the currently playing live scene without stopping audio"
+                                                                            >
+                                                                                <Radio size={15} className="animate-pulse" />
+                                                                                <span>Jump to Live</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Full Photo Book Scene Grid */}
+                                                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
+                                                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                                                                            {displayedGalleryImages.map((img: any, idx: number) => {
+                                                                                const isCurrentScene = img.isLive || highlightedLiveSceneId === img.id;
+                                                                                return (
+                                                                                    <div
+                                                                                        key={img.id || idx}
+                                                                                        id={`scene-card-${img.id}`}
+                                                                                        onClick={() => {
+                                                                                            // Clicking card opens Photo Book viewer modal without interrupting reading
+                                                                                            const targetIdx = allBookSceneImages.findIndex(s => s.id === img.id);
+                                                                                            setPhotoBookModalIndex(targetIdx >= 0 ? targetIdx : idx);
+                                                                                        }}
+                                                                                        className={`group relative aspect-[16/10] rounded-2xl overflow-hidden border-2 bg-zinc-900 cursor-pointer transition-all duration-300 hover:scale-[1.01] ${
+                                                                                            isCurrentScene
+                                                                                                ? 'border-amber-400 ring-4 ring-amber-400/40 shadow-xl shadow-amber-500/25'
+                                                                                                : 'border-zinc-800 hover:border-zinc-600 shadow-md'
+                                                                                        }`}
+                                                                                        title={`Open Photo Book: Chapter ${img.chapterIndex} • Scene ${img.sceneIdx + 1} (Audio keeps playing)`}
+                                                                                    >
+                                                                                        <img
+                                                                                            src={img.url}
+                                                                                            alt={img.sceneTitle || `Scene ${img.sceneIdx + 1}`}
+                                                                                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                                                            loading="lazy"
+                                                                                        />
+
+                                                                                        {/* Top Badges */}
+                                                                                        <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                                                                                            <span className="px-2.5 py-1 rounded-lg bg-black/80 backdrop-blur-md text-xs font-black text-white border border-white/10 shadow">
+                                                                                                Ch {img.chapterIndex} • Scene {img.sceneIdx + 1}
+                                                                                            </span>
+                                                                                        </div>
+
+                                                                                        {/* Live Playing Badge */}
+                                                                                        {img.isLive && (
+                                                                                            <div className="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-amber-500 text-black text-xs font-black uppercase flex items-center gap-1 shadow-lg animate-pulse">
+                                                                                                <Radio size={12} />
+                                                                                                <span>Live</span>
+                                                                                            </div>
+                                                                                        )}
+
+                                                                                        {/* Bottom Overlay: Title & Explicit Play Button */}
+                                                                                        <div className="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex items-center justify-between gap-2 opacity-90 group-hover:opacity-100 transition-opacity">
+                                                                                            <div className="min-w-0 flex-1">
+                                                                                                <p className="text-xs font-bold text-white truncate drop-shadow">
+                                                                                                    {img.sceneTitle || img.chapterTitle}
+                                                                                                </p>
+                                                                                                {typeof img.startSec === 'number' && (
+                                                                                                    <p className="text-[11px] font-mono text-zinc-300">
+                                                                                                        {formatTime(img.startSec)} {typeof img.endSec === 'number' ? `– ${formatTime(img.endSec)}` : ''}
+                                                                                                    </p>
+                                                                                                )}
+                                                                                            </div>
+
+                                                                                            {/* Dedicated Play Button: Only this seeks audio */}
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={(e) => {
+                                                                                                    e.stopPropagation();
+                                                                                                    handlePlayAudioFromScene(img);
+                                                                                                }}
+                                                                                                className="p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black shadow-lg transition-transform active:scale-95 cursor-pointer"
+                                                                                                title={`Play audio from this scene timestamp (${typeof img.startSec === 'number' ? formatTime(img.startSec) : ''})`}
+                                                                                            >
+                                                                                                <Play size={14} className="fill-black" />
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                </>
                                                             )}
                                                         </div>
                                                     )}
@@ -5082,6 +5291,149 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             );
                                         })()}
                                     </div>
+
+                                    {/* ── IMMERSIVE FULL PHOTO BOOK LIGHTBOX MODAL ── */}
+                                    {photoBookModalIndex !== null && allBookSceneImages[photoBookModalIndex] && (() => {
+                                        const currentModalScene = allBookSceneImages[photoBookModalIndex];
+                                        return (
+                                            <div
+                                                className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-2xl flex flex-col p-3 sm:p-6 overflow-hidden select-none animate-in fade-in duration-200"
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'ArrowLeft') handlePhotoBookPrev();
+                                                    if (e.key === 'ArrowRight') handlePhotoBookNext();
+                                                    if (e.key === 'Escape') setPhotoBookModalIndex(null);
+                                                }}
+                                                tabIndex={0}
+                                            >
+                                                {/* Top Header */}
+                                                <div className="flex items-center justify-between gap-3 pb-3 border-b border-zinc-800 shrink-0">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <span className="p-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                                                            <BookOpen size={20} />
+                                                        </span>
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="text-sm sm:text-base font-black text-white truncate">
+                                                                    Chapter {currentModalScene.chapterIndex}: {currentModalScene.chapterTitle}
+                                                                </span>
+                                                                <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-xs font-bold text-amber-300">
+                                                                    Scene {currentModalScene.sceneIdx + 1} ({photoBookModalIndex + 1} of {allBookSceneImages.length})
+                                                                </span>
+                                                                {currentModalScene.isLive && (
+                                                                    <span className="px-2 py-0.5 rounded-lg bg-amber-500 text-black text-xs font-black uppercase flex items-center gap-1 animate-pulse">
+                                                                        <Radio size={12} /> Live
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {typeof currentModalScene.startSec === 'number' && (
+                                                                <p className="text-xs font-mono text-zinc-400 mt-0.5">
+                                                                    {formatTime(currentModalScene.startSec)} {typeof currentModalScene.endSec === 'number' ? `– ${formatTime(currentModalScene.endSec)}` : ''}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleJumpToLiveScene}
+                                                            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-95"
+                                                            title="Jump viewer to currently playing live audio scene"
+                                                        >
+                                                            <Radio size={15} className="animate-pulse" />
+                                                            <span>Jump to Live</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handlePlayAudioFromScene(currentModalScene)}
+                                                            className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer"
+                                                            title="Play audio from this scene timestamp"
+                                                        >
+                                                            <Play size={15} className="fill-amber-300" />
+                                                            <span>Play Scene</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setPhotoBookModalIndex(null)}
+                                                            className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer"
+                                                            title="Close Photo Book Viewer (Esc)"
+                                                        >
+                                                            <X size={20} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Center Canvas Area with Left & Right Nav Buttons */}
+                                                <div className="relative flex-1 min-h-0 flex items-center justify-center p-2 sm:p-4 my-2">
+                                                    {/* Previous Image Button */}
+                                                    <button
+                                                        type="button"
+                                                        onClick={handlePhotoBookPrev}
+                                                        disabled={photoBookModalIndex <= 0}
+                                                        className="absolute left-2 sm:left-6 z-20 w-12 h-12 rounded-2xl bg-black/80 hover:bg-amber-500 hover:text-black text-white border border-white/20 flex items-center justify-center transition-all cursor-pointer disabled:opacity-20 disabled:pointer-events-none shadow-2xl active:scale-95"
+                                                        title="Previous Scene (Left Arrow)"
+                                                    >
+                                                        <ChevronLeft size={28} />
+                                                    </button>
+
+                                                    {/* Main High-Res Image */}
+                                                    <div className="relative max-w-5xl max-h-full aspect-[16/10] sm:aspect-[16/9] w-full h-full flex items-center justify-center rounded-3xl overflow-hidden border-2 border-zinc-800/80 bg-zinc-950 shadow-2xl">
+                                                        <img
+                                                            src={currentModalScene.url}
+                                                            alt={currentModalScene.sceneTitle || 'Audiobook Scene'}
+                                                            className="w-full h-full object-contain"
+                                                        />
+                                                    </div>
+
+                                                    {/* Next Image Button */}
+                                                    <button
+                                                        type="button"
+                                                        onClick={handlePhotoBookNext}
+                                                        disabled={photoBookModalIndex >= allBookSceneImages.length - 1}
+                                                        className="absolute right-2 sm:right-6 z-20 w-12 h-12 rounded-2xl bg-black/80 hover:bg-amber-500 hover:text-black text-white border border-white/20 flex items-center justify-center transition-all cursor-pointer disabled:opacity-20 disabled:pointer-events-none shadow-2xl active:scale-95"
+                                                        title="Next Scene (Right Arrow)"
+                                                    >
+                                                        <ChevronRight size={28} />
+                                                    </button>
+                                                </div>
+
+                                                {/* Bottom Filmstrip Thumbnails & Scene Story Narrative */}
+                                                <div className="shrink-0 flex flex-col space-y-2 pt-2 border-t border-zinc-800/80">
+                                                    {currentModalScene.prompt && (
+                                                        <div className="px-4 py-2 rounded-xl bg-zinc-900/80 border border-zinc-800 text-xs sm:text-sm text-zinc-300 line-clamp-2 max-w-4xl mx-auto text-center">
+                                                            <span className="font-bold text-amber-300">{currentModalScene.sceneTitle || 'Scene'}: </span>
+                                                            {currentModalScene.prompt}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Horizontal Thumbnail Strip */}
+                                                    <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-1 px-1">
+                                                        {allBookSceneImages.map((s, idx) => {
+                                                            const isSelected = idx === photoBookModalIndex;
+                                                            return (
+                                                                <button
+                                                                    key={s.id || idx}
+                                                                    type="button"
+                                                                    onClick={() => setPhotoBookModalIndex(idx)}
+                                                                    className={`relative w-20 sm:w-24 aspect-[16/10] rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer ${
+                                                                        isSelected
+                                                                            ? 'border-amber-400 scale-105 shadow-lg shadow-amber-500/30'
+                                                                            : 'border-zinc-800 opacity-60 hover:opacity-100 hover:border-zinc-600'
+                                                                    }`}
+                                                                    title={`Ch ${s.chapterIndex} • Scene ${s.sceneIdx + 1}`}
+                                                                >
+                                                                    <img src={s.url} alt="" className="w-full h-full object-cover" />
+                                                                    {s.isLive && (
+                                                                        <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-black animate-pulse" />
+                                                                    )}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             );
                         })()

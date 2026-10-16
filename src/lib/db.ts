@@ -2619,6 +2619,8 @@ const mapBookRow = (r: any): AudiobookBookMeta => {
         } catch {}
     }
 
+    const rawCover = r.custom_cover_url && !String(r.custom_cover_url).toLowerCase().includes('.svg') ? r.custom_cover_url : undefined;
+
     return {
         book_key: r.book_key,
         title: r.title || 'Untitled Book',
@@ -2630,8 +2632,8 @@ const mapBookRow = (r: any): AudiobookBookMeta => {
         published_year: r.published_year || rawParsed.year || undefined,
         thumb: thumbVal,
         poster_url: thumbVal,
-        custom_cover_url: r.custom_cover_url || undefined,
-        use_custom_cover: Boolean(r.use_custom_cover),
+        custom_cover_url: rawCover,
+        use_custom_cover: Boolean(r.use_custom_cover && rawCover),
         real_structure_json: r.real_structure_json || '',
         library_id: r.library_id || undefined,
         queue_priority: queuePriority,
@@ -2671,7 +2673,8 @@ const mapBookRow = (r: any): AudiobookBookMeta => {
 const mapChapterRow = (r: any): AudiobookChapterMeta => {
     let parsedImages: AudiobookChapterSceneImage[] = [];
     try {
-        parsedImages = JSON.parse(r.images_json || '[]');
+        const raw = JSON.parse(r.images_json || '[]');
+        parsedImages = (Array.isArray(raw) ? raw : []).filter(img => img && img.url && !String(img.url).toLowerCase().includes('.svg'));
     } catch {
         parsedImages = [];
     }
