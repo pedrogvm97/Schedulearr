@@ -840,7 +840,7 @@ export function SchedulerQueuePanel() {
                     {/* Configuration Inputs Grid */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Interval (Min)</span>
+                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Interval (Min)</span>
                             <input
                                 type="number"
                                 min={1}
@@ -853,7 +853,7 @@ export function SchedulerQueuePanel() {
                         </div>
 
                         <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Batch Size</span>
+                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Batch Size</span>
                             <CustomSelect
                                 minimal
                                 options={[...Array(50)].map((_, i) => ({ id: i + 1, name: `${i + 1} items` }))}
@@ -863,7 +863,7 @@ export function SchedulerQueuePanel() {
                         </div>
 
                         <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Rotation Mode</span>
+                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Rotation Mode</span>
                             <CustomSelect
                                 minimal
                                 options={[{ id: 'repeat', name: 'Repeat' }, { id: 'rotate', name: 'Rotate' }]}
@@ -873,7 +873,7 @@ export function SchedulerQueuePanel() {
                         </div>
 
                         <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5 justify-center">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Max Attempts</span>
+                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Max Attempts</span>
                             <input
                                 type="number"
                                 min={1}
@@ -912,7 +912,7 @@ export function SchedulerQueuePanel() {
                         {/* Per-Instance Trigger Buttons */}
                         {activeInstancesList.length > 0 && (
                             <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
-                                <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500 block">
+                                <span className="text-xs font-black uppercase tracking-wider text-zinc-500 block">
                                     Quick Instance Search Triggers
                                 </span>
                                 <div className="flex flex-wrap gap-2.5">
@@ -1008,7 +1008,7 @@ export function SchedulerQueuePanel() {
                 {/* Instance Filter Buttons */}
                 {activeInstancesList.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800/80">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider mr-2">
+                        <span className="text-xs font-black text-zinc-500 uppercase tracking-wider mr-2">
                             Instances:
                         </span>
                         {activeInstancesList.map(inst => {
@@ -1193,10 +1193,10 @@ export function SchedulerQueuePanel() {
                                                         ({item.year})
                                                     </span>
                                                 )}
-                                                <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase text-black ${item.instanceColor || 'bg-emerald-400'}`}>
+                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase text-black ${item.instanceColor || 'bg-emerald-400'}`}>
                                                     {item.instanceName || item.instanceId}
                                                 </span>
-                                                <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase border ${
+                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase border ${
                                                     item.isDownloaded
                                                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                         : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
@@ -1320,7 +1320,7 @@ export function SchedulerQueuePanel() {
                                 {/* Expanded Episode Breakdown for TV Series */}
                                 {isExpanded && (
                                     <div className="pt-3 border-t border-zinc-800/80 space-y-2">
-                                        <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500 block">
+                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-500 block">
                                             Episodes Breakdown
                                         </span>
                                         {isEpsLoading ? (
@@ -1349,7 +1349,7 @@ export function SchedulerQueuePanel() {
                                                                 <span className="text-xs font-bold text-zinc-200 truncate">
                                                                     {ep.title}
                                                                 </span>
-                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                                                                     ep.hasFile
                                                                         ? 'bg-emerald-500/10 text-emerald-400'
                                                                         : 'bg-amber-500/10 text-amber-400'
@@ -1360,7 +1360,7 @@ export function SchedulerQueuePanel() {
 
                                                             <div className="flex items-center gap-2 shrink-0">
                                                                 {epStatus && (
-                                                                    <span className="text-[10px] font-mono text-amber-400">
+                                                                    <span className="text-xs font-mono text-amber-400">
                                                                         {epStatus.status}
                                                                     </span>
                                                                 )}

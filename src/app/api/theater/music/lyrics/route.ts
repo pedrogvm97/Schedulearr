@@ -1,41 +1,27 @@
 import { NextResponse } from 'next/server';
+import fs from 'fs';
 import axios from 'axios';
 import { getSavedLyrics, saveLyrics } from '@/lib/db';
+import { sanitizeSongMetadata } from '@/lib/songSanitizer';
+import {
+    resolveAccessibleMediaPath,
+    transcribeAudioChunk,
+    alignPlainLyricsWithAudioTimestamps,
+    generateLrcFromLines,
+    parseLrcStringToLines
+} from '@/lib/speechToText';
+import { resolveLocalPath } from '@/app/api/theater/stream/route';
 
 export const dynamic = 'force-dynamic';
 
 function parseLrc(lrcText: string): Array<{ time: number; text: string }> {
-    if (!lrcText) return [];
-    const lines = lrcText.split('\n');
-    const result: Array<{ time: number; text: string }> = [];
-    const timeRegex = /\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\]/g;
-
-    for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line) continue;
-        const matches = [...line.matchAll(timeRegex)];
-        if (matches.length > 0) {
-            const text = line.replace(timeRegex, '').trim();
-            for (const match of matches) {
-                const minutes = parseInt(match[1], 10);
-                const seconds = parseInt(match[2], 10);
-                const msStr = match[3] || '0';
-                const ms = msStr.length === 2 ? parseInt(msStr, 10) * 10 : parseInt(msStr, 10);
-                const time = minutes * 60 + seconds + ms / 1000;
-                result.push({ time, text });
-            }
-        }
-    }
-
-    return result.sort((a, b) => a.time - b.time);
+    return parseLrcStringToLines(lrcText);
 }
 
 function generateTrackKey(artist: string, title: string): string {
     const clean = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     return `${clean(artist)}_${clean(title)}`;
 }
-
-import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 
 export async function GET(req: Request) {
     try {
@@ -46,12 +32,15 @@ export async function GET(req: Request) {
         const duration = searchParams.get('duration'); // in seconds
         const searchQuery = searchParams.get('q'); // for manual search query
         const isSearch = searchParams.get('search') === 'true';
+        const rawPath = searchParams.get('path') || '';
+        const action = searchParams.get('action') || '';
+        const forceTranscribe = action === 'transcribe' || searchParams.get('transcribe') === 'true';
 
         const { cleanArtist, cleanTitle, searchQueries } = sanitizeSongMetadata(rawTitle, rawArtist);
         const artist = cleanArtist;
         const title = cleanTitle;
 
-        // 1. If explicit search mode requested (for lyrics matching modal)
+        // 1. Explicit search mode requested (for lyrics matching modal)
         if (isSearch || searchQuery) {
             const queryTerm = searchQuery || searchQueries[0] || `${rawArtist} ${rawTitle}`.trim();
             if (!queryTerm) {
@@ -60,7 +49,7 @@ export async function GET(req: Request) {
 
             try {
                 const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(queryTerm)}`, {
-                    headers: { 'User-Agent': 'Schedulearr/0.3.98 (https://github.com/pedrogvm97/Schedulearr)' },
+                    headers: { 'User-Agent': 'Schedulearr/0.6.38 (https://github.com/pedrogvm97/Schedulearr)' },
                     timeout: 8000
                 });
 
@@ -85,79 +74,81 @@ export async function GET(req: Request) {
             }
         }
 
-        if (!title && !artist && !rawTitle && !rawArtist) {
-            return NextResponse.json({ error: 'Artist or Title required' }, { status: 400 });
+        if (!title && !artist && !rawTitle && !rawArtist && !rawPath) {
+            return NextResponse.json({ error: 'Artist, Title, or Path required' }, { status: 400 });
         }
 
         const trackKey = generateTrackKey(artist, title);
         const rawTrackKey = generateTrackKey(rawArtist, rawTitle);
 
-        // 2. Check local SQLite database for manual override or cached lyrics (try both clean and raw keys)
-        const saved = getSavedLyrics(trackKey) || getSavedLyrics(rawTrackKey);
-        if (saved && (saved.synced_lyrics || saved.plain_lyrics)) {
-            return NextResponse.json({
-                trackKey,
-                artist: saved.artist,
-                title: saved.title,
-                syncedLyrics: saved.synced_lyrics,
-                plainLyrics: saved.plain_lyrics,
-                source: saved.source || 'db_saved',
-                lines: parseLrc(saved.synced_lyrics || ''),
-                isSynced: !!saved.synced_lyrics
-            });
+        // 2. Check local SQLite database for manual override or cached lyrics (unless forceTranscribe is requested)
+        if (!forceTranscribe) {
+            const saved = getSavedLyrics(trackKey) || getSavedLyrics(rawTrackKey);
+            if (saved && saved.synced_lyrics) {
+                return NextResponse.json({
+                    trackKey,
+                    artist: saved.artist,
+                    title: saved.title,
+                    syncedLyrics: saved.synced_lyrics,
+                    plainLyrics: saved.plain_lyrics,
+                    source: saved.source || 'db_saved',
+                    lines: parseLrc(saved.synced_lyrics || ''),
+                    isSynced: true
+                });
+            }
         }
 
         // 3. Query LRCLib API directly using clean metadata
         let lrcData: any = null;
-        try {
-            const getParams = new URLSearchParams();
-            if (artist) getParams.set('artist_name', artist);
-            if (title) getParams.set('track_name', title);
-            if (album) getParams.set('album_name', album);
-            if (duration && !isNaN(Number(duration))) getParams.set('duration', String(Math.round(Number(duration))));
+        if (!forceTranscribe) {
+            try {
+                const getParams = new URLSearchParams();
+                if (artist) getParams.set('artist_name', artist);
+                if (title) getParams.set('track_name', title);
+                if (album) getParams.set('album_name', album);
+                if (duration && !isNaN(Number(duration))) getParams.set('duration', String(Math.round(Number(duration))));
 
-            const getRes = await axios.get(`https://lrclib.net/api/get?${getParams.toString()}`, {
-                headers: { 'User-Agent': 'Schedulearr/0.3.98 (https://github.com/pedrogvm97/Schedulearr)' },
-                timeout: 6000
-            });
-            lrcData = getRes.data;
-        } catch {}
+                const getRes = await axios.get(`https://lrclib.net/api/get?${getParams.toString()}`, {
+                    headers: { 'User-Agent': 'Schedulearr/0.6.38' },
+                    timeout: 6000
+                });
+                lrcData = getRes.data;
+            } catch {}
 
-        if (!lrcData || !lrcData.syncedLyrics) {
-            // If exact get failed, cascade through searchQueries variations
-            const targetSec = duration && !isNaN(Number(duration)) ? Number(duration) : null;
-            for (const q of searchQueries) {
-                try {
-                    const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, {
-                        headers: { 'User-Agent': 'Schedulearr/0.3.98' },
-                        timeout: 5000
-                    });
-                    if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
-                        const syncedItems = searchRes.data.filter((d: any) => Boolean(d.syncedLyrics));
-                        const pool = syncedItems.length > 0 ? syncedItems : searchRes.data;
-                        if (targetSec !== null) {
-                            pool.sort((a: any, b: any) => {
-                                const diffA = Math.abs((a.duration || 0) - targetSec);
-                                const diffB = Math.abs((b.duration || 0) - targetSec);
-                                return diffA - diffB;
-                            });
-                            // Select candidate matching track duration within 15 seconds
-                            const matched = pool.find((item: any) => Math.abs((item.duration || 0) - targetSec) <= 15);
-                            lrcData = matched || pool[0];
-                        } else {
-                            lrcData = pool[0];
+            if (!lrcData || !lrcData.syncedLyrics) {
+                const targetSec = duration && !isNaN(Number(duration)) ? Number(duration) : null;
+                for (const q of searchQueries) {
+                    try {
+                        const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, {
+                            headers: { 'User-Agent': 'Schedulearr/0.6.38' },
+                            timeout: 5000
+                        });
+                        if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
+                            const syncedItems = searchRes.data.filter((d: any) => Boolean(d.syncedLyrics));
+                            const pool = syncedItems.length > 0 ? syncedItems : searchRes.data;
+                            if (targetSec !== null) {
+                                pool.sort((a: any, b: any) => {
+                                    const diffA = Math.abs((a.duration || 0) - targetSec);
+                                    const diffB = Math.abs((b.duration || 0) - targetSec);
+                                    return diffA - diffB;
+                                });
+                                const matched = pool.find((item: any) => Math.abs((item.duration || 0) - targetSec) <= 15);
+                                lrcData = matched || pool[0];
+                            } else {
+                                lrcData = pool[0];
+                            }
+                            if (lrcData?.syncedLyrics) break;
                         }
-                        if (lrcData?.syncedLyrics) break;
-                    }
-                } catch {}
+                    } catch {}
+                }
             }
         }
 
-        if (lrcData && (lrcData.syncedLyrics || lrcData.plainLyrics)) {
+        // 4. If synchronized lyrics were found from LRCLib
+        if (lrcData?.syncedLyrics && !forceTranscribe) {
             const syncedLyrics = lrcData.syncedLyrics || '';
             const plainLyrics = lrcData.plainLyrics || '';
 
-            // Auto-cache in SQLite under both sanitized and original keys
             saveLyrics(trackKey, artist || lrcData.artistName || '', title || lrcData.trackName || '', syncedLyrics, plainLyrics, 'lrclib_auto');
             if (rawTrackKey !== trackKey) {
                 saveLyrics(rawTrackKey, artist || lrcData.artistName || '', title || lrcData.trackName || '', syncedLyrics, plainLyrics, 'lrclib_auto');
@@ -171,7 +162,67 @@ export async function GET(req: Request) {
                 plainLyrics,
                 source: 'lrclib',
                 lines: parseLrc(syncedLyrics),
-                isSynced: !!syncedLyrics
+                isSynced: true
+            });
+        }
+
+        // 5. Speech-to-Text Fallback: When lyrics are missing, mismatched, or plain-only, transcribe audio!
+        const audioFileCandidate = rawPath ? (resolveAccessibleMediaPath(rawPath, 'music') || resolveLocalPath(rawPath)) : null;
+
+        if (audioFileCandidate && fs.existsSync(audioFileCandidate)) {
+            try {
+                const trackDurationSec = duration && !isNaN(Number(duration)) ? Number(duration) : 0;
+                const sttRes = await transcribeAudioChunk({
+                    audioPath: audioFileCandidate,
+                    startOffsetSec: 0,
+                    durationSec: trackDurationSec > 0 ? trackDurationSec : 600,
+                    cpuThreads: 2
+                });
+
+                if (sttRes.success && sttRes.lines.length > 0) {
+                    let finalLines = sttRes.lines;
+                    const existingPlain = lrcData?.plainLyrics || '';
+
+                    // If plain lyrics exist from LRCLib, align them to audio timestamps for perfect wording
+                    if (existingPlain && existingPlain.trim().length > 10) {
+                        finalLines = alignPlainLyricsWithAudioTimestamps(existingPlain, sttRes.lines);
+                    }
+
+                    const syncedLyrics = generateLrcFromLines(finalLines);
+                    const plainLyrics = existingPlain || sttRes.plainText;
+
+                    saveLyrics(trackKey, artist || 'Artist', title || 'Title', syncedLyrics, plainLyrics, 'speech_to_text');
+                    if (rawTrackKey !== trackKey) {
+                        saveLyrics(rawTrackKey, artist || 'Artist', title || 'Title', syncedLyrics, plainLyrics, 'speech_to_text');
+                    }
+
+                    return NextResponse.json({
+                        trackKey,
+                        artist,
+                        title,
+                        syncedLyrics,
+                        plainLyrics,
+                        source: `stt_${sttRes.provider.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+                        lines: parseLrc(syncedLyrics),
+                        isSynced: true
+                    });
+                }
+            } catch (sttErr: any) {
+                console.warn('Speech-to-text music lyrics error:', sttErr.message);
+            }
+        }
+
+        // 6. If plain lyrics exist without synced timestamps
+        if (lrcData?.plainLyrics) {
+            return NextResponse.json({
+                trackKey,
+                artist: artist || lrcData.artistName,
+                title: title || lrcData.trackName,
+                syncedLyrics: null,
+                plainLyrics: lrcData.plainLyrics,
+                source: 'lrclib_plain',
+                lines: [],
+                isSynced: false
             });
         }
 
@@ -194,7 +245,43 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { artist, title, syncedLyrics, plainLyrics, trackKey: customKey } = body;
+        const { artist, title, syncedLyrics, plainLyrics, trackKey: customKey, action, path: rawPath, duration } = body;
+
+        // If action is transcribe, run STT on the audio file
+        if (action === 'transcribe' && rawPath) {
+            const resolved = resolveAccessibleMediaPath(rawPath, 'music') || resolveLocalPath(rawPath);
+            if (resolved && fs.existsSync(resolved)) {
+                const trackDurationSec = duration && !isNaN(Number(duration)) ? Number(duration) : 0;
+                const sttRes = await transcribeAudioChunk({
+                    audioPath: resolved,
+                    startOffsetSec: 0,
+                    durationSec: trackDurationSec > 0 ? trackDurationSec : 600,
+                    cpuThreads: 2
+                });
+
+                if (sttRes.success && sttRes.lines.length > 0) {
+                    let finalLines = sttRes.lines;
+                    if (plainLyrics && plainLyrics.trim().length > 10) {
+                        finalLines = alignPlainLyricsWithAudioTimestamps(plainLyrics, sttRes.lines);
+                    }
+                    const newSynced = generateLrcFromLines(finalLines);
+                    const newPlain = plainLyrics || sttRes.plainText;
+                    const trackKey = customKey || generateTrackKey(artist, title);
+
+                    saveLyrics(trackKey, artist || '', title || '', newSynced, newPlain, 'speech_to_text');
+
+                    return NextResponse.json({
+                        success: true,
+                        trackKey,
+                        syncedLyrics: newSynced,
+                        plainLyrics: newPlain,
+                        lines: parseLrc(newSynced),
+                        isSynced: true,
+                        source: sttRes.provider
+                    });
+                }
+            }
+        }
 
         if (!title && !artist) {
             return NextResponse.json({ error: 'Artist and Title required' }, { status: 400 });

@@ -258,9 +258,6 @@ export const VideoAiToolsPanel: React.FC = () => {
                                 </button>
                             ))}
                         </div>
-                        <span className="text-xs font-bold text-zinc-400 block text-center">
-                            Limits CPU usage during local transcription
-                        </span>
                     </div>
 
                     {/* Active Job Card */}
@@ -279,7 +276,7 @@ export const VideoAiToolsPanel: React.FC = () => {
                                 <span className="text-xs text-amber-400 font-bold">Elapsed: {cpuData.currentJob.elapsedSeconds}s</span>
                             </div>
                         ) : (
-                            <span className="text-xs font-bold text-zinc-400">100% Offline Local CPU Ready</span>
+                            <span className="text-xs font-bold text-emerald-400">Ready</span>
                         )}
                         <span className="text-xs text-zinc-500 font-mono">Whisper.cpp (AVX2/NEON)</span>
                     </div>
@@ -297,7 +294,7 @@ export const VideoAiToolsPanel: React.FC = () => {
 
                 {libraries.length === 0 ? (
                     <div className="p-6 bg-zinc-950 rounded-2xl border border-zinc-800 text-sm font-bold text-zinc-500 text-center">
-                        No video instances connected. Add Radarr, Sonarr, or DVR in Instances tab.
+                        No video instances
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -372,7 +369,7 @@ export const VideoAiToolsPanel: React.FC = () => {
                 {/* Queue List */}
                 {queue.length === 0 ? (
                     <div className="p-8 text-center bg-zinc-950 rounded-2xl border border-zinc-800 text-sm font-bold text-zinc-500">
-                        Queue is clear. No video files waiting for subtitles.
+                        Empty
                     </div>
                 ) : (
                     <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
@@ -427,7 +424,7 @@ export const VideoAiToolsPanel: React.FC = () => {
 
                 {subtitles.length === 0 ? (
                     <div className="p-8 text-center bg-zinc-950 rounded-2xl border border-zinc-800 text-sm font-bold text-zinc-500">
-                        No generated subtitles recorded yet. Subtitles generated via Whisper will appear here.
+                        Empty
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -531,7 +528,7 @@ export const VideoAiToolsPanel: React.FC = () => {
 
                 {filteredHistory.length === 0 ? (
                     <div className="p-8 text-center bg-zinc-950 rounded-2xl border border-zinc-800 text-sm font-bold text-zinc-500">
-                        No processing history recorded.
+                        Empty
                     </div>
                 ) : (
                     <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">

@@ -260,7 +260,7 @@ function EpisodeList({
                                                             {fileQuality && (
                                                                 <>
                                                                     <span className="text-zinc-600">•</span>
-                                                                    <span className="text-zinc-300 font-bold bg-white/5 px-2 py-0.5 rounded-lg border border-white/10 text-[10px]">
+                                                                    <span className="text-zinc-300 font-bold bg-white/5 px-2 py-0.5 rounded-lg border border-white/10 text-xs">
                                                                         {fileQuality}
                                                                     </span>
                                                                 </>
@@ -504,6 +504,39 @@ function MediaDetailsPanelInner({
     const [streamEpisode, setStreamEpisode] = useState(Number(item.episodeNumber) || 1);
     const [isAddingToLibrary, setIsAddingToLibrary] = useState(false);
     const [currentLibStatus, setCurrentLibStatus] = useState<any>(libStatus || null);
+    const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState(false);
+
+    const handleGenerateSubtitlesStt = async () => {
+        const videoPath = item.movieFile?.path || item.path || '';
+        if (!videoPath) {
+            toast.error('No video file located on disk');
+            return;
+        }
+        setIsGeneratingSubtitles(true);
+        toast.info('Generating companion subtitles via Speech-to-Text...');
+        try {
+            const res = await fetch('/api/ai/video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'transcribe_now',
+                    videoPath,
+                    mediaTitle: item.title || details?.name || item.name,
+                    mediaType: isSeries ? 'episode' : 'movie'
+                })
+            });
+            const data = await res.json();
+            if (data.ok && data.success) {
+                toast.success('Subtitles generated and saved to media folder!');
+            } else {
+                toast.error(data.error || 'Failed to generate subtitles');
+            }
+        } catch {
+            toast.error('Error contacting video AI subtitle engine');
+        } finally {
+            setIsGeneratingSubtitles(false);
+        }
+    };
 
     const isSeries = item.type === 'series' || item.mediaType === 'series' || item.mediaType === 'tv' || !!item.tvdbId || !!item.seasons || !!item.seriesId || !!item.episodeTitle;
     const tmdbId = item.tmdbId || (item.isTmdb ? item.id : null);
@@ -940,8 +973,8 @@ function MediaDetailsPanelInner({
                                     </div>
                                 )}
 
-                                {/* Action Buttons */}
-                                <div className="pt-3 grid grid-cols-2 gap-2 border-t border-white/5">
+                                {/* Action Buttons (Pure Symbols over Text with Large Icons & Tooltips) */}
+                                <div className="pt-3 grid grid-cols-5 gap-2 border-t border-white/5">
                                     <button
                                         onClick={() => onInteractiveSearch?.({
                                             type: isSeries ? 'series' : 'movie',
@@ -950,10 +983,10 @@ function MediaDetailsPanelInner({
                                             title: item.title || details?.name,
                                             poster: rawPoster
                                         })}
-                                        className="h-11 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-200 hover:text-white active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
+                                        className="h-12 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-200 hover:text-white active:scale-95 transition-all flex items-center justify-center cursor-pointer shadow-md"
                                         title="Search Releases"
                                     >
-                                        <Search size={14} /> Search
+                                        <Search size={22} />
                                     </button>
 
                                     <button
@@ -967,10 +1000,19 @@ function MediaDetailsPanelInner({
                                             setTimeout(() => refreshLibraryStatus(), 2000);
                                             setTimeout(() => refreshLibraryStatus(), 5000);
                                         }}
-                                        className="h-11 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-200 hover:text-emerald-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
+                                        className="h-12 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-200 hover:text-emerald-400 active:scale-95 transition-all flex items-center justify-center cursor-pointer shadow-md"
                                         title="Auto Quick Search"
                                     >
-                                        <PlayCircle size={15} /> Auto Search
+                                        <PlayCircle size={22} />
+                                    </button>
+
+                                    <button
+                                        onClick={handleGenerateSubtitlesStt}
+                                        disabled={isGeneratingSubtitles}
+                                        className="h-12 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-emerald-400 hover:text-emerald-300 active:scale-95 transition-all flex items-center justify-center cursor-pointer shadow-md disabled:opacity-50"
+                                        title="Generate Speech-to-Text Subtitles"
+                                    >
+                                        <Subtitles size={22} className={isGeneratingSubtitles ? 'animate-spin' : ''} />
                                     </button>
 
                                     <button
@@ -982,10 +1024,10 @@ function MediaDetailsPanelInner({
                                             qualityProfileId: libStatus?.qualityProfileId || item.qualityProfileId,
                                             title: item.title || details?.name || item.name
                                         })}
-                                        className="h-11 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-200 hover:text-white active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
+                                        className="h-12 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-200 hover:text-white active:scale-95 transition-all flex items-center justify-center cursor-pointer shadow-md"
                                         title="Transfer or Copy to another instance"
                                     >
-                                        <MoveHorizontal size={15} /> Transfer
+                                        <MoveHorizontal size={22} />
                                     </button>
 
                                     <button
@@ -995,10 +1037,10 @@ function MediaDetailsPanelInner({
                                             instanceId: resolvedInstanceId,
                                             title: item.title || details?.name || item.name
                                         })}
-                                        className="h-11 px-3 rounded-xl bg-red-500/10 hover:bg-red-500 border border-red-500/20 text-red-400 hover:text-white active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
+                                        className="h-12 rounded-2xl bg-rose-500/10 hover:bg-rose-500 border border-rose-500/20 text-rose-400 hover:text-white active:scale-95 transition-all flex items-center justify-center cursor-pointer shadow-md"
                                         title="Delete from Library"
                                     >
-                                        <Trash2 size={15} /> Delete
+                                        <Trash2 size={22} />
                                     </button>
                                 </div>
                             </>
@@ -1067,9 +1109,8 @@ function MediaDetailsPanelInner({
                                 </button>
                             ) : (
                                 /* Not available or probe returned false */
-                                <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800/60 text-center space-y-1">
-                                    <p className="text-xs text-zinc-600 font-bold uppercase tracking-wider">No IMDb stream found</p>
-                                    <p className="text-[10px] text-zinc-700">Not indexed on any known free server for this title</p>
+                                <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800/60 text-center">
+                                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-wider">No stream found</p>
                                 </div>
                             )}
                         </div>
@@ -1078,11 +1119,11 @@ function MediaDetailsPanelInner({
                         {providersData && Object.keys(providersData.providers).length > 0 && (
                             <div className="pt-3 border-t border-white/5 space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-[11px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <span className="text-xs font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
                                         <Globe size={14} className="text-amber-400" /> Streaming Availability
                                     </span>
                                     {providersData.shortlist && (
-                                        <span className="text-[10px] text-zinc-500 font-bold">Shortlist Top</span>
+                                        <span className="text-xs text-zinc-500 font-bold">Shortlist Top</span>
                                     )}
                                 </div>
 
@@ -1132,7 +1173,7 @@ function MediaDetailsPanelInner({
                                         <div className="space-y-2 bg-zinc-900/60 border border-zinc-800/80 p-3.5 rounded-2xl">
                                             {flatrate.length > 0 ? (
                                                 <div className="space-y-1.5">
-                                                    <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                                                    <span className="text-xs font-black uppercase text-emerald-400 tracking-wider block">
                                                         Included with Subscription ({selectedCountry}):
                                                     </span>
                                                     <div className="flex flex-wrap gap-2">
@@ -1345,7 +1386,7 @@ function MediaDetailsPanelInner({
                                     <div className="bg-zinc-900/60 p-3.5 rounded-2xl border border-zinc-800 flex items-start gap-3">
                                         <Folder size={18} className="text-emerald-400 mt-0.5 shrink-0" />
                                         <div className="min-w-0 flex-1">
-                                            <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider block">Disk Location</span>
+                                            <span className="text-xs font-black uppercase text-zinc-500 tracking-wider block">Disk Location</span>
                                             <span className="text-xs sm:text-sm text-zinc-200 font-mono break-all">
                                                 {item.path || item.movieFile?.path || item.movieFile?.relativePath || 'Path managed in library'}
                                             </span>
@@ -1355,7 +1396,7 @@ function MediaDetailsPanelInner({
                                     {/* Codec & Details Grid */}
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs sm:text-sm font-semibold">
                                         <div className="bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800/80 space-y-1">
-                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
+                                            <span className="text-xs font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
                                                 <HardDrive size={12} /> File Size
                                             </span>
                                             <span className="text-emerald-400 font-black text-sm sm:text-base">
@@ -1364,7 +1405,7 @@ function MediaDetailsPanelInner({
                                         </div>
 
                                         <div className="bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800/80 space-y-1">
-                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
+                                            <span className="text-xs font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
                                                 <Layers size={12} /> Quality Profile
                                             </span>
                                             <span className="text-white font-bold truncate block">
@@ -1373,7 +1414,7 @@ function MediaDetailsPanelInner({
                                         </div>
 
                                         <div className="bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800/80 space-y-1">
-                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
+                                            <span className="text-xs font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
                                                 <Video size={12} /> Video Specs
                                             </span>
                                             <span className="text-zinc-200 font-bold truncate block">
@@ -1382,7 +1423,7 @@ function MediaDetailsPanelInner({
                                         </div>
 
                                         <div className="bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800/80 space-y-1">
-                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
+                                            <span className="text-xs font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
                                                 <Volume2 size={12} /> Audio Track
                                             </span>
                                             <span className="text-zinc-200 font-bold truncate block">
@@ -1391,7 +1432,7 @@ function MediaDetailsPanelInner({
                                         </div>
 
                                         <div className="bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800/80 space-y-1">
-                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
+                                            <span className="text-xs font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
                                                 <Subtitles size={12} /> Audio / Subs
                                             </span>
                                             <span className="text-zinc-300 font-bold truncate block">
@@ -1400,7 +1441,7 @@ function MediaDetailsPanelInner({
                                         </div>
 
                                         <div className="bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800/80 space-y-1">
-                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
+                                            <span className="text-xs font-black text-zinc-500 uppercase tracking-wider block flex items-center gap-1">
                                                 <Calendar size={12} /> Date Added
                                             </span>
                                             <span className="text-zinc-300 font-bold truncate block">

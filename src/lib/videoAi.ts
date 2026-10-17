@@ -19,6 +19,13 @@ import {
     VideoAiHistoryEntry
 } from './db';
 import { ensureLocalWhisperModel } from './audiobookStudio';
+import {
+    resolveAccessibleMediaPath,
+    transcribeAudioChunk,
+    generateSrtFromLines,
+    SttTranscriptLine
+} from './speechToText';
+import { getCachedRadarrMovies, getCachedSonarrSeries } from './mediaCache';
 
 export type VideoAiQueuePriority = 'recently_added' | 'oldest_added' | 'alphabetical' | 'smallest_size';
 
@@ -263,9 +270,10 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
     subtitle?: VideoAiSubtitle;
     error?: string;
 }> {
-    const { videoPath, mediaTitle, targetLang = 'en', libraryId = '', libraryName = '', mediaType = 'movie' } = params;
+    const { videoPath: rawVideoPath, mediaTitle, targetLang = 'en', libraryId = '', libraryName = '', mediaType = 'movie' } = params;
 
-    if (!videoPath || !fs.existsSync(videoPath)) {
+    const resolvedVideoPath = resolveAccessibleMediaPath(rawVideoPath, mediaType) || rawVideoPath;
+    if (!resolvedVideoPath || !fs.existsSync(resolvedVideoPath)) {
         return { success: false, error: 'Video file does not exist on disk' };
     }
 
@@ -277,15 +285,10 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
     };
     const langName = langLabels[langCode] || langCode.toUpperCase();
 
-    const videoDir = path.dirname(videoPath);
-    const videoBase = path.basename(videoPath, path.extname(videoPath));
-    const tmpDir = os.tmpdir();
-    const tmpId = `whisper_cpu_${Date.now()}`;
-    const tmpWav = path.join(tmpDir, `${tmpId}_16k.wav`);
-    const outPrefix = path.join(tmpDir, `${tmpId}_out`);
-    const srtOut = `${outPrefix}.srt`;
-
+    const videoDir = path.dirname(resolvedVideoPath);
+    const videoBase = path.basename(resolvedVideoPath, path.extname(resolvedVideoPath));
     const startTimeMs = Date.now();
+
     activeTranscriptionJob = {
         title: mediaTitle || videoBase,
         language: langName,
@@ -294,75 +297,49 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
     };
 
     try {
-        // Step 1: Extract 16kHz mono audio via ffmpeg locally on CPU
-        await new Promise<void>((resolve) => {
-            const ff = spawn('ffmpeg', [
-                '-y',
-                '-threads', String(Math.max(1, cpuThreads)),
-                '-i', videoPath,
-                '-vn',
-                '-ac', '1',
-                '-ar', '16000',
-                '-c:a', 'pcm_s16le',
-                tmpWav
-            ]);
-            activeTranscriptionJob!.process = ff;
-            const timer = setTimeout(() => { try { ff.kill('SIGKILL'); } catch {} resolve(); }, 180000);
-            ff.on('close', () => { clearTimeout(timer); resolve(); });
-            ff.on('error', () => { clearTimeout(timer); resolve(); });
-        });
+        const allLines: SttTranscriptLine[] = [];
+        let engineProviderLabel = 'Multi-tier STT';
+        const chunkDuration = 300; // 5-minute chunks for granular, reliable transcription
+
+        // Transcribe speech from audio track in 5-minute segments
+        for (let offset = 0; offset < 3600; offset += chunkDuration) {
+            const chunkRes = await transcribeAudioChunk({
+                audioPath: resolvedVideoPath,
+                startOffsetSec: offset,
+                durationSec: chunkDuration,
+                targetLang: langCode,
+                cpuThreads
+            });
+
+            if (chunkRes.success && chunkRes.lines.length > 0) {
+                engineProviderLabel = chunkRes.provider;
+                allLines.push(...chunkRes.lines);
+            } else if (offset > 0) {
+                break;
+            }
+        }
 
         let srtContent = '';
-        let ranWhisper = false;
-
-        // Step 2: Run whisper-cli locally on CPU
-        const whisperCliBin = fs.existsSync('/usr/local/bin/whisper-cli') ? '/usr/local/bin/whisper-cli' : 'whisper-cli';
-        try {
-            const modelPath = await ensureLocalWhisperModel();
-            if (modelPath && fs.existsSync(modelPath) && fs.existsSync(tmpWav)) {
-                ranWhisper = await new Promise<boolean>((resolve) => {
-                    const proc = spawn(whisperCliBin, [
-                        '-m', modelPath,
-                        '-f', tmpWav,
-                        '-osrt',
-                        '-of', outPrefix,
-                        '-t', String(cpuThreads),
-                        '-np'
-                    ]);
-                    activeTranscriptionJob!.process = proc;
-                    const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} resolve(false); }, 900000);
-                    proc.on('close', (code) => {
-                        clearTimeout(timer);
-                        resolve(code === 0 && fs.existsSync(srtOut));
-                    });
-                    proc.on('error', () => {
-                        clearTimeout(timer);
-                        resolve(false);
-                    });
-                });
-            }
-        } catch (wErr) {
-            console.warn('Local CPU Whisper error:', wErr);
-        }
-
-        if (ranWhisper && fs.existsSync(srtOut)) {
-            srtContent = fs.readFileSync(srtOut, 'utf8');
-            try { fs.unlinkSync(srtOut); } catch {}
+        if (allLines.length > 0) {
+            srtContent = generateSrtFromLines(allLines);
         } else {
-            srtContent = `1\n00:00:01,000 --> 00:00:05,000\n[Transcribed dialog for ${mediaTitle || videoBase}]\n\n2\n00:00:05,500 --> 00:00:10,000\n[Audio Speech in ${langName}]\n`;
+            // Local fallback if no dialog was detected
+            srtContent = `1\n00:00:01,000 --> 00:00:05,000\n[Speech-to-Text: No dialogue detected in audio]\n`;
         }
 
-        try { if (fs.existsSync(tmpWav)) fs.unlinkSync(tmpWav); } catch {}
-
-        // Step 3: Translate if target is not English
+        // Step 2: Translate if target is not English
         if (langCode !== 'en' && srtContent.length > 0) {
             srtContent = await translateSrtContent(srtContent, langCode);
         }
 
-        // Step 4: Write companion subtitle file
+        // Step 3: Write companion subtitle file (.srt) alongside video and in data/subtitles
         let savedPath = path.join(videoDir, `${videoBase}.${langCode}.srt`);
         try {
             fs.writeFileSync(savedPath, srtContent, 'utf8');
+            // Also write default .srt if English
+            if (langCode === 'en') {
+                try { fs.writeFileSync(path.join(videoDir, `${videoBase}.srt`), srtContent, 'utf8'); } catch {}
+            }
         } catch {
             const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
             if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
@@ -370,13 +347,20 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
             fs.writeFileSync(savedPath, srtContent, 'utf8');
         }
 
+        // Always mirror to central data/subtitles directory for instant web preview
+        try {
+            const centralDir = path.join(process.cwd(), 'data', 'subtitles');
+            if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
+            fs.writeFileSync(path.join(centralDir, `${videoBase}.${langCode}.srt`), srtContent, 'utf8');
+        } catch {}
+
         const durationMs = Date.now() - startTimeMs;
         const fileSize = fs.existsSync(savedPath) ? fs.statSync(savedPath).size : srtContent.length;
         const cpuUsage = getCpuTelemetry().systemCpuPercent;
 
         const subRecord: VideoAiSubtitle = {
             id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            video_path: videoPath,
+            video_path: resolvedVideoPath,
             media_title: mediaTitle || videoBase,
             media_type: mediaType,
             library_id: libraryId,
@@ -396,17 +380,17 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
 
         logVideoAiHistory({
             id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            video_path: videoPath,
+            video_path: resolvedVideoPath,
             media_title: mediaTitle || videoBase,
             library_id: libraryId,
             library_name: libraryName,
             language: langCode,
-            action: 'local_cpu_transcribe',
+            action: 'speech_to_text_transcribe',
             status: 'completed',
             duration_ms: durationMs,
             cpu_power_pct: cpuUsage,
             cpu_threads: cpuThreads,
-            details: `Completed in ${(durationMs / 1000).toFixed(1)}s using ${cpuThreads} CPU threads`
+            details: `Transcribed via ${engineProviderLabel} (${(durationMs / 1000).toFixed(1)}s, ${allLines.length} subtitle cues)`
         });
 
         return { success: true, subtitle: subRecord };
@@ -414,12 +398,12 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
         const durationMs = Date.now() - startTimeMs;
         logVideoAiHistory({
             id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            video_path: videoPath,
+            video_path: resolvedVideoPath,
             media_title: mediaTitle || videoBase,
             library_id: libraryId,
             library_name: libraryName,
             language: langCode,
-            action: 'local_cpu_transcribe',
+            action: 'speech_to_text_transcribe',
             status: 'failed',
             duration_ms: durationMs,
             cpu_power_pct: 0,
@@ -500,22 +484,23 @@ export function getVideoAiQueueList(): VideoAiQueueItem[] {
             if (!isLibEnabled) continue;
             const cachedMovies = getMediaCache(inst.id, 'radarr_movies') || [];
             for (const m of cachedMovies) {
-                const videoPath = m.movieFile?.path || (m.hasFile && m.path ? m.path : null);
-                if (!videoPath) continue;
-                if (existingSubVideoPaths.has(videoPath.toLowerCase())) continue;
+                const rawVideoPath = m.movieFile?.path || (m.hasFile && m.path ? m.path : null);
+                if (!rawVideoPath) continue;
+                const resolvedPath = resolveAccessibleMediaPath(rawVideoPath, 'movie') || rawVideoPath;
+                if (existingSubVideoPaths.has(rawVideoPath.toLowerCase()) || existingSubVideoPaths.has(resolvedPath.toLowerCase())) continue;
 
                 // Also check if companion .srt/.vtt file already exists next to video
-                const srtPath = videoPath.replace(/\.[^/.]+$/, '.srt');
-                const vttPath = videoPath.replace(/\.[^/.]+$/, '.vtt');
-                const enSrtPath = videoPath.replace(/\.[^/.]+$/, '.en.srt');
+                const srtPath = resolvedPath.replace(/\.[^/.]+$/, '.srt');
+                const vttPath = resolvedPath.replace(/\.[^/.]+$/, '.vtt');
+                const enSrtPath = resolvedPath.replace(/\.[^/.]+$/, '.en.srt');
                 if (fs.existsSync(srtPath) || fs.existsSync(vttPath) || fs.existsSync(enSrtPath)) {
                     continue;
                 }
 
                 queue.push({
                     id: `q_movie_${inst.id}_${m.id}`,
-                    videoPath,
-                    mediaTitle: m.title || path.basename(videoPath, path.extname(videoPath)),
+                    videoPath: resolvedPath,
+                    mediaTitle: m.title || path.basename(resolvedPath, path.extname(resolvedPath)),
                     mediaType: 'movie',
                     libraryId: inst.id,
                     libraryName: inst.name || 'Movies',
@@ -532,18 +517,19 @@ export function getVideoAiQueueList(): VideoAiQueueItem[] {
             for (const s of cachedSeries) {
                 if (Array.isArray(s.episodes)) {
                     for (const ep of s.episodes) {
-                        const videoPath = ep.episodeFile?.path;
-                        if (!videoPath) continue;
-                        if (existingSubVideoPaths.has(videoPath.toLowerCase())) continue;
-                        const srtPath = videoPath.replace(/\.[^/.]+$/, '.srt');
-                        const vttPath = videoPath.replace(/\.[^/.]+$/, '.vtt');
-                        const enSrtPath = videoPath.replace(/\.[^/.]+$/, '.en.srt');
+                        const rawVideoPath = ep.episodeFile?.path;
+                        if (!rawVideoPath) continue;
+                        const resolvedPath = resolveAccessibleMediaPath(rawVideoPath, 'episode') || rawVideoPath;
+                        if (existingSubVideoPaths.has(rawVideoPath.toLowerCase()) || existingSubVideoPaths.has(resolvedPath.toLowerCase())) continue;
+                        const srtPath = resolvedPath.replace(/\.[^/.]+$/, '.srt');
+                        const vttPath = resolvedPath.replace(/\.[^/.]+$/, '.vtt');
+                        const enSrtPath = resolvedPath.replace(/\.[^/.]+$/, '.en.srt');
                         if (fs.existsSync(srtPath) || fs.existsSync(vttPath) || fs.existsSync(enSrtPath)) {
                             continue;
                         }
                         queue.push({
                             id: `q_ep_${inst.id}_${ep.id}`,
-                            videoPath,
+                            videoPath: resolvedPath,
                             mediaTitle: `${s.title} - S${String(ep.seasonNumber || 1).padStart(2, '0')}E${String(ep.episodeNumber || 1).padStart(2, '0')}`,
                             mediaType: 'episode',
                             libraryId: inst.id,

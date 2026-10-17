@@ -8,6 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.38] Multi-tier Speech-to-Text for Movies, Series & Songs, 1-Click Subtitles & Karaoke LRC Alignment, and Accessibility Polish',
+  '  - Add multi-tier Speech-to-Text engine supporting Gemini Audio STT, Groq Whisper Large v3 Turbo, OpenAI Whisper, and local whisper.cpp across Movies, Series, and Songs',
+  '  - Automatic path resolution between Sonarr/Radarr container paths and physical Unraid storage paths to eliminate disk file missing errors',
+  '  - 1-click companion .srt subtitle generation from Media details panel and Video AI tools',
+  '  - On-demand Speech-to-Text synchronized lyrics generation for songs when LRCLib has no synced timing',
+  '  - Strict accessibility polish: eliminated microscopic text ([9px], [10px]), enforced 125%+ typography, and converted controls to pure large symbols with descriptive tooltips',
   '• [v0.6.17] Strict 3-Stage Sequential Audiobook Pipeline (Audio -> Timestamped Text -> LLM Scenes -> Painted Art), Unified Theater/Media Book State, and Overhauled /tasks Resource Categories & EPG Scheduler',
   '  - Enforce strict sequential Audiobook pipeline: Stage 1 (Audio -> Timestamped Text via Cloud STT or Local whisper.cpp) -> Stage 2 (Timestamped Text -> LLM Scene Transition Timestamps & Prompts) -> Stage 3 (Created Scenes -> Painted Artwork), plus 1:1 cadence-matched FFmpeg Voice DSP',
   '  - Remove fake uncreated Scene 1 (0:00-3:00) placeholder cards and premature GEN SCENE buttons when chapters have 0 detected scenes',
@@ -87,7 +93,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.37';
+    let currentVersion = '0.6.38';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
