@@ -29,7 +29,8 @@ import { smartMatchScore, normalizeSearchTerm, cleanTrackForMatching, findMatchi
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 import { logClientEvent } from '@/lib/clientLogger';
 import { AuthorDetailsModal } from '@/components/AuthorDetailsModal';
-import { MediaGradingModal } from '@/components/MediaGradingModal';
+import { MediaGradingModal, HexagonRadarPlot, CATEGORIES_BY_MEDIA_TYPE } from '@/components/MediaGradingModal';
+import { AUDIOBOOK_VOICE_TIMBRE_PRESETS, AUDIOBOOK_VOICE_TONE_PRESETS, getVoicePresetById } from '@/lib/audiobookStudioShared';
 import { AudiobookTranscriptViewerModal } from '@/components/AudiobookTranscriptViewerModal';
 import { UnifiedCleanerModal } from '@/components/UnifiedCleanerModal';
 
@@ -8315,8 +8316,9 @@ function TheaterPageContent() {
                                 </button>
 
                                 {/* Primary Consumption Actions & AI At-a-Glance Status */}
-                                <div className="pt-2 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-3 flex-wrap">
-                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                <div className="pt-3 space-y-2.5 w-full">
+                                    {/* Row 1: Action Controls (Play, Bedside, Finished, Grade Star, Settings Sliders) */}
+                                    <div className="grid grid-cols-5 gap-2.5 w-full">
                                         <button
                                             disabled={selectedAudiobook.chapters.length === 0}
                                             onClick={() => {
@@ -8331,9 +8333,9 @@ function TheaterPageContent() {
                                                 }
                                             }}
                                             title="Play this audiobook"
-                                            className="p-3 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black transition-all flex items-center justify-center shadow-lg cursor-pointer disabled:opacity-40"
+                                            className="py-3 px-2 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black transition-all flex items-center justify-center shadow-lg cursor-pointer disabled:opacity-40"
                                         >
-                                            <Play size={22} className="fill-current ml-0.5" />
+                                            <Play size={24} className="fill-current ml-0.5" />
                                         </button>
 
                                         <button
@@ -8344,13 +8346,13 @@ function TheaterPageContent() {
                                                 })
                                             }
                                             title={isOnBedside ? "Remove from Bedside" : "Add to Bedside"}
-                                            className={`p-3 rounded-2xl transition-all cursor-pointer border ${
+                                            className={`py-3 px-2 rounded-2xl transition-all cursor-pointer border flex items-center justify-center ${
                                                 isOnBedside
                                                     ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
                                                     : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                             }`}
                                         >
-                                            <Bookmark size={22} className={isOnBedside ? 'fill-current' : ''} />
+                                            <Bookmark size={24} className={isOnBedside ? 'fill-current' : ''} />
                                         </button>
 
                                         <button
@@ -8362,13 +8364,33 @@ function TheaterPageContent() {
                                                 })
                                             }
                                             title={isFinished ? "Mark as Ongoing" : "Mark as Finished"}
-                                            className={`p-3 rounded-2xl transition-all cursor-pointer border ${
+                                            className={`py-3 px-2 rounded-2xl transition-all cursor-pointer border flex items-center justify-center ${
                                                 isFinished
                                                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                     : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                             }`}
                                         >
-                                            <Check size={22} />
+                                            <Check size={24} />
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                setGradingModalItem({
+                                                    itemKey: bKey,
+                                                    title: (selectedAudiobook as any).cleanTitle || selectedAudiobook.title,
+                                                    subtitle: selectedAudiobook.author,
+                                                    posterUrl: (selectedAudiobook as any).customCoverUrl || selectedAudiobook.posterUrl,
+                                                    mediaType: 'book'
+                                                });
+                                            }}
+                                            title={userRatings[bKey] ? `Your Grade: ${userRatings[bKey].overallScore}/100 (Click to adjust)` : "Grade this book (0-100 across 6 categories)"}
+                                            className={`py-3 px-2 rounded-2xl transition-all cursor-pointer border flex items-center justify-center ${
+                                                userRatings[bKey]
+                                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30'
+                                                    : 'bg-zinc-900 hover:bg-zinc-800 text-amber-400 border-zinc-800'
+                                            }`}
+                                        >
+                                            <Star size={24} className={userRatings[bKey] ? "fill-amber-400 text-amber-400" : "text-amber-400"} />
                                         </button>
 
                                         <button
@@ -8377,27 +8399,27 @@ function TheaterPageContent() {
                                                 setShowTheaterBookCustomize(prev => !prev);
                                             }}
                                             title={showTheaterBookCustomize ? "Close art & metadata settings" : "Customize cover art, synopsis & metadata"}
-                                            className={`p-3 rounded-2xl transition-all cursor-pointer border ${
+                                            className={`py-3 px-2 rounded-2xl transition-all cursor-pointer border flex items-center justify-center ${
                                                 showTheaterBookCustomize
                                                     ? 'bg-amber-500 text-black border-amber-400'
                                                     : 'bg-zinc-900 hover:bg-zinc-800 text-amber-300 border-zinc-800'
                                             }`}
                                         >
-                                            <Sliders size={22} />
+                                            <Sliders size={24} />
                                         </button>
                                     </div>
 
-                                    {/* At-a-glance AI progress pills */}
-                                    <div className="flex items-center gap-2 flex-wrap">
+                                    {/* Row 2: Progress Meters below the Play Button row, stretching evenly across width */}
+                                    <div className="grid grid-cols-4 gap-2.5 w-full">
                                         <button
                                             onClick={() => {
                                                 setBookModalTab('generate');
                                                 setBookModalAiSubTab('transcription');
                                             }}
                                             title={`${transCh}/${totalCh} chapters transcribed (${transPct}%)`}
-                                            className="px-3.5 py-2 rounded-2xl bg-zinc-900 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-2 text-sm font-black transition-all cursor-pointer"
+                                            className="py-2.5 px-2 rounded-2xl bg-zinc-900 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center gap-2 text-sm sm:text-base font-black transition-all cursor-pointer shadow"
                                         >
-                                            <FileText size={18} />
+                                            <FileText size={20} className="shrink-0" />
                                             <span>{transPct}%</span>
                                         </button>
 
@@ -8407,9 +8429,9 @@ function TheaterPageContent() {
                                                 setBookModalAiSubTab('scening');
                                             }}
                                             title={`${totalBookScenes} scenes detected across book`}
-                                            className="px-3.5 py-2 rounded-2xl bg-zinc-900 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-2 text-sm font-black transition-all cursor-pointer"
+                                            className="py-2.5 px-2 rounded-2xl bg-zinc-900 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center gap-2 text-sm sm:text-base font-black transition-all cursor-pointer shadow"
                                         >
-                                            <Wand2 size={18} />
+                                            <Wand2 size={20} className="shrink-0" />
                                             <span>{totalBookScenes}</span>
                                         </button>
 
@@ -8419,9 +8441,9 @@ function TheaterPageContent() {
                                                 setBookModalAiSubTab('illustration');
                                             }}
                                             title={`${illCh}/${totalCh} chapters illustrated (${illPct}%)`}
-                                            className="px-3.5 py-2 rounded-2xl bg-zinc-900 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-2 text-sm font-black transition-all cursor-pointer"
+                                            className="py-2.5 px-2 rounded-2xl bg-zinc-900 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center gap-2 text-sm sm:text-base font-black transition-all cursor-pointer shadow"
                                         >
-                                            <Sparkles size={18} />
+                                            <Sparkles size={20} className="shrink-0" />
                                             <span>{illPct}%</span>
                                         </button>
 
@@ -8431,9 +8453,9 @@ function TheaterPageContent() {
                                                 setBookModalAiSubTab('voice');
                                             }}
                                             title={`${enhCh}/${totalCh} chapters voice-enhanced (${enhPct}%)`}
-                                            className="px-3.5 py-2 rounded-2xl bg-zinc-900 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-2 text-sm font-black transition-all cursor-pointer"
+                                            className="py-2.5 px-2 rounded-2xl bg-zinc-900 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-2 text-sm sm:text-base font-black transition-all cursor-pointer shadow"
                                         >
-                                            <Headphones size={18} />
+                                            <Headphones size={20} className="shrink-0" />
                                             <span>{enhPct}%</span>
                                         </button>
                                     </div>
@@ -8627,7 +8649,7 @@ function TheaterPageContent() {
                                     );
                                 })()}
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                                     <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
                                         <div className="flex items-center justify-between gap-2">
                                             <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -8698,6 +8720,71 @@ function TheaterPageContent() {
                                             <p className="text-xs text-zinc-600 italic">None</p>
                                         )}
                                     </div>
+
+                                    {/* Hexagon Radar Evaluation Card */}
+                                    <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 flex flex-col justify-between space-y-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                <Star size={16} className="text-amber-400 fill-amber-400" />
+                                                <span>Evaluation</span>
+                                            </h3>
+                                            {userRatings[bKey] && (
+                                                <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 font-mono text-xs font-black border border-amber-500/40">
+                                                    {userRatings[bKey].overallScore}/100
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {userRatings[bKey] ? (
+                                            <div
+                                                onClick={() => {
+                                                    setGradingModalItem({
+                                                        itemKey: bKey,
+                                                        title: (selectedAudiobook as any).cleanTitle || selectedAudiobook.title,
+                                                        subtitle: selectedAudiobook.author,
+                                                        posterUrl: (selectedAudiobook as any).customCoverUrl || selectedAudiobook.posterUrl,
+                                                        mediaType: 'book'
+                                                    });
+                                                }}
+                                                title="Click to adjust book grading"
+                                                className="flex flex-col items-center justify-center p-2 rounded-2xl bg-black/40 hover:bg-black/60 border border-zinc-850 hover:border-amber-500/40 transition-all cursor-pointer group"
+                                            >
+                                                <HexagonRadarPlot
+                                                    categories={CATEGORIES_BY_MEDIA_TYPE.book}
+                                                    scores={userRatings[bKey].categoryScores || {}}
+                                                    size={180}
+                                                    showLabels={true}
+                                                />
+                                                <span className="text-[11px] font-black text-zinc-400 group-hover:text-amber-300 uppercase tracking-wider pt-1 transition-colors">
+                                                    Adjust Grade
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <div
+                                                onClick={() => {
+                                                    setGradingModalItem({
+                                                        itemKey: bKey,
+                                                        title: (selectedAudiobook as any).cleanTitle || selectedAudiobook.title,
+                                                        subtitle: selectedAudiobook.author,
+                                                        posterUrl: (selectedAudiobook as any).customCoverUrl || selectedAudiobook.posterUrl,
+                                                        mediaType: 'book'
+                                                    });
+                                                }}
+                                                className="flex-1 flex flex-col items-center justify-center p-6 rounded-2xl bg-zinc-900/40 hover:bg-zinc-900/70 border border-dashed border-zinc-800 hover:border-amber-500/50 transition-all cursor-pointer group text-center space-y-2"
+                                                title="Grade this book across 6 literary metrics (Plot, Characters, World, Pacing, Prose, Theme)"
+                                            >
+                                                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform">
+                                                    <Star size={24} className="fill-amber-400" />
+                                                </div>
+                                                <span className="text-xs font-black text-zinc-300 group-hover:text-amber-300 uppercase tracking-wider">
+                                                    Grade Book
+                                                </span>
+                                                <span className="text-[11px] text-zinc-500">
+                                                    6 Hexagon Metrics
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <div className="space-y-3 pt-1">
@@ -8741,19 +8828,48 @@ function TheaterPageContent() {
                                                             </h4>
                                                             <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium flex-wrap">
                                                                 {isTransDone && (
-                                                                    <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setTheaterTranscriptViewerState({ isOpen: true, activeChapterIndex: idx });
+                                                                        }}
+                                                                        title="Read synchronized chapter transcript"
+                                                                        className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 font-black cursor-pointer transition-colors"
+                                                                    >
                                                                         Text
-                                                                    </span>
+                                                                    </button>
                                                                 )}
                                                                 {keptImages.length > 0 && (
-                                                                    <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setCuratingChapterModal(cMeta || {
+                                                                                chapter_key: cKey,
+                                                                                chapter_title: ch.title || ch.name,
+                                                                                images: keptImages
+                                                                            });
+                                                                        }}
+                                                                        title={`View and curate ${keptImages.length} scene illustrations`}
+                                                                        className="px-2.5 py-1 rounded-xl bg-purple-500/20 hover:bg-purple-500/35 text-purple-300 border border-purple-500/40 font-black cursor-pointer transition-colors"
+                                                                    >
                                                                         {keptImages.length} {keptImages.length === 1 ? 'Scene' : 'Scenes'}
-                                                                    </span>
+                                                                    </button>
                                                                 )}
                                                                 {isEnhDone && (
-                                                                    <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setBookModalTab('generate');
+                                                                            setBookModalAiSubTab('voice');
+                                                                        }}
+                                                                        title="Open Voice Studio and narrator personas"
+                                                                        className="px-2.5 py-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-500/40 font-black cursor-pointer transition-colors"
+                                                                    >
                                                                         Voice
-                                                                    </span>
+                                                                    </button>
                                                                 )}
                                                             </div>
                                                         </div>
@@ -9522,81 +9638,208 @@ function TheaterPageContent() {
 
                                 {/* SUBTAB 4: VOICE (DEDICATED VOICE PROCESSING STUDIO) */}
                                 {bookModalAiSubTab === 'voice' && (
-                                    <div className="space-y-5">
-                                        <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-950 border-2 border-emerald-500/50 space-y-4">
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">Voice Style &amp; Timbre</label>
-                                                    <select
-                                                        value={bMeta?.voice_preset || 'clear_voice'}
-                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
-                                                    >
-                                                        <option value="clear_voice">Clear Voice (Vocal Presence &amp; Clarity)</option>
-                                                        <option value="warm_bass">Warm Studio Narrator (Rich Low-End Tone)</option>
-                                                        <option value="deep_pitch">Deeper Baritone (-8% Pitch Shift)</option>
-                                                        <option value="crisp_treble">Crisp Articulation (High Intelligibility)</option>
-                                                        <option value="bright_pitch">Brighter Voice (+6% Pitch Shift)</option>
-                                                        <option value="night_compress">Night Leveler (Dynamic Volume Compression)</option>
-                                                        <option value="original">Original Voice (Unprocessed Audio)</option>
-                                                    </select>
+                                    <div className="space-y-6">
+                                        {/* ── Section 1: Audio Enhancer (DSP Mastering) ── */}
+                                        <div className="p-5 sm:p-6 rounded-3xl bg-zinc-950/80 border-2 border-emerald-500/40 space-y-4">
+                                            <div className="flex items-center justify-between gap-3 pb-2 border-b border-zinc-900">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                        <Sliders size={20} />
+                                                    </div>
+                                                    <h4 className="text-base sm:text-lg font-black text-white">
+                                                        Audio Enhancer
+                                                    </h4>
+                                                </div>
+                                                <span className="text-xs font-mono font-bold text-zinc-500">
+                                                    DSP Filter
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                                                {[
+                                                    { id: 'original', name: 'None (Original)', desc: 'Unprocessed original recording' },
+                                                    { id: 'auto', name: 'Auto Master', desc: 'Auto-level, denoise, and balanced EQ' },
+                                                    { id: 'warm_bass', name: 'Studio Warmth', desc: 'Warm lower-mids and zero fatigue' },
+                                                    { id: 'clear_voice', name: 'Clear Presence', desc: 'Vocal presence and sibilance clarity' },
+                                                    { id: 'night_compress', name: 'Night Leveler', desc: 'Dynamic compression for late listening' }
+                                                ].map(enh => {
+                                                    const curEnh = bMeta?.voice_enhancer || (bMeta?.voice_preset === 'warm_bass' || bMeta?.voice_preset === 'night_compress' || bMeta?.voice_preset === 'clear_voice' ? bMeta.voice_preset : 'auto');
+                                                    const isSel = curEnh === enh.id;
+                                                    return (
+                                                        <button
+                                                            key={enh.id}
+                                                            type="button"
+                                                            onClick={() => handleSaveBookStudioSettings(selectedAudiobook, { voiceEnhancer: enh.id, voicePreset: enh.id })}
+                                                            title={enh.desc}
+                                                            className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                                                                isSel
+                                                                    ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg shadow-emerald-500/20'
+                                                                    : 'bg-zinc-900/90 text-zinc-300 border-zinc-800 hover:border-emerald-500/40 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center justify-between gap-1.5">
+                                                                <span className="text-xs sm:text-sm font-black truncate">{enh.name}</span>
+                                                                {isSel && <Check size={14} className="stroke-[3] shrink-0" />}
+                                                            </div>
+                                                            <p className={`text-[10px] mt-1 line-clamp-1 ${isSel ? 'text-black/80 font-bold' : 'text-zinc-500'}`}>
+                                                                {enh.desc}
+                                                            </p>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        {/* ── Section 2: Persona Voice Models (Multi-Toggle Famous / Fun Models) ── */}
+                                        <div className="p-5 sm:p-6 rounded-3xl bg-zinc-950/80 border-2 border-purple-500/40 space-y-4">
+                                            <div className="flex items-center justify-between gap-3 pb-2 border-b border-zinc-900">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="p-2 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                                                        <Sparkles size={20} />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-base sm:text-lg font-black text-white">
+                                                            Narrator Personas
+                                                        </h4>
+                                                    </div>
+                                                </div>
+                                                <span className="text-xs font-mono font-bold text-zinc-500">
+                                                    Side-by-side audio
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                                {/* Original Actor Card */}
+                                                {(() => {
+                                                    const rawList: string[] = Array.isArray(bMeta?.active_personas) ? bMeta.active_personas : ['original'];
+                                                    const activeSet = new Set(rawList.length > 0 ? rawList : ['original']);
+                                                    const isOrigActive = activeSet.has('original');
+
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                const next = new Set(activeSet);
+                                                                if (isOrigActive && next.size > 1) next.delete('original');
+                                                                else next.add('original');
+                                                                await handleSaveBookStudioSettings(selectedAudiobook, { activePersonas: Array.from(next) });
+                                                            }}
+                                                            title="Original Audiobook Narrator"
+                                                            className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer relative group ${
+                                                                isOrigActive
+                                                                    ? 'bg-zinc-900 border-amber-400 ring-2 ring-amber-400/30 shadow-lg'
+                                                                    : 'bg-zinc-950/70 border-zinc-800 hover:border-zinc-700'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div className="min-w-0">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <h5 className="text-sm font-black text-white truncate">Original Narrator</h5>
+                                                                        <span className="px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 text-[10px] font-black uppercase">Default</span>
+                                                                    </div>
+                                                                    <p className="text-xs text-zinc-400 mt-0.5">Author / Studio cast recording</p>
+                                                                </div>
+                                                                <span className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                                                                    isOrigActive ? 'bg-amber-400 text-black border-amber-400' : 'border-zinc-700 bg-zinc-900'
+                                                                }`}>
+                                                                    {isOrigActive && <Check size={13} className="stroke-[3]" />}
+                                                                </span>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })()}
+
+                                                {/* Celebrity / Fun Narrator Models */}
+                                                {AUDIOBOOK_VOICE_TIMBRE_PRESETS.map(persona => {
+                                                    const rawList: string[] = Array.isArray(bMeta?.active_personas) ? bMeta.active_personas : ['original'];
+                                                    const activeSet = new Set(rawList.length > 0 ? rawList : ['original']);
+                                                    const isActive = activeSet.has(persona.id);
+
+                                                    return (
+                                                        <button
+                                                            key={persona.id}
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                const next = new Set(activeSet);
+                                                                if (isActive) next.delete(persona.id);
+                                                                else next.add(persona.id);
+                                                                if (next.size === 0) next.add('original');
+                                                                await handleSaveBookStudioSettings(selectedAudiobook, {
+                                                                    activePersonas: Array.from(next),
+                                                                    voicePersona: persona.id
+                                                                });
+                                                            }}
+                                                            title={`${persona.name}: ${persona.subtitle}. ${persona.description}`}
+                                                            className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer relative group ${
+                                                                isActive
+                                                                    ? 'bg-zinc-900 border-purple-400 ring-2 ring-purple-400/30 shadow-lg'
+                                                                    : 'bg-zinc-950/70 border-zinc-800 hover:border-zinc-700'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div className="min-w-0">
+                                                                    <h5 className="text-sm font-black text-white truncate">{persona.name}</h5>
+                                                                    <p className="text-xs text-zinc-400 mt-0.5 truncate">{persona.subtitle}</p>
+                                                                    <div className="flex items-center gap-1 mt-2 flex-wrap">
+                                                                        {persona.tags.slice(0, 2).map((t, idx) => (
+                                                                            <span key={idx} className="px-1.5 py-0.5 rounded bg-black/40 border border-white/5 text-[10px] text-zinc-400 font-bold">
+                                                                                {t}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                                <span className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                                                                    isActive ? 'bg-purple-500 text-black border-purple-400' : 'border-zinc-700 bg-zinc-900'
+                                                                }`}>
+                                                                    {isActive && <Check size={13} className="stroke-[3]" />}
+                                                                </span>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        {/* Status & Batch Action Banner */}
+                                        <div className="p-4 sm:p-5 rounded-3xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3 flex-wrap">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2.5 rounded-2xl bg-emerald-500/20 text-emerald-300">
+                                                    <Headphones size={24} />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">Studio DSP Mode</label>
-                                                    <select
-                                                        defaultValue="studio_dsp"
-                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
-                                                    >
-                                                        <option value="studio_dsp">Studio Master (Auto-Level + Denoise + EQ)</option>
-                                                        <option value="presence_eq">Vocal Presence Only (+3dB 3kHz)</option>
-                                                        <option value="night_level">Night Dynamic Compressor Only</option>
-                                                        <option value="denoise">High-Pass 80Hz Filter Only</option>
-                                                    </select>
+                                                    <h4 className="text-base font-black text-white">
+                                                        {enhPct === 100 ? `All Chapters Ready (${totalCh}/${totalCh})` : `Processing (${enhCh}/${totalCh} Ch)`}
+                                                    </h4>
+                                                    <p className="text-xs text-zinc-400">
+                                                        Time-synced side-by-side files switchable in player
+                                                    </p>
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
-                                                <div className="flex items-center gap-3">
-                                                    {enhPct === 100 ? (
-                                                        <CheckCircle2 size={26} className="text-emerald-400 shrink-0" />
-                                                    ) : (
-                                                        <Headphones size={26} className="text-emerald-400 shrink-0" />
-                                                    )}
-                                                    <div>
-                                                        <h4 className="text-base font-black text-white">
-                                                            {enhPct === 100 ? `Voice Complete (${totalCh}/${totalCh})` : `Enhance Voices (${enhCh}/${totalCh})`}
-                                                        </h4>
-                                                        <p className="text-xs text-zinc-400">
-                                                            {enhPct === 100 ? 'All chapters enhanced with studio DSP audio' : `${enhPct}% chapters enhanced · Studio DSP tone`}
-                                                        </p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        disabled={runningBookModalTask !== null}
-                                                        onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'voices')}
-                                                        title={enhPct === 100 ? "Re-enhance All Chapters" : "Enhance Voices Across All Chapters"}
-                                                        className="p-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black cursor-pointer shadow-lg disabled:opacity-35"
-                                                    >
-                                                        {enhPct === 100 ? <RefreshCw size={20} /> : <Headphones size={20} />}
-                                                    </button>
-                                                    <button
-                                                        onClick={async () => {
-                                                            await fetch('/api/theater/audiobooks/studio', {
-                                                                method: 'POST',
-                                                                headers: { 'Content-Type': 'application/json' },
-                                                                body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'voices', redoNow: false })
-                                                            });
-                                                            toast.success('Reset voices to original');
-                                                            loadBookStudioChapters(selectedAudiobook);
-                                                        }}
-                                                        title="Reset all voice enhancements"
-                                                        className="p-3 rounded-2xl bg-zinc-950 hover:bg-red-500/20 text-zinc-400 hover:text-red-300 border border-zinc-800 hover:border-red-500/40 cursor-pointer shadow"
-                                                    >
-                                                        <Trash2 size={20} />
-                                                    </button>
-                                                </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    disabled={runningBookModalTask !== null}
+                                                    onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'voices')}
+                                                    title={enhPct === 100 ? "Re-process All Chapters" : "Process All Chapters"}
+                                                    className="p-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black cursor-pointer shadow-lg disabled:opacity-35"
+                                                >
+                                                    {enhPct === 100 ? <RefreshCw size={20} /> : <Headphones size={20} />}
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'voices', redoNow: false })
+                                                        });
+                                                        toast.success('Reset voices to original');
+                                                        loadBookStudioChapters(selectedAudiobook);
+                                                    }}
+                                                    title="Reset all voice enhancements"
+                                                    className="p-3 rounded-2xl bg-zinc-950 hover:bg-red-500/20 text-zinc-400 hover:text-red-300 border border-zinc-800 hover:border-red-500/40 cursor-pointer shadow"
+                                                >
+                                                    <Trash2 size={20} />
+                                                </button>
                                             </div>
                                         </div>
 

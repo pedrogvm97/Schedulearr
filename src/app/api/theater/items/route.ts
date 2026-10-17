@@ -499,27 +499,30 @@ export async function GET(req: Request) {
                                 const media = item.Media?.[0];
                                 const part = media?.Part?.[0];
                                 const partKey = part?.key;
-                                const rawThumb = item.thumb || item.parentThumb || item.grandparentThumb || '';
+                                const mediaCategoryInit: 'video' | 'audio' | 'photo' = (lib.type === 'music' || isAudiobooksLib || item.type === 'artist' || item.type === 'track' || item.type === 'album') ? 'audio' : (lib.type === 'photo' || item.type === 'photo') ? 'photo' : 'video';
+                                const localFilePathInit = part?.file || '';
+                                const fileExtInit = part?.container
+                                    ? part.container.toUpperCase()
+                                    : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : '');
+                                const isAudiobookItem = isAudiobooksLib || fileExtInit === 'M4B' || /\b(audiobooks?|spoken\s*word)\b/i.test(localFilePathInit);
+
+                                // For audiobooks, NEVER fall back to grandparentThumb (which is Plex author portrait photo) as the book jacket cover
+                                const rawThumb = isAudiobookItem
+                                    ? (item.thumb || item.parentThumb || '')
+                                    : (item.thumb || item.parentThumb || item.grandparentThumb || '');
                                 const thumb = rawThumb && !rawThumb.endsWith('/-1') && rawThumb !== '-1' ? rawThumb : '';
                                 const posterUrl = thumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${thumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
                                 const rawAuthorThumb = item.grandparentThumb && !item.grandparentThumb.endsWith('/-1') && item.grandparentThumb !== '-1' ? item.grandparentThumb : '';
                                 const authorThumb = rawAuthorThumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${rawAuthorThumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
                                 const releaseYear = item.parentYear || item.year ? String(item.parentYear || item.year) : undefined;
 
-                                let mediaCategory: 'video' | 'audio' | 'photo' = 'video';
-                                if (lib.type === 'music' || isAudiobooksLib || item.type === 'artist' || item.type === 'track' || item.type === 'album') mediaCategory = 'audio';
-                                else if (lib.type === 'photo' || item.type === 'photo') mediaCategory = 'photo';
+                                let mediaCategory: 'video' | 'audio' | 'photo' = mediaCategoryInit;
 
                                 const isShow = item.type === 'show' || lib.type === 'show';
                                 const ratingKey = item.ratingKey || item.key || '';
-                                const localFilePath = part?.file || '';
-
+                                const localFilePath = localFilePathInit;
                                 const defaultExt = isShow ? 'SERIES' : (mediaCategory === 'video' ? 'MKV' : (mediaCategory === 'audio' ? 'MP3' : 'FILE'));
-                                const fileExt = part?.container
-                                    ? part.container.toUpperCase()
-                                    : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : defaultExt);
-
-                                const isAudiobookItem = isAudiobooksLib || fileExt === 'M4B' || /\b(audiobooks?|spoken\s*word)\b/i.test(localFilePath);
+                                const fileExt = fileExtInit || defaultExt;
 
                                 let finalArtist: string | undefined = undefined;
                                 let finalAlbum: string | undefined = undefined;

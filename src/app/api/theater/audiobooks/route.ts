@@ -165,6 +165,51 @@ export async function GET(req: Request) {
             console.warn('OpenLibrary lookup notice:', e.message);
         }
 
+        // 3. Query Google Books API (exceptional for authentic high-resolution book jacket covers and metadata)
+        try {
+            const gbTitle = parsedCatalog.cleanTitle || title;
+            const gbQueryParts: string[] = [];
+            if (gbTitle) gbQueryParts.push(`intitle:${encodeURIComponent(gbTitle)}`);
+            if (author) gbQueryParts.push(`inauthor:${encodeURIComponent(author)}`);
+            const gbQuery = gbQueryParts.length > 0 ? gbQueryParts.join('+') : encodeURIComponent(query);
+
+            const gbRes = await axios.get(`https://www.googleapis.com/books/v1/volumes?q=${gbQuery}&maxResults=6`, {
+                timeout: 6000
+            });
+
+            if (gbRes.data && Array.isArray(gbRes.data.items) && gbRes.data.items.length > 0) {
+                let gbCoverCount = 0;
+                for (const item of gbRes.data.items) {
+                    const vol = item.volumeInfo || {};
+                    const imgLinks = vol.imageLinks || {};
+                    const rawImg = imgLinks.extraLarge || imgLinks.large || imgLinks.medium || imgLinks.small || imgLinks.thumbnail;
+                    if (rawImg && typeof rawImg === 'string') {
+                        const highRes = rawImg.replace(/^http:/, 'https:').replace(/&edge=curl/, '').replace(/zoom=\d/, 'zoom=2');
+                        if (!coverUrl) {
+                            coverUrl = highRes;
+                        }
+                        gbCoverCount++;
+                        addAvailableCover(
+                            highRes,
+                            gbCoverCount === 1 ? 'Book Jacket (Google)' : `Edition #${gbCoverCount} (Google)`,
+                            'google_books'
+                        );
+                    }
+                    if (!description && vol.description) {
+                        description = vol.description.replace(/<[^>]*>/g, '');
+                    }
+                    if (!releaseYear && vol.publishedDate) {
+                        releaseYear = vol.publishedDate.split('-')[0];
+                    }
+                    if (!genre && Array.isArray(vol.categories) && vol.categories.length > 0) {
+                        genre = vol.categories.slice(0, 2).join(', ');
+                    }
+                }
+            }
+        } catch (e: any) {
+            console.warn('Google Books API lookup notice:', e.message);
+        }
+
         if (!releaseYear && itunesYear) {
             releaseYear = itunesYear;
         }

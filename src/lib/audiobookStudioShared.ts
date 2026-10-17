@@ -241,6 +241,78 @@ export const AUDIOBOOK_VOICE_TIMBRE_PRESETS: CuratedVoiceProfile[] = [
         tags: ['Melodic Warmth', 'Delicate Presence', 'Intimate Cinema'],
         pitchOffset: 5,
         color: 'from-pink-500 to-purple-800'
+    },
+    {
+        id: 'jack_sparrow',
+        name: 'Captain Jack Sparrow',
+        subtitle: 'Whimsical Rogue Flair & Swashbuckler Charisma',
+        gender: 'male',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Eccentric pirate charm, slurred playful theatrical cadence, unpredictable rhythm, and whimsical rogue wit.',
+        tags: ['Swashbuckler', 'Pirate Charisma', 'Theatrical', 'Whimsical'],
+        pitchOffset: -1,
+        color: 'from-amber-600 to-red-800'
+    },
+    {
+        id: 'jon_snow',
+        name: 'Jon Snow',
+        subtitle: 'Brooding Heroic Northern Cadence',
+        gender: 'male',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Earnest northern British rasp, quiet stoic intensity, brooding vulnerability, and battle-hardened gravity.',
+        tags: ['Northern British', 'Stoic Hero', 'Brooding', 'Grit'],
+        pitchOffset: -4,
+        color: 'from-slate-600 to-zinc-900'
+    },
+    {
+        id: 'ygritte',
+        name: 'Ygritte',
+        subtitle: 'Wildling Spirit & Playful Husky Warmth',
+        gender: 'female',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Feisty northern lilt, fiery spirited cadence, husky playful rasp, and untamed adventurous resonance.',
+        tags: ['Northern Lilt', 'Husky Rasp', 'Wildling Spirit', 'Playful'],
+        pitchOffset: 3,
+        color: 'from-orange-500 to-red-800'
+    },
+    {
+        id: 'robert_downey_jr',
+        name: 'Robert Downey Jr.',
+        subtitle: 'Charismatic Witty Cadence & Fast Presence',
+        gender: 'male',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Rapid-fire witty articulation, magnetic charisma, sarcastic intellectual bite, and effortless narrative flair.',
+        tags: ['Charismatic Wit', 'Rapid-Fire', 'Intellectual', 'MCU Presence'],
+        pitchOffset: -2,
+        color: 'from-amber-500 to-rose-700'
+    },
+    {
+        id: 'donald_trump',
+        name: 'Donald Trump',
+        subtitle: 'Iconic Emphatic Cadence & Rhythmic Inflection',
+        gender: 'male',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Distinctive punchy cadence, high-contrast dynamic inflection, repetitive oratorical cadence, and unmistakable presence.',
+        tags: ['Punchy Cadence', 'High Dynamic', 'Unmistakable', 'New York'],
+        pitchOffset: -3,
+        color: 'from-yellow-600 to-red-700'
+    },
+    {
+        id: 'snoop_dogg',
+        name: 'Snoop Dogg',
+        subtitle: 'Ultra-Smooth West Coast Laid-Back Drawl',
+        gender: 'male',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Silky smooth conversational drawl, relaxed melodic delivery, rhythmic cadence, and effortlessly chill storytelling.',
+        tags: ['West Coast', 'Laid-Back Drawl', 'Smooth Melodic', 'Chill'],
+        pitchOffset: -5,
+        color: 'from-teal-600 to-emerald-900'
     }
 ];
 

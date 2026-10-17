@@ -101,9 +101,16 @@ export async function GET() {
         const queueBreakdown = getQueueBreakdownAndHistory();
         const studioHistory = getStudioQueueHistory().slice(0, 20);
         const allBooks = getAllAudiobooksMeta();
-        const queuedBooksRaw = allBooks.filter(b => b.queue_enabled);
+        const autoQueueAll = studioConfig.enabled && studioConfig.aiFeaturesEnabled !== false;
+        const queuedBooksRaw = allBooks
+            .filter(b => b.queue_enabled || (autoQueueAll && b.status !== 'completed'))
+            .sort((a, b) => {
+                const pA = a.queue_enabled ? (a.queue_priority || 100) : 1000 + (a.queue_priority || 100);
+                const pB = b.queue_enabled ? (b.queue_priority || 100) : 1000 + (b.queue_priority || 100);
+                return pA - pB;
+            });
         const availableBooks = allBooks
-            .filter(b => !b.queue_enabled)
+            .filter(b => !b.queue_enabled && (!autoQueueAll || b.status === 'completed'))
             .slice(0, 100)
             .map(b => ({
                 book_key: b.book_key,
@@ -143,6 +150,8 @@ export async function GET() {
             let bookLastError = '';
             let bookDetectedScenes = 0;
             let bookPaintedScenes = 0;
+            let bookScenedChapters = 0;
+            let bookPaintedChapters = 0;
 
             for (const ch of chapters) {
                 const hasTranscript = ch.transcription_status === 'completed' && Boolean(ch.synced_lyrics && ch.synced_lyrics.trim().length > 20);
@@ -156,6 +165,9 @@ export async function GET() {
                 }
                 const validScenes = (ch.images || []).filter(i => i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
                 const paintedImgs = validScenes.filter(i => Boolean(i.url));
+                if (validScenes.length > 0) bookScenedChapters++;
+                if (validScenes.length > 0 && paintedImgs.length >= validScenes.length) bookPaintedChapters++;
+
                 llmDetectedScenesCount += validScenes.length;
                 bookDetectedScenes += validScenes.length;
                 artKeptScenes += paintedImgs.length;
@@ -195,6 +207,8 @@ export async function GET() {
                 synced_chapters_count: chapters.length,
                 detected_scenes_count: bookDetectedScenes,
                 painted_scenes_count: bookPaintedScenes,
+                scened_chapters_count: bookScenedChapters,
+                painted_chapters_count: bookPaintedChapters,
                 failed_chapters_count: bookFailedCount,
                 last_error: bookLastError
             };

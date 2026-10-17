@@ -5949,11 +5949,16 @@ export const runSingleSceningOrImagingStep = async (
     }
 
     const allBooks = getAllAudiobooksMeta();
+    const autoQueueAll = config.enabled && config.aiFeaturesEnabled !== false;
     const candidateBooks = forceBookKey
         ? allBooks.filter(b => b.book_key === forceBookKey)
         : allBooks
-            .filter(b => b.queue_enabled && b.status !== 'completed')
-            .sort((a, b) => (a.queue_priority || 100) - (b.queue_priority || 100));
+            .filter(b => (b.queue_enabled || autoQueueAll) && b.status !== 'completed')
+            .sort((a, b) => {
+                const pA = a.queue_enabled ? (a.queue_priority || 100) : 1000 + (a.queue_priority || 100);
+                const pB = b.queue_enabled ? (b.queue_priority || 100) : 1000 + (b.queue_priority || 100);
+                return pA - pB;
+            });
 
     let blockedByQuotaCount = 0;
     let failedCount = 0;
@@ -6126,11 +6131,16 @@ export const processAudiobookPriorityQueueStep = async (
         }
 
         const allBooks = getAllAudiobooksMeta();
+        const autoQueueAll = config.enabled && config.aiFeaturesEnabled !== false;
         const candidateBooks = forceBookKey
             ? allBooks.filter(b => b.book_key === forceBookKey)
             : allBooks
-                .filter(b => b.queue_enabled && b.status !== 'completed')
-                .sort((a, b) => (a.queue_priority || 100) - (b.queue_priority || 100));
+                .filter(b => (b.queue_enabled || autoQueueAll) && b.status !== 'completed')
+                .sort((a, b) => {
+                    const pA = a.queue_enabled ? (a.queue_priority || 100) : 1000 + (a.queue_priority || 100);
+                    const pB = b.queue_enabled ? (b.queue_priority || 100) : 1000 + (b.queue_priority || 100);
+                    return pA - pB;
+                });
 
         if (candidateBooks.length === 0) {
             updateLiveStatus({
@@ -6141,9 +6151,11 @@ export const processAudiobookPriorityQueueStep = async (
                 activeChapterTitle: null,
                 activeTask: null,
                 progress: 0,
-                lastLog: allBooks.some(b => b.queue_enabled)
-                    ? 'Idle — All queued audiobooks completed'
-                    : 'Idle — No audiobooks in queue'
+                lastLog: autoQueueAll
+                    ? 'Idle — All library audiobooks completed'
+                    : allBooks.some(b => b.queue_enabled)
+                        ? 'Idle — All queued audiobooks completed'
+                        : 'Idle — No audiobooks in queue'
             });
             return false;
         }

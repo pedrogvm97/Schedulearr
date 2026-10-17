@@ -447,68 +447,20 @@ export default function TasksPage() {
                     </div>
                 </div>
 
-                {/* Granular & Full Cleanup Row */}
+                {/* Unified Auto Cleaner Link to Settings */}
                 <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-wrap items-center justify-between gap-3">
                     <span className="text-sm font-black uppercase tracking-wider text-gray-300 flex items-center gap-2">
                         <Trash2 className="w-4 h-4 text-rose-400" />
-                        <span>Cleanup</span>
+                        <span>Storage & Cleaners</span>
                     </span>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <button
-                            onClick={() => handleCleanup('images', 'Generated Images Only')}
-                            disabled={busyKey !== null}
-                            title="Delete generated scene images while keeping transcripts and detected scene prompts intact"
-                            className="px-3.5 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                            <ImageIcon className="w-4 h-4" />
-                            <span>Images</span>
-                        </button>
-                        <button
-                            onClick={() => handleCleanup('scenes', 'Scenes & Images')}
-                            disabled={busyKey !== null}
-                            title="Delete generated scenes and images while keeping Speech-to-Text transcripts intact"
-                            className="px-3.5 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                            <Layers className="w-4 h-4" />
-                            <span>Scenes</span>
-                        </button>
-                        <button
-                            onClick={() => handleCleanup('transcripts', 'Transcripts Only')}
-                            disabled={busyKey !== null}
-                            title="Delete generated Speech-to-Text transcripts (.lrc / .txt)"
-                            className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                            <FileText className="w-4 h-4" />
-                            <span>Transcripts</span>
-                        </button>
-                        <button
-                            onClick={() => handleCleanup('voices', 'Voice Exports')}
-                            disabled={busyKey !== null}
-                            title="Delete generated voice preset exports (.m4a)"
-                            className="px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                            <Volume2 className="w-4 h-4" />
-                            <span>Voices</span>
-                        </button>
-                        <button
-                            onClick={() => handleCleanup('api_history', 'API Usage Log')}
-                            disabled={busyKey !== null}
-                            title="Clear API request and quota telemetry history"
-                            className="px-3.5 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-200 text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                            <Activity className="w-4 h-4" />
-                            <span>API Log</span>
-                        </button>
-                        <button
-                            onClick={() => handleCleanup('all', 'Everything (Pause AI + Full Reset)')}
-                            disabled={busyKey !== null}
-                            title="Pause AI and wipe all generated images, scenes, transcripts, and voice exports"
-                            className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-black text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 cursor-pointer shadow-lg disabled:opacity-50"
-                        >
-                            <Trash2 className="w-4 h-4" />
-                            <span>Clean All</span>
-                        </button>
-                    </div>
+                    <Link
+                        href="/settings?subtopic=cleaners"
+                        className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-xs sm:text-sm font-black uppercase text-amber-300 flex items-center gap-2 transition-colors cursor-pointer"
+                        title="Open unified auto cleaners menu in Settings"
+                    >
+                        <Sliders className="w-4 h-4" />
+                        <span>Manage Cleaners</span>
+                    </Link>
                 </div>
 
                 {/* Live Execution / Idle Reason Bar */}
@@ -812,10 +764,10 @@ export default function TasksPage() {
                                                     </button>
 
                                                     <span
-                                                        title="Stage 2: LLM Scene Transitions created from timestamped transcripts"
+                                                        title={`Stage 2: LLM Scene Transitions created from timestamped transcripts (${book.scened_chapters_count ?? book.scened_chapters ?? 0}/${totalCh} chapters scened)`}
                                                         className="px-2.5 py-1 rounded-lg text-xs font-black border bg-cyan-500/15 text-cyan-200 border-cyan-500/35"
                                                     >
-                                                        2. Scenes: {book.detected_scenes_count ?? book.illustrated_scenes ?? 0}
+                                                        2. Scenes: {book.detected_scenes_count ?? book.total_scenes ?? 0} ({book.scened_chapters_count ?? book.scened_chapters ?? 0}/{totalCh} Ch)
                                                     </span>
 
                                                     <button
@@ -825,14 +777,14 @@ export default function TasksPage() {
                                                             subAction: 'toggle_flag',
                                                             field: 'illustrate_enabled'
                                                         })}
-                                                        title="Stage 3: Toggle Scene Painting (requires Stage 1 & 2)"
+                                                        title={`Stage 3: Toggle Scene Painting (${book.painted_chapters_count ?? book.illustrated_chapters ?? 0}/${totalCh} chapters painted)`}
                                                         className={`px-2.5 py-1 rounded-lg text-xs font-black border cursor-pointer ${
                                                             book.illustrate_enabled
                                                                 ? 'bg-purple-500/20 text-purple-200 border-purple-500/40'
                                                                 : 'bg-white/5 text-gray-500 border-white/10 line-through'
                                                         }`}
                                                     >
-                                                        3. Art: {book.painted_scenes_count ?? book.illustrated_scenes ?? 0}/{book.detected_scenes_count ?? book.illustrated_scenes ?? 0} painted
+                                                        3. Art: {book.painted_scenes_count ?? book.illustrated_scenes ?? 0}/{book.detected_scenes_count ?? book.total_scenes ?? 0} painted ({book.painted_chapters_count ?? book.illustrated_chapters ?? 0}/{totalCh} Ch)
                                                     </button>
 
                                                     <button

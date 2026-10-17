@@ -142,7 +142,7 @@ export const AudiobookTranscriptViewerModal: React.FC<AudiobookTranscriptViewerM
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[260] flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
             <div className="relative w-full max-w-5xl h-[92vh] flex flex-col bg-zinc-950 border-2 border-amber-500/50 rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.9)] overflow-hidden">
                 {/* Header */}
                 <div className="p-5 sm:p-6 bg-gradient-to-r from-zinc-900 via-zinc-900/90 to-zinc-950 border-b-2 border-amber-500/30 flex items-center justify-between gap-4 shrink-0">
