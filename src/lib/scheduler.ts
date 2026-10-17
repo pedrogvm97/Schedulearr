@@ -1,4 +1,4 @@
-import { getInstances, getSetting, logSearchHistory, getSchedulerConfig, getSchedulerTracking, incrementSchedulerAttempt } from '@/lib/db';
+import { getInstances, getSetting, logSearchHistory, getSchedulerConfig, getSchedulerTracking, incrementSchedulerAttempt, executeHousekeeping } from '@/lib/db';
 import { getAllMovies, triggerMovieSearch, RadarrMovie, getQueue as getRadarrQueue } from '@/lib/radarr';
 import { getAllSeries, getMissingEpisodes, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
@@ -16,6 +16,7 @@ import { startSpeedMonitor } from '@/lib/speedMonitor';
 import { performStartupContainerCleanup } from '@/lib/docker';
 import { checkAndRunScheduledEpgSyncs } from '@/lib/iptvEpgSync';
 import { triggerAudiobookQueueWorker, getAudiobookStudioConfig } from '@/lib/audiobookStudio';
+import { triggerVideoAiQueueWorker } from '@/lib/videoAi';
 import { runPeriodicCalendarSync } from '@/lib/calendarSync';
 import { getCalendarSyncConfig } from '@/lib/db';
 import fs from 'fs';
@@ -93,6 +94,14 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
                 
                 // Check and enforce individual library storage limits
                 await checkAndCleanIndividualLibraries();
+
+                // Automated Database Housekeeping (Age retention & Max DB size vacuum)
+                const dbAutocleanEnabled = getSetting('db_autoclean_enabled') !== 'false';
+                if (dbAutocleanEnabled) {
+                    const daysToKeep = parseInt(getSetting('db_retention_days') || '30');
+                    const sizeLimitMB = parseInt(getSetting('db_size_limit_mb') || '500');
+                    executeHousekeeping(daysToKeep, sizeLimitMB);
+                }
             } catch (error) {
                 console.error('❌ Auto-cleanup error:', error);
             }
@@ -137,6 +146,17 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
             setTimeout(runAudiobookStudioCycle, 2 * 60 * 1000);
         };
         setTimeout(runAudiobookStudioCycle, 25000); // Start 25s after boot
+
+        // Automated Movie & TV Video Subtitles Worker (checks every 2 minutes)
+        const runVideoAiCycle = async () => {
+            try {
+                await triggerVideoAiQueueWorker();
+            } catch (err) {
+                console.error('❌ Video AI subtitle worker error:', err);
+            }
+            setTimeout(runVideoAiCycle, 2 * 60 * 1000);
+        };
+        setTimeout(runVideoAiCycle, 35000); // Start 35s after boot
 
         // Periodic Release Calendar Sync across Radarr & Sonarr instances for instant page load
         const runCalendarSyncCycle = async () => {

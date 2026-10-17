@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import {
     Trash2, RefreshCw, Shield, AlertTriangle, Check, Layers,
-    HardDrive, Database, Sliders, ChevronDown, Sparkles, BookOpen,
-    FileText, Headphones, Image as ImageIcon, Volume2
+    HardDrive, Database, Sparkles, FileText, Headphones, Image as ImageIcon,
+    Sliders, Settings, Clock, CheckCircle2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { twColorToHex } from '@/lib/instanceColor';
@@ -91,21 +91,45 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     onOpenUnifiedCleanerModal
 }) => {
     const [cleanerSubtab, setCleanerSubtab] = useState<CleanerSubtab>('torrents');
+
+    // Database Auto-Housekeeping State
+    const [dbAutoCleanEnabled, setDbAutoCleanEnabled] = useState(true);
     const [retentionDays, setRetentionDays] = useState(30);
+    const [dbSizeLimitMB, setDbSizeLimitMB] = useState(500);
     const [pruningDb, setPruningDb] = useState(false);
 
-    const safeCandidates = Array.isArray(candidates) ? candidates : [];
-    const safeLibraryLimits = Array.isArray(libraryLimits) ? libraryLimits : [];
-    const safeInstances = Array.isArray(instances) ? instances : [];
-    const safeInstanceSegments = Array.isArray(instanceSegments) ? instanceSegments : [];
-
-    // Audiobook Studio Cleaner State
+    // Audiobook Auto-Cache State
+    const [audiobookAutoCleanEnabled, setAudiobookAutoCleanEnabled] = useState(false);
+    const [audiobookRetentionDays, setAudiobookRetentionDays] = useState(30);
     const [audiobookScope, setAudiobookScope] = useState<'all' | 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history'>('all');
     const [audiobookTargetMode, setAudiobookTargetMode] = useState<'all_books' | 'single_book'>('all_books');
     const [audiobookSelectedBookKey, setAudiobookSelectedBookKey] = useState<string>('');
     const [cleaningAudiobooks, setCleaningAudiobooks] = useState(false);
     const [audiobookConfirmed, setAudiobookConfirmed] = useState(false);
     const [audiobooksList, setAudiobooksList] = useState<Array<{ bookKey: string; title: string; author: string }>>([]);
+
+    // Media Auto-Clean Master Toggle
+    const [mediaAutoCleanEnabled, setMediaAutoCleanEnabled] = useState(true);
+
+    const safeCandidates = Array.isArray(candidates) ? candidates : [];
+    const safeLibraryLimits = Array.isArray(libraryLimits) ? libraryLimits : [];
+    const safeInstances = Array.isArray(instances) ? instances : [];
+    const safeInstanceSegments = Array.isArray(instanceSegments) ? instanceSegments : [];
+
+    useEffect(() => {
+        fetch('/api/system/settings')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data) return;
+                if (data.db_autoclean_enabled !== undefined) setDbAutoCleanEnabled(data.db_autoclean_enabled === 'true');
+                if (data.db_retention_days) setRetentionDays(parseInt(data.db_retention_days) || 30);
+                if (data.db_size_limit_mb) setDbSizeLimitMB(parseInt(data.db_size_limit_mb) || 500);
+                if (data.audiobook_cache_autoclean_enabled !== undefined) setAudiobookAutoCleanEnabled(data.audiobook_cache_autoclean_enabled === 'true');
+                if (data.audiobook_cache_retention_days) setAudiobookRetentionDays(parseInt(data.audiobook_cache_retention_days) || 30);
+                if (data.media_smart_clean_auto_enabled !== undefined) setMediaAutoCleanEnabled(data.media_smart_clean_auto_enabled === 'true');
+            })
+            .catch(() => {});
+    }, []);
 
     useEffect(() => {
         if (cleanerSubtab === 'audiobooks' && audiobooksList.length === 0) {
@@ -126,7 +150,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 
     const handleCleanToThreshold = async () => {
         try {
-            toast.info('Trimming disk usage to target threshold...');
+            toast.info('Trimming unseeded torrents to target threshold...');
             const res = await fetch('/api/media/smart-clean', { method: 'POST' });
             const json = await res.json();
             if (json.cleanedCount > 0) {
@@ -170,14 +194,14 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     const handleRunDbPrune = async () => {
         setPruningDb(true);
         try {
-            const res = await fetch('/api/maintenance/prune-history', {
+            const res = await fetch('/api/system/housekeeping', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ daysToKeep: retentionDays })
+                body: JSON.stringify({ daysToKeep: retentionDays, sizeLimitMB: dbSizeLimitMB })
             });
             const data = await res.json();
-            if (data.ok) {
-                toast.success(`Removed ${data.deletedRows || 0} rows. Vacuumed successfully.`);
+            if (data.deletedRows !== undefined) {
+                toast.success(`Pruned ${data.deletedRows || 0} rows. VACUUM complete.`);
                 const statsRes = await fetch('/api/stats/db-info');
                 if (statsRes.ok) setDbStats(await statsRes.json());
             } else {
@@ -221,45 +245,48 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 
     return (
         <div className="space-y-6 animate-in fade-in duration-200">
-            {/* ── Subtabs Navigation Bar ── */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-zinc-800">
+            {/* ── Subtabs Navigation Grid (Zero Scrollbars Ever) ── */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 pb-4 border-b border-zinc-800">
                 <button
                     type="button"
                     onClick={() => setCleanerSubtab('torrents')}
-                    className={`px-5 py-3 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
+                    title="Storage Guard: Monitor disk capacity, auto-pause downloaders & trim unseeded torrents"
+                    className={`p-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                         cleanerSubtab === 'torrents'
                             ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
                             : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                 >
-                    <Shield size={18} />
-                    <span>Torrents & Storage Guard</span>
+                    <Shield size={20} className="shrink-0" />
+                    <span className="truncate">Storage Guard</span>
                 </button>
 
                 <button
                     type="button"
                     onClick={() => setCleanerSubtab('media')}
-                    className={`px-5 py-3 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
+                    title="Media Libraries: Condition-based auto-cleaning for Movies, Series & Music by watched status, age, or library size limits"
+                    className={`p-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                         cleanerSubtab === 'media'
                             ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
                             : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                 >
-                    <Layers size={18} />
-                    <span>Media Library Smart Clean</span>
+                    <Layers size={20} className="shrink-0" />
+                    <span className="truncate">Media Libraries</span>
                 </button>
 
                 <button
                     type="button"
                     onClick={() => setCleanerSubtab('audiobooks')}
-                    className={`px-5 py-3 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
+                    title="Audiobook Cache: Auto-prune temporary audio chunks and selective cache purge"
+                    className={`p-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                         cleanerSubtab === 'audiobooks'
                             ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
                             : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                 >
-                    <Sparkles size={18} />
-                    <span>Audiobook Studio Cache</span>
+                    <Sparkles size={20} className="shrink-0" />
+                    <span className="truncate">Audiobook Cache</span>
                 </button>
 
                 <button
@@ -270,19 +297,20 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             fetch('/api/stats/db-info').then(r => r.json()).then(setDbStats).catch(() => {});
                         }
                     }}
-                    className={`px-5 py-3 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
+                    title="Database: Automated SQLite maintenance, log retention & table vacuuming"
+                    className={`p-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                         cleanerSubtab === 'database'
                             ? 'bg-purple-500 text-black shadow-lg shadow-purple-500/20'
                             : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                 >
-                    <Database size={18} />
-                    <span>Database & Housekeeping</span>
+                    <Database size={20} className="shrink-0" />
+                    <span className="truncate">Database</span>
                 </button>
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════════
-                SUBTAB 1: TORRENTS & STORAGE GUARD
+                SUBTAB 1: STORAGE GUARD (DISK CAPACITY & DOWNLOAD TORRENTS)
                ═══════════════════════════════════════════════════════════════════ */}
             {cleanerSubtab === 'torrents' && (
                 <div className="space-y-6">
@@ -293,23 +321,20 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                 <div className="p-3.5 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-md">
                                     <Shield size={28} />
                                 </div>
-                                <div>
-                                    <div className="flex items-center gap-3">
-                                        <h2 className="text-2xl font-black text-white tracking-tight">Storage Guard & Torrents</h2>
-                                        <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
-                                            diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
-                                        }`}>
-                                            {diskAutocleanEnabled ? 'Active' : 'Off'}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm font-semibold text-zinc-400 mt-1">Automatic torrent trimming and disk space guardian</p>
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-2xl font-black text-white tracking-tight">Storage Guard</h2>
+                                    <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                                        diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                                    }`}>
+                                        {diskAutocleanEnabled ? 'Active' : 'Off'}
+                                    </span>
                                 </div>
                             </div>
 
-                            {/* Master Switch & Trigger Percentage */}
+                            {/* Master Auto-Clean Switch & Trigger Threshold */}
                             <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex-shrink-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Threshold:</span>
+                                <div className="flex items-center gap-2" title="Disk capacity percentage threshold that triggers automated actions">
+                                    <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Trigger:</span>
                                     <input
                                         type="number"
                                         min="50"
@@ -323,7 +348,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                             updateSetting('disk_autoclean_threshold', String(val));
                                         }}
                                         className="w-16 bg-zinc-900 border border-zinc-700 rounded-xl text-center py-1 text-emerald-400 font-black text-base outline-none focus:border-emerald-500"
-                                        title="Disk capacity threshold percentage to trigger auto-clean"
+                                        title="Auto-clean capacity trigger percentage"
                                     />
                                     <span className="text-xs font-black text-emerald-400">%</span>
                                 </div>
@@ -369,7 +394,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                             type="button"
                                             onClick={refreshDiskInfo}
                                             className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                                            title="Refresh live disk storage capacity"
+                                            title="Refresh disk storage capacity"
                                         >
                                             <RefreshCw size={16} />
                                         </button>
@@ -394,7 +419,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                     <div
                                         className="absolute top-0 bottom-0 w-0.5 bg-white z-10 pointer-events-none"
                                         style={{ left: `${diskPauseThreshold}%` }}
-                                        title={`Auto-Clean Trigger: ${diskPauseThreshold}%`}
+                                        title={`Trigger: ${diskPauseThreshold}%`}
                                     >
                                         <div className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full shadow-md" />
                                     </div>
@@ -425,13 +450,10 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             </div>
                         )}
 
-                        {/* qBittorrent & Pause Options */}
+                        {/* Automated Conditions & Master Controls */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                             <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4">
-                                <div>
-                                    <span className="text-sm font-black text-white block">Pause Scheduler on Threshold</span>
-                                    <span className="text-xs text-zinc-400">Halts search downloads when storage is above target</span>
-                                </div>
+                                <span className="text-sm font-black text-white">Pause Downloader on Threshold</span>
                                 <button
                                     type="button"
                                     onClick={async () => {
@@ -448,18 +470,14 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             </div>
 
                             <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4">
-                                <div>
-                                    <span className="text-sm font-black text-white block">Immediate Storage Trim</span>
-                                    <span className="text-xs text-zinc-400">Purges unseeded/cleaned torrents to restore free space</span>
-                                </div>
+                                <span className="text-sm font-black text-white">Trim Unseeded Torrents</span>
                                 <button
                                     type="button"
                                     onClick={handleCleanToThreshold}
                                     className="p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition-all cursor-pointer flex items-center gap-2"
-                                    title="Trim disk usage to target threshold"
+                                    title="Trim finished/unseeded torrents immediately"
                                 >
                                     <Trash2 size={18} />
-                                    <span className="text-xs font-black uppercase">Trim Now</span>
                                 </button>
                             </div>
                         </div>
@@ -468,7 +486,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════
-                SUBTAB 2: MEDIA LIBRARY SMART CLEAN
+                SUBTAB 2: MEDIA LIBRARIES (SMART LIBRARY CLEAN)
                ═══════════════════════════════════════════════════════════════════ */}
             {cleanerSubtab === 'media' && (
                 <div className="space-y-6">
@@ -477,14 +495,32 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                         <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
                             <div className="flex items-center gap-3">
                                 <Layers size={24} className="text-emerald-400" />
-                                <h3 className="text-xl font-black text-white">Smart Clean Policy</h3>
+                                <h3 className="text-xl font-black text-white">Media Library Cleaner</h3>
+                            </div>
+
+                            {/* Master Auto-Clean Toggle for Media */}
+                            <div className="flex items-center gap-3 bg-zinc-950 p-2.5 rounded-2xl border border-zinc-800">
+                                <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Auto-Clean:</span>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const next = !mediaAutoCleanEnabled;
+                                        setMediaAutoCleanEnabled(next);
+                                        await updateSetting('media_smart_clean_auto_enabled', String(next));
+                                        toast.success(next ? 'Media Auto-Clean Enabled' : 'Media Auto-Clean Disabled');
+                                    }}
+                                    className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${mediaAutoCleanEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                                    title={mediaAutoCleanEnabled ? 'Disable media library auto-cleaning' : 'Enable media library auto-cleaning on schedule'}
+                                >
+                                    <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${mediaAutoCleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
+                                </button>
                             </div>
                         </div>
 
                         <div className="space-y-6">
                             {/* Clean Selection Priority */}
                             <div className="space-y-3">
-                                <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">Global Priority Rule</span>
+                                <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">Priority Rule</span>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     {[
                                         { id: 'largest', label: 'Largest Files' },
@@ -514,7 +550,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 
                             {/* TV Series Cleanup Level */}
                             <div className="space-y-3">
-                                <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Scope</span>
+                                <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">TV Scope</span>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     {(['series', 'season', 'episode'] as const).map(level => (
                                         <button
@@ -540,10 +576,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 
                             {/* Immunity Window */}
                             <div className="flex items-center justify-between p-4 rounded-xl bg-zinc-950 border border-zinc-800">
-                                <div>
-                                    <span className="text-sm font-black text-white block">Immunity Window</span>
-                                    <span className="text-xs text-zinc-400">Protect recently added items from deletion</span>
-                                </div>
+                                <span className="text-sm font-black text-white">Immunity Window</span>
                                 <div className="flex items-center gap-2">
                                     <input
                                         type="number"
@@ -566,7 +599,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 
                             {/* Excluded Libraries Selection */}
                             <div className="space-y-3 pt-2 border-t border-zinc-800">
-                                <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">Excluded Protected Libraries</span>
+                                <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">Protected Libraries</span>
                                 <div className="flex flex-wrap gap-2.5">
                                     {safeInstances.filter(i => i.type === 'radarr' || i.type === 'sonarr' || i.type === 'lidarr').map(inst => {
                                         const isIgnored = diskSmartCleanIgnoredInstances.includes(inst.id);
@@ -604,7 +637,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                         <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
                             <h3 className="text-xl font-black text-white flex items-center gap-2.5">
                                 <Layers size={22} className="text-emerald-400" />
-                                Library Storage Limits
+                                Capacity Limits
                             </h3>
                         </div>
 
@@ -760,7 +793,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                             <div className="flex items-center gap-3">
                                 <Trash2 size={24} className="text-amber-400" />
-                                <h3 className="text-xl font-black text-white">Cleanup Candidates ({safeCandidates.length})</h3>
+                                <h3 className="text-xl font-black text-white">Candidates ({safeCandidates.length})</h3>
                             </div>
 
                             <div className="flex items-center gap-3">
@@ -859,7 +892,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════
-                SUBTAB 3: AUDIOBOOK STUDIO CACHE (EMBEDDED CLEANER)
+                SUBTAB 3: AUDIOBOOK CACHE
                ═══════════════════════════════════════════════════════════════════ */}
             {cleanerSubtab === 'audiobooks' && (
                 <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-7 shadow-2xl">
@@ -868,33 +901,73 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             <div className="p-3.5 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
                                 <Sparkles size={26} />
                             </div>
-                            <div>
-                                <h3 className="text-xl font-black text-white">Audiobook Studio Asset Cache</h3>
-                                <p className="text-sm text-zinc-400 font-semibold mt-0.5">Selectively clean generated transcripts, scenes, images, or voices</p>
+                            <h3 className="text-xl font-black text-white">Audiobook Cache</h3>
+                        </div>
+
+                        {/* Master Auto-Clean Switch for Audiobook Cache */}
+                        <div className="flex items-center gap-3 bg-zinc-950 p-2.5 rounded-2xl border border-zinc-800">
+                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Auto-Clean:</span>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    const next = !audiobookAutoCleanEnabled;
+                                    setAudiobookAutoCleanEnabled(next);
+                                    await updateSetting('audiobook_cache_autoclean_enabled', String(next));
+                                    toast.success(next ? 'Audiobook Auto-Cache Prune Enabled' : 'Audiobook Auto-Cache Prune Disabled');
+                                }}
+                                className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${audiobookAutoCleanEnabled ? 'bg-amber-500' : 'bg-zinc-800'}`}
+                                title={audiobookAutoCleanEnabled ? 'Disable automated cache pruning' : 'Enable automated cache pruning on schedule'}
+                            >
+                                <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${audiobookAutoCleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Auto-Prune Conditions */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="flex items-center justify-between p-4 rounded-2xl bg-zinc-950 border border-zinc-800">
+                            <span className="text-sm font-black text-white">Cache Retention</span>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="365"
+                                    value={audiobookRetentionDays}
+                                    onChange={async e => {
+                                        const val = Math.max(1, parseInt(e.target.value) || 30);
+                                        setAudiobookRetentionDays(val);
+                                        await updateSetting('audiobook_cache_retention_days', String(val));
+                                    }}
+                                    className="w-18 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-sm font-black text-amber-400 text-center outline-none"
+                                    title="Auto-prune temporary audio and cache files older than this many days"
+                                />
+                                <span className="text-xs font-bold text-zinc-400">Days</span>
                             </div>
                         </div>
 
                         {/* Scope Toggle: All Books vs Single Book */}
-                        <div className="flex items-center gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
+                        <div className="flex items-center justify-between p-2 rounded-2xl bg-zinc-950 border border-zinc-800">
                             <button
                                 type="button"
                                 onClick={() => setAudiobookTargetMode('all_books')}
-                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
                                     audiobookTargetMode === 'all_books'
                                         ? 'bg-amber-500 text-black shadow'
                                         : 'text-zinc-400 hover:text-white'
                                 }`}
+                                title="Target all audiobooks across the entire library"
                             >
                                 All Audiobooks
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setAudiobookTargetMode('single_book')}
-                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
                                     audiobookTargetMode === 'single_book'
                                         ? 'bg-amber-500 text-black shadow'
                                         : 'text-zinc-400 hover:text-white'
                                 }`}
+                                title="Target a specific audiobook"
                             >
                                 Single Book
                             </button>
@@ -904,13 +977,13 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                     {/* Single Book Selector */}
                     {audiobookTargetMode === 'single_book' && (
                         <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2">
-                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400 block">Select Audiobook</span>
                             <select
                                 value={audiobookSelectedBookKey}
                                 onChange={e => setAudiobookSelectedBookKey(e.target.value)}
                                 className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-base font-bold text-white cursor-pointer outline-none focus:border-amber-500"
+                                title="Choose specific audiobook to clean"
                             >
-                                <option value="">Choose an audiobook to clean...</option>
+                                <option value="">Choose an audiobook...</option>
                                 {audiobooksList.map(b => (
                                     <option key={b.bookKey} value={b.bookKey}>
                                         {b.title} {b.author ? `— ${b.author}` : ''}
@@ -920,51 +993,44 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                         </div>
                     )}
 
-                    {/* Target Assets Scope Grid */}
+                    {/* Target Assets Scope Grid - Strict Rule 1 (NO instructional sentences) */}
                     <div className="space-y-3">
-                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400 block">Target Asset Type</span>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                             {[
                                 {
                                     id: 'all' as const,
-                                    title: 'All Generated Assets',
-                                    desc: 'Purge artwork, scenes, transcripts, and voice exports completely',
-                                    icon: <Trash2 size={22} className="text-red-400" />,
+                                    title: 'All Assets',
+                                    icon: <Trash2 size={24} className="text-red-400" />,
                                     border: 'border-red-500/40 hover:border-red-400 bg-red-950/20'
                                 },
                                 {
                                     id: 'images' as const,
-                                    title: 'Artwork Only',
-                                    desc: 'Delete generated scene artwork while keeping transcripts & timestamps',
-                                    icon: <ImageIcon size={22} className="text-emerald-400" />,
+                                    title: 'Artwork',
+                                    icon: <ImageIcon size={24} className="text-emerald-400" />,
                                     border: 'border-emerald-500/40 hover:border-emerald-400 bg-emerald-950/20'
                                 },
                                 {
                                     id: 'scenes' as const,
-                                    title: 'Scenes & Artwork',
-                                    desc: 'Delete LLM-detected scenes and artwork while keeping transcripts',
-                                    icon: <Sparkles size={22} className="text-purple-400" />,
+                                    title: 'Scenes',
+                                    icon: <Sparkles size={24} className="text-purple-400" />,
                                     border: 'border-purple-500/40 hover:border-purple-400 bg-purple-950/20'
                                 },
                                 {
                                     id: 'transcripts' as const,
-                                    title: 'Transcripts Only',
-                                    desc: 'Delete verbatim Speech-to-Text .lrc and .txt transcripts',
-                                    icon: <FileText size={22} className="text-amber-400" />,
+                                    title: 'Transcripts',
+                                    icon: <FileText size={24} className="text-amber-400" />,
                                     border: 'border-amber-500/40 hover:border-amber-400 bg-amber-950/20'
                                 },
                                 {
                                     id: 'voices' as const,
-                                    title: 'Voice Exports',
-                                    desc: 'Delete generated .m4a audio tracks from persona enhancements',
-                                    icon: <Headphones size={22} className="text-blue-400" />,
+                                    title: 'Voices',
+                                    icon: <Headphones size={24} className="text-blue-400" />,
                                     border: 'border-blue-500/40 hover:border-blue-400 bg-blue-950/20'
                                 },
                                 {
                                     id: 'api_history' as const,
-                                    title: 'API Usage Logs',
-                                    desc: 'Clear recorded AI provider request history and telemetry',
-                                    icon: <Database size={22} className="text-zinc-400" />,
+                                    title: 'API Logs',
+                                    icon: <Database size={24} className="text-zinc-400" />,
                                     border: 'border-zinc-700 hover:border-zinc-500 bg-zinc-900/40'
                                 }
                             ].map(opt => {
@@ -977,14 +1043,15 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                             setAudiobookScope(opt.id);
                                             setAudiobookConfirmed(false);
                                         }}
+                                        title={`Target asset scope: ${opt.title}`}
                                         className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${opt.border} ${
                                             isSel ? 'ring-2 ring-amber-400 shadow-xl' : 'opacity-70 hover:opacity-100'
                                         }`}
                                     >
-                                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                                            <div className="flex items-center gap-2.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-3">
                                                 {opt.icon}
-                                                <h4 className="text-sm font-black text-white">{opt.title}</h4>
+                                                <h4 className="text-base font-black text-white">{opt.title}</h4>
                                             </div>
                                             {isSel && (
                                                 <div className="w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center shrink-0">
@@ -992,7 +1059,6 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                                 </div>
                                             )}
                                         </div>
-                                        <p className="text-xs text-zinc-400">{opt.desc}</p>
                                     </button>
                                 );
                             })}
@@ -1003,11 +1069,9 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                     <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
                             <AlertTriangle size={20} className="text-amber-400 shrink-0" />
-                            <p className="text-xs sm:text-sm text-zinc-300 font-bold">
-                                Target: <span className="text-amber-300 font-black">
-                                    {audiobookTargetMode === 'all_books' ? 'All Audiobooks in Library' : (audiobookSelectedBookKey || 'No book selected')}
-                                </span>
-                            </p>
+                            <span className="text-sm font-black text-white truncate max-w-sm">
+                                {audiobookTargetMode === 'all_books' ? 'All Audiobooks' : (audiobookSelectedBookKey || 'Select an audiobook')}
+                            </span>
                         </div>
 
                         <div className="flex items-center gap-3">
@@ -1016,9 +1080,10 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                     type="button"
                                     disabled={audiobookTargetMode === 'single_book' && !audiobookSelectedBookKey}
                                     onClick={() => setAudiobookConfirmed(true)}
-                                    className="px-5 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-black border border-red-500/40 text-xs sm:text-sm font-black uppercase tracking-wider cursor-pointer disabled:opacity-40 transition-all"
+                                    className="px-5 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-black border border-red-500/40 text-sm font-black uppercase tracking-wider cursor-pointer disabled:opacity-40 transition-all"
+                                    title={`Purge selected ${audiobookScope} assets`}
                                 >
-                                    Clean {audiobookScope.toUpperCase()}
+                                    Purge {audiobookScope.toUpperCase()}
                                 </button>
                             ) : (
                                 <div className="flex items-center gap-2">
@@ -1026,6 +1091,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                         type="button"
                                         onClick={() => setAudiobookConfirmed(false)}
                                         className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold uppercase cursor-pointer"
+                                        title="Cancel operation"
                                     >
                                         Cancel
                                     </button>
@@ -1033,10 +1099,11 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                         type="button"
                                         disabled={cleaningAudiobooks}
                                         onClick={handleExecuteAudiobookClean}
-                                        className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                                        className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
+                                        title="Confirm purge"
                                     >
                                         {cleaningAudiobooks ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                                        Confirm Purge
+                                        Confirm
                                     </button>
                                 </div>
                             )}
@@ -1055,43 +1122,88 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             <div className="p-3.5 rounded-2xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
                                 <Database size={26} />
                             </div>
-                            <div>
-                                <h3 className="text-xl font-black text-white">Database Housekeeping</h3>
-                                <p className="text-sm text-zinc-400 font-semibold mt-0.5">SQLite database vacuum, log retention, and table maintenance</p>
-                            </div>
+                            <h3 className="text-xl font-black text-white">Database Housekeeping</h3>
                         </div>
 
                         {dbStats && (
-                            <span className="text-sm font-black text-purple-300 bg-purple-500/10 border border-purple-500/30 px-3.5 py-1.5 rounded-xl font-mono">
+                            <span className="text-base font-black text-purple-300 bg-purple-500/10 border border-purple-500/30 px-3.5 py-1.5 rounded-xl font-mono">
                                 {Math.round(dbStats.totalSizeBytes / (1024 * 1024))} MB
                             </span>
                         )}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Retention & Prune */}
-                        <div className="p-5 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-4">
-                            <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">Retention Policy</span>
-                            <div className="flex gap-3 items-center">
-                                <input
-                                    type="number"
-                                    min="1"
-                                    max="365"
-                                    value={retentionDays}
-                                    onChange={e => setRetentionDays(parseInt(e.target.value) || 30)}
-                                    className="w-24 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-sm font-black text-white text-center outline-none"
-                                    title="Retention window in days for search history and logs"
-                                />
-                                <span className="text-xs font-bold text-zinc-400">Days</span>
+                    {/* Master Auto-Housekeeping Switch */}
+                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4">
+                        <span className="text-base font-black text-white">Automated Housekeeping</span>
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                const next = !dbAutoCleanEnabled;
+                                setDbAutoCleanEnabled(next);
+                                await updateSetting('db_autoclean_enabled', String(next));
+                                toast.success(next ? 'Auto-Housekeeping Enabled' : 'Auto-Housekeeping Disabled');
+                            }}
+                            className={`w-14 h-7 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${dbAutoCleanEnabled ? 'bg-purple-600 shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'bg-zinc-800'}`}
+                            title={dbAutoCleanEnabled ? 'Disable automated database housekeeping' : 'Enable automated database housekeeping on schedule'}
+                        >
+                            <div className={`w-6 h-6 rounded-full bg-white transition-transform ${dbAutoCleanEnabled ? 'translate-x-7' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Auto Conditions: Retention Days & Size Limit */}
+                        <div className="p-5 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-black text-white">Retention Window</span>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="365"
+                                        value={retentionDays}
+                                        onChange={async e => {
+                                            const val = Math.max(1, parseInt(e.target.value) || 30);
+                                            setRetentionDays(val);
+                                            await updateSetting('db_retention_days', String(val));
+                                        }}
+                                        className="w-20 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-base font-black text-purple-400 text-center outline-none"
+                                        title="Days to retain network speed telemetry and search history"
+                                    />
+                                    <span className="text-xs font-bold text-zinc-400">Days</span>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-black text-white">Max Database Size</span>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="number"
+                                        min="50"
+                                        max="10000"
+                                        value={dbSizeLimitMB}
+                                        onChange={async e => {
+                                            const val = Math.max(50, parseInt(e.target.value) || 500);
+                                            setDbSizeLimitMB(val);
+                                            await updateSetting('db_size_limit_mb', String(val));
+                                        }}
+                                        className="w-20 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-base font-black text-purple-400 text-center outline-none"
+                                        title="Capacity threshold in MB before oldest records are pruned"
+                                    />
+                                    <span className="text-xs font-bold text-zinc-400">MB</span>
+                                </div>
+                            </div>
+
+                            {/* Clearly Separated Manual Trigger */}
+                            <div className="pt-2 border-t border-zinc-800">
                                 <button
                                     type="button"
                                     onClick={handleRunDbPrune}
                                     disabled={pruningDb}
-                                    className="p-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer ml-auto disabled:opacity-50"
-                                    title="Prune logs older than retention days and optimize SQLite database (VACUUM)"
+                                    className="w-full py-3 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all shadow-lg"
+                                    title="Prune records older than retention window and run SQLite VACUUM"
                                 >
-                                    {pruningDb ? <RefreshCw size={20} className="animate-spin" /> : <Trash2 size={20} />}
+                                    {pruningDb ? <RefreshCw size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                                    <span>Run Housekeeping Now</span>
                                 </button>
                             </div>
                         </div>

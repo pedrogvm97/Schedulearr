@@ -42,6 +42,7 @@ export interface CuratedVoiceProfile {
     tags: string[];
     pitchOffset: number;
     color: string;
+    modelName?: string;
 }
 
 // ── Column 1: Tone (Acoustic Clarity & Studio Mastering) ──
@@ -144,175 +145,98 @@ export const AUDIOBOOK_VOICE_TONE_PRESETS: CuratedVoiceProfile[] = [
     }
 ];
 
-// ── Column 2: Timbre (Custom Personas & Iconic Resonances) ──
+// ── Column 2: Neural Voice Personas (Authentic Edge Neural Models) ──
 export const AUDIOBOOK_VOICE_TIMBRE_PRESETS: CuratedVoiceProfile[] = [
     {
-        id: 'nelson_mandela',
-        name: 'Nelson Mandela',
-        subtitle: 'Wise Dignity & Moral Gravitas',
-        gender: 'male',
-        category: 'timbre',
-        type: 'timbre',
-        description: 'Profound statesman dignity, slow deliberate cadence, deep warm chest resonance, and reflective wisdom.',
-        tags: ['Wise Statesman', 'Deep Gravitas', 'Slow Measured Cadence'],
-        pitchOffset: -12,
-        color: 'from-amber-600 to-emerald-800'
-    },
-    {
-        id: 'mlk',
-        name: 'Martin Luther King Jr.',
-        subtitle: 'Resonant Oratorical Passion',
-        gender: 'male',
-        category: 'timbre',
-        type: 'timbre',
-        description: 'Melodic rhetorical rise and fall, commanding mid-baritone resonance, and stirring historical oratorical power.',
-        tags: ['Oratorical Power', 'Melodic Rhythm', 'Passionate Mid-Bass'],
-        pitchOffset: -8,
-        color: 'from-indigo-600 to-blue-900'
-    },
-    {
-        id: 'scarlett_johansson',
-        name: 'Scarlett Johansson',
-        subtitle: 'Intimate Velvet & Bedside Whisper',
+        id: 'ava_neural',
+        name: 'Ava Neural',
+        subtitle: 'Studio Intimate Storyteller',
         gender: 'female',
         category: 'timbre',
         type: 'timbre',
-        description: 'Silky close-mic presence, breathy subtle huskiness, intimate bedside storytelling tone, and velvet warmth.',
-        tags: ['Intimate Velvet', 'Breathy Whisper', 'Bedside', 'Sensual Warmth'],
-        pitchOffset: 2,
-        color: 'from-rose-500 to-pink-800'
+        description: 'Authentic neural voice model with velvety bedside intimacy, natural phrasing, and warm acoustic presence.',
+        tags: ['Female', 'US Accent', 'Neural TTS', 'Bedside Velvet'],
+        pitchOffset: 0,
+        color: 'from-rose-500 to-pink-800',
+        modelName: 'en-US-AvaNeural'
     },
     {
-        id: 'morgan_freeman',
-        name: 'Morgan Freeman',
-        subtitle: 'Authoritative Wisdom & Chest Rumble',
-        gender: 'male',
-        category: 'timbre',
-        type: 'timbre',
-        description: 'Deep authoritative resonance, warm baritone chest rumble, slow deliberate cadence, and iconic gravitas.',
-        tags: ['Authoritative', 'Deep Bass', 'Cinematic', 'Gravitas'],
-        pitchOffset: -11,
-        color: 'from-amber-600 to-yellow-800'
-    },
-    {
-        id: 'barack_obama',
-        name: 'Barack Obama',
-        subtitle: 'Melodic Rhetoric & Measured Cadence',
-        gender: 'male',
-        category: 'timbre',
-        type: 'timbre',
-        description: 'Melodic rhetorical cadence, signature deliberate pacing, warm mid-range baritone clarity, and measured gravitas.',
-        tags: ['Rhythmic', 'Oratorical', 'Warm Baritone', 'Measured'],
-        pitchOffset: -7,
-        color: 'from-blue-600 to-indigo-800'
-    },
-    {
-        id: 'attenborough',
-        name: 'Sir David Attenborough',
-        subtitle: 'Naturalist Wonder & British Cadence',
-        gender: 'male',
-        category: 'timbre',
-        type: 'timbre',
-        description: 'Quiet breathless wonder, precise BBC naturalist articulation, gentle grandfatherly warmth, and reverence.',
-        tags: ['British Accent', 'Naturalist', 'Quiet Wonder', 'Articulate'],
-        pitchOffset: -3,
-        color: 'from-emerald-600 to-teal-800'
-    },
-    {
-        id: 'tom_cruise',
-        name: 'Tom Cruise',
-        subtitle: 'Dynamic Cinematic Drive & Energy',
-        gender: 'male',
-        category: 'timbre',
-        type: 'timbre',
-        description: 'Crisp energetic articulation, commanding forward focus, charismatic cinematic drive, and confident pacing.',
-        tags: ['Cinematic Energy', 'Dynamic Drive', 'Confident Articulation'],
-        pitchOffset: 3,
-        color: 'from-red-600 to-amber-700'
-    },
-    {
-        id: 'ana_de_armas',
-        name: 'Ana de Armas',
-        subtitle: 'Soft Melodic Warmth & Intimacy',
+        id: 'sonia_neural',
+        name: 'Sonia Neural',
+        subtitle: 'Elegant British Narration',
         gender: 'female',
         category: 'timbre',
         type: 'timbre',
-        description: 'Soft expressive cadence, gentle breathy warmth, delicate melodic inflection, and intimate cinema tone.',
-        tags: ['Melodic Warmth', 'Delicate Presence', 'Intimate Cinema'],
-        pitchOffset: 5,
-        color: 'from-pink-500 to-purple-800'
+        description: 'Sophisticated British neural model with crisp BBC articulation, refined cadence, and aristocratic clarity.',
+        tags: ['Female', 'UK Accent', 'Neural TTS', 'Classic BBC'],
+        pitchOffset: 0,
+        color: 'from-purple-600 to-indigo-800',
+        modelName: 'en-GB-SoniaNeural'
     },
     {
-        id: 'jack_sparrow',
-        name: 'Captain Jack Sparrow',
-        subtitle: 'Whimsical Rogue Flair & Swashbuckler Charisma',
-        gender: 'male',
-        category: 'timbre',
-        type: 'timbre',
-        description: 'Eccentric pirate charm, slurred playful theatrical cadence, unpredictable rhythm, and whimsical rogue wit.',
-        tags: ['Swashbuckler', 'Pirate Charisma', 'Theatrical', 'Whimsical'],
-        pitchOffset: -1,
-        color: 'from-amber-600 to-red-800'
-    },
-    {
-        id: 'jon_snow',
-        name: 'Jon Snow',
-        subtitle: 'Brooding Heroic Northern Cadence',
-        gender: 'male',
-        category: 'timbre',
-        type: 'timbre',
-        description: 'Earnest northern British rasp, quiet stoic intensity, brooding vulnerability, and battle-hardened gravity.',
-        tags: ['Northern British', 'Stoic Hero', 'Brooding', 'Grit'],
-        pitchOffset: -4,
-        color: 'from-slate-600 to-zinc-900'
-    },
-    {
-        id: 'ygritte',
-        name: 'Ygritte',
-        subtitle: 'Wildling Spirit & Playful Husky Warmth',
+        id: 'emma_neural',
+        name: 'Emma Neural',
+        subtitle: 'Clear Storybook & Drama',
         gender: 'female',
         category: 'timbre',
         type: 'timbre',
-        description: 'Feisty northern lilt, fiery spirited cadence, husky playful rasp, and untamed adventurous resonance.',
-        tags: ['Northern Lilt', 'Husky Rasp', 'Wildling Spirit', 'Playful'],
-        pitchOffset: 3,
-        color: 'from-orange-500 to-red-800'
+        description: 'Expressive neural actress with melodic warmth, vibrant dialogue inflection, and exceptional character range.',
+        tags: ['Female', 'US Accent', 'Neural TTS', 'Expressive Drama'],
+        pitchOffset: 0,
+        color: 'from-pink-500 to-rose-700',
+        modelName: 'en-US-EmmaNeural'
     },
     {
-        id: 'robert_downey_jr',
-        name: 'Robert Downey Jr.',
-        subtitle: 'Charismatic Witty Cadence & Fast Presence',
+        id: 'jenny_neural',
+        name: 'Jenny Neural',
+        subtitle: 'Natural Expressive Voiceover',
+        gender: 'female',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Engaging, clear conversational neural delivery suitable for long-form literature and non-fiction.',
+        tags: ['Female', 'US Accent', 'Neural TTS', 'Natural'],
+        pitchOffset: 0,
+        color: 'from-teal-600 to-emerald-800',
+        modelName: 'en-US-JennyNeural'
+    },
+    {
+        id: 'christopher_neural',
+        name: 'Christopher Neural',
+        subtitle: 'Cinematic Baritone Depth',
         gender: 'male',
         category: 'timbre',
         type: 'timbre',
-        description: 'Rapid-fire witty articulation, magnetic charisma, sarcastic intellectual bite, and effortless narrative flair.',
-        tags: ['Charismatic Wit', 'Rapid-Fire', 'Intellectual', 'MCU Presence'],
-        pitchOffset: -2,
-        color: 'from-amber-500 to-rose-700'
+        description: 'Deep authoritative chest resonance with cinematic gravitas, commanding pacing, and moral weight.',
+        tags: ['Male', 'US Accent', 'Neural TTS', 'Cinematic Depth'],
+        pitchOffset: 0,
+        color: 'from-amber-600 to-yellow-800',
+        modelName: 'en-US-ChristopherNeural'
     },
     {
-        id: 'donald_trump',
-        name: 'Donald Trump',
-        subtitle: 'Iconic Emphatic Cadence & Rhythmic Inflection',
+        id: 'ryan_neural',
+        name: 'Ryan Neural',
+        subtitle: 'Natural British Storyteller',
         gender: 'male',
         category: 'timbre',
         type: 'timbre',
-        description: 'Distinctive punchy cadence, high-contrast dynamic inflection, repetitive oratorical cadence, and unmistakable presence.',
-        tags: ['Punchy Cadence', 'High Dynamic', 'Unmistakable', 'New York'],
-        pitchOffset: -3,
-        color: 'from-yellow-600 to-red-700'
+        description: 'Naturalist cadence with quiet wonder, articulate British consonants, and engaging documentary flair.',
+        tags: ['Male', 'UK Accent', 'Neural TTS', 'Naturalist'],
+        pitchOffset: 0,
+        color: 'from-emerald-600 to-teal-800',
+        modelName: 'en-GB-RyanNeural'
     },
     {
-        id: 'snoop_dogg',
-        name: 'Snoop Dogg',
-        subtitle: 'Ultra-Smooth West Coast Laid-Back Drawl',
+        id: 'guy_neural',
+        name: 'Guy Neural',
+        subtitle: 'Dynamic Broadcast Energy',
         gender: 'male',
         category: 'timbre',
         type: 'timbre',
-        description: 'Silky smooth conversational drawl, relaxed melodic delivery, rhythmic cadence, and effortlessly chill storytelling.',
-        tags: ['West Coast', 'Laid-Back Drawl', 'Smooth Melodic', 'Chill'],
-        pitchOffset: -5,
-        color: 'from-teal-600 to-emerald-900'
+        description: 'Charismatic, forward-focused narrative drive with clear broadcast projection and confident articulation.',
+        tags: ['Male', 'US Accent', 'Neural TTS', 'Dynamic Drive'],
+        pitchOffset: 0,
+        color: 'from-blue-600 to-indigo-800',
+        modelName: 'en-US-GuyNeural'
     }
 ];
 
@@ -325,9 +249,16 @@ export const CURATED_VOICE_PROFILES: CuratedVoiceProfile[] = ALL_AUDIOBOOK_VOICE
 
 export const getVoicePresetById = (id?: string): CuratedVoiceProfile => {
     if (!id) return AUDIOBOOK_VOICE_TONE_PRESETS[0];
-    const match = ALL_AUDIOBOOK_VOICE_PRESETS.find(p => p.id === id);
+    const match = ALL_AUDIOBOOK_VOICE_PRESETS.find(p => p.id === id || p.modelName === id);
     if (match) return match;
-    // Map legacy aliases
+    // Map legacy aliases to real neural models
+    if (id === 'scarlett_johansson' || id === 'ava') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[0];
+    if (id === 'ygritte' || id === 'sonia') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[1];
+    if (id === 'ana_de_armas' || id === 'emma') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[2];
+    if (id === 'jenny') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[3];
+    if (id === 'morgan_freeman' || id === 'nelson_mandela' || id === 'barack_obama' || id === 'mlk' || id === 'jon_snow' || id === 'christopher') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[4];
+    if (id === 'attenborough' || id === 'ryan') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[5];
+    if (id === 'tom_cruise' || id === 'robert_downey_jr' || id === 'jack_sparrow' || id === 'snoop_dogg' || id === 'donald_trump' || id === 'guy') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[6];
     if (id === 'denoise_clarity') return AUDIOBOOK_VOICE_TONE_PRESETS[0];
     if (id === 'warm_storyteller') return AUDIOBOOK_VOICE_TONE_PRESETS[1];
     if (id === 'deep_narrator') return AUDIOBOOK_VOICE_TONE_PRESETS[3];

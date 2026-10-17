@@ -8431,8 +8431,9 @@ function TheaterPageContent() {
                                         </button>
                                     </div>
 
-                                    {/* Row 2: Progress Meters below the Play Button row, stretching evenly across width */}
-                                    <div className="grid grid-cols-4 gap-2.5 w-full">
+                                    {/* Row 2: Progress Meters below the Play Button row (Overview only) */}
+                                    {bookModalTab === 'overview' && (
+                                        <div className="grid grid-cols-4 gap-2.5 w-full">
                                         <button
                                             onClick={() => {
                                                 setBookModalTab('generate');
@@ -8442,7 +8443,7 @@ function TheaterPageContent() {
                                             className="h-11 py-1.5 px-2 rounded-xl bg-zinc-900 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-black transition-all cursor-pointer shadow whitespace-nowrap overflow-hidden"
                                         >
                                             <FileText size={17} className="shrink-0" />
-                                            <span className="truncate">{transPct}% · {transCh}/{totalCh} Ch</span>
+                                            <span className="truncate">{transPct}%</span>
                                         </button>
 
                                         <button
@@ -8454,7 +8455,7 @@ function TheaterPageContent() {
                                             className="h-11 py-1.5 px-2 rounded-xl bg-zinc-900 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-black transition-all cursor-pointer shadow whitespace-nowrap overflow-hidden"
                                         >
                                             <Wand2 size={17} className="shrink-0" />
-                                            <span className="truncate">{scenedPct}% · {totalBookScenes} Sc</span>
+                                            <span className="truncate">{scenedPct}%</span>
                                         </button>
 
                                         <button
@@ -8466,7 +8467,7 @@ function TheaterPageContent() {
                                             className="h-11 py-1.5 px-2 rounded-xl bg-zinc-900 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-black transition-all cursor-pointer shadow whitespace-nowrap overflow-hidden"
                                         >
                                             <Sparkles size={17} className="shrink-0" />
-                                            <span className="truncate">{scenesArtPct}% · {totalBookScenes > 0 ? `${paintedScenes}/${totalBookScenes}` : `${illCh}/${totalCh}`} Img</span>
+                                            <span className="truncate">{scenesArtPct}%</span>
                                         </button>
 
                                         <button
@@ -8478,9 +8479,10 @@ function TheaterPageContent() {
                                             className="h-11 py-1.5 px-2 rounded-xl bg-zinc-900 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-black transition-all cursor-pointer shadow whitespace-nowrap overflow-hidden"
                                         >
                                             <Headphones size={17} className="shrink-0" />
-                                            <span className="truncate">{enhPct}% · {enhCh}/${totalCh} Ch</span>
+                                            <span className="truncate">{enhPct}%</span>
                                         </button>
                                     </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -9021,7 +9023,7 @@ function TheaterPageContent() {
                                                     <span>Scenes</span>
                                                 </div>
                                                 <span className={`text-xs font-mono font-black px-2 py-0.5 rounded-full ${bookModalAiSubTab === 'scening' ? 'bg-black/20 text-black' : 'bg-black/40 text-cyan-300'}`}>
-                                                    {totalBookScenes}
+                                                    {scenedPct}%
                                                 </span>
                                             </button>
 

@@ -121,8 +121,11 @@ export async function GET(req: Request) {
                 timeout: 6000
             });
             lrcData = getRes.data;
-        } catch {
+        } catch {}
+
+        if (!lrcData || !lrcData.syncedLyrics) {
             // If exact get failed, cascade through searchQueries variations
+            const targetSec = duration && !isNaN(Number(duration)) ? Number(duration) : null;
             for (const q of searchQueries) {
                 try {
                     const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, {
@@ -130,9 +133,21 @@ export async function GET(req: Request) {
                         timeout: 5000
                     });
                     if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
-                        // Prefer result with synced lyrics
-                        lrcData = searchRes.data.find((d: any) => d.syncedLyrics) || searchRes.data[0];
-                        break;
+                        const syncedItems = searchRes.data.filter((d: any) => Boolean(d.syncedLyrics));
+                        const pool = syncedItems.length > 0 ? syncedItems : searchRes.data;
+                        if (targetSec !== null) {
+                            pool.sort((a: any, b: any) => {
+                                const diffA = Math.abs((a.duration || 0) - targetSec);
+                                const diffB = Math.abs((b.duration || 0) - targetSec);
+                                return diffA - diffB;
+                            });
+                            // Select candidate matching track duration within 15 seconds
+                            const matched = pool.find((item: any) => Math.abs((item.duration || 0) - targetSec) <= 15);
+                            lrcData = matched || pool[0];
+                        } else {
+                            lrcData = pool[0];
+                        }
+                        if (lrcData?.syncedLyrics) break;
                     }
                 } catch {}
             }

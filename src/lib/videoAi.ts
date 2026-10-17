@@ -8,6 +8,7 @@ import {
     setSetting,
     getInstances,
     getTheaterLibraries,
+    getMediaCache,
     getVideoAiSubtitles,
     upsertVideoAiSubtitle,
     deleteVideoAiSubtitle,
@@ -490,6 +491,74 @@ export function getVideoAiQueueList(): VideoAiQueueItem[] {
 
     const queue: VideoAiQueueItem[] = [];
 
+    const instances = getInstances();
+
+    // Check Radarr instances (Movies)
+    for (const inst of instances) {
+        if (inst.type === 'radarr' && inst.enabled) {
+            const isLibEnabled = enabledLibs.some(l => l.id === inst.id);
+            if (!isLibEnabled) continue;
+            const cachedMovies = getMediaCache(inst.id, 'radarr_movies') || [];
+            for (const m of cachedMovies) {
+                const videoPath = m.movieFile?.path || (m.hasFile && m.path ? m.path : null);
+                if (!videoPath) continue;
+                if (existingSubVideoPaths.has(videoPath.toLowerCase())) continue;
+
+                // Also check if companion .srt/.vtt file already exists next to video
+                const srtPath = videoPath.replace(/\.[^/.]+$/, '.srt');
+                const vttPath = videoPath.replace(/\.[^/.]+$/, '.vtt');
+                const enSrtPath = videoPath.replace(/\.[^/.]+$/, '.en.srt');
+                if (fs.existsSync(srtPath) || fs.existsSync(vttPath) || fs.existsSync(enSrtPath)) {
+                    continue;
+                }
+
+                queue.push({
+                    id: `q_movie_${inst.id}_${m.id}`,
+                    videoPath,
+                    mediaTitle: m.title || path.basename(videoPath, path.extname(videoPath)),
+                    mediaType: 'movie',
+                    libraryId: inst.id,
+                    libraryName: inst.name || 'Movies',
+                    sizeBytes: m.movieFile?.size || 0,
+                    addedTimestamp: m.added ? new Date(m.added).getTime() : Date.now(),
+                    priorityRank: 1,
+                    status: 'queued'
+                });
+            }
+        } else if (inst.type === 'sonarr' && inst.enabled) {
+            const isLibEnabled = enabledLibs.some(l => l.id === inst.id);
+            if (!isLibEnabled) continue;
+            const cachedSeries = getMediaCache(inst.id, 'sonarr_series') || [];
+            for (const s of cachedSeries) {
+                if (Array.isArray(s.episodes)) {
+                    for (const ep of s.episodes) {
+                        const videoPath = ep.episodeFile?.path;
+                        if (!videoPath) continue;
+                        if (existingSubVideoPaths.has(videoPath.toLowerCase())) continue;
+                        const srtPath = videoPath.replace(/\.[^/.]+$/, '.srt');
+                        const vttPath = videoPath.replace(/\.[^/.]+$/, '.vtt');
+                        const enSrtPath = videoPath.replace(/\.[^/.]+$/, '.en.srt');
+                        if (fs.existsSync(srtPath) || fs.existsSync(vttPath) || fs.existsSync(enSrtPath)) {
+                            continue;
+                        }
+                        queue.push({
+                            id: `q_ep_${inst.id}_${ep.id}`,
+                            videoPath,
+                            mediaTitle: `${s.title} - S${String(ep.seasonNumber || 1).padStart(2, '0')}E${String(ep.episodeNumber || 1).padStart(2, '0')}`,
+                            mediaType: 'episode',
+                            libraryId: inst.id,
+                            libraryName: inst.name || 'TV Shows',
+                            sizeBytes: ep.episodeFile?.size || 0,
+                            addedTimestamp: ep.episodeFile?.dateAdded ? new Date(ep.episodeFile.dateAdded).getTime() : Date.now(),
+                            priorityRank: 1,
+                            status: 'queued'
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     // Check DVR folder if enabled
     const dvrEnabled = enabledLibs.some(l => l.type === 'iptv_dvr');
     if (dvrEnabled) {
@@ -537,4 +606,29 @@ export function getVideoAiQueueList(): VideoAiQueueItem[] {
         ...item,
         priorityRank: idx + 1
     }));
+}
+
+let isVideoAiWorkerRunning = false;
+
+export async function triggerVideoAiQueueWorker(): Promise<void> {
+    if (isVideoAiWorkerRunning) return;
+    try {
+        const queue = getVideoAiQueueList();
+        if (queue.length === 0) return;
+        const target = queue[0];
+        isVideoAiWorkerRunning = true;
+        console.log(`[VideoAI] Processing automated subtitle for "${target.mediaTitle}"...`);
+        await processVideoSubtitleLocallyOnCpu({
+            videoPath: target.videoPath,
+            mediaTitle: target.mediaTitle,
+            libraryId: target.libraryId,
+            libraryName: target.libraryName,
+            mediaType: target.mediaType,
+            targetLang: 'en'
+        });
+    } catch (e) {
+        console.error('[VideoAI] Worker error:', e);
+    } finally {
+        isVideoAiWorkerRunning = false;
+    }
 }

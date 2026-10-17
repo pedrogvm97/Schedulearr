@@ -22,6 +22,8 @@ export interface AudiobookSettingsModalProps {
     bookTitle: string;
     selectedVoicePreset: string;
     onSelectVoicePreset: (presetId: string) => void;
+    selectedPersonas?: string[];
+    onTogglePersona?: (personaId: string) => void;
     currentArtStyle?: string;
     onSelectArtStyle?: (style: string) => void;
 }
@@ -44,6 +46,8 @@ export const AudiobookSettingsModal: React.FC<AudiobookSettingsModalProps> = ({
     bookTitle,
     selectedVoicePreset,
     onSelectVoicePreset,
+    selectedPersonas,
+    onTogglePersona,
     currentArtStyle = 'Auto',
     onSelectArtStyle
 }) => {
@@ -137,6 +141,8 @@ export const AudiobookSettingsModal: React.FC<AudiobookSettingsModalProps> = ({
                             <AudiobookVoiceSelector
                                 selectedPreset={selectedVoicePreset}
                                 onSelectPreset={onSelectVoicePreset}
+                                selectedPersonas={selectedPersonas}
+                                onTogglePersona={onTogglePersona}
                             />
                         )}
 

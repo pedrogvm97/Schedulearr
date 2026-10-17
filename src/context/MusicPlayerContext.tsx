@@ -30,6 +30,7 @@ import { MusicDownloadModal } from '@/components/MusicDownloadModal';
 import { AudiobookVoiceSelector } from '@/components/AudiobookVoiceSelector';
 import { AudiobookSettingsModal } from '@/components/AudiobookSettingsModal';
 import { AudiobookExportModal } from '@/components/AudiobookExportModal';
+import { AUDIOBOOK_VOICE_TIMBRE_PRESETS, AUDIOBOOK_VOICE_TONE_PRESETS } from '@/lib/audiobookStudioShared';
 import { logClientEvent } from '@/lib/clientLogger';
 
 export interface MediaItem {
@@ -4181,6 +4182,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         <AudiobookVoiceSelector
                             selectedPreset={selectedVoicePreset}
                             onSelectPreset={(pId) => handleSwitchProcessedVoice(pId, 'live')}
+                            selectedPersonas={Array.isArray(audiobookBookMeta?.active_personas) ? audiobookBookMeta.active_personas : (Array.isArray((audiobookBookMeta as any)?.activePersonas) ? (audiobookBookMeta as any).activePersonas : [selectedVoicePreset || 'original'])}
+                            onTogglePersona={(pId) => {
+                                const rawList: string[] = Array.isArray(audiobookBookMeta?.active_personas) ? audiobookBookMeta.active_personas : (Array.isArray((audiobookBookMeta as any)?.activePersonas) ? (audiobookBookMeta as any).activePersonas : [selectedVoicePreset || 'original']);
+                                const cur = new Set(rawList);
+                                if (cur.has(pId)) cur.delete(pId);
+                                else cur.add(pId);
+                                const nextArr = Array.from(cur);
+                                const safeArr = nextArr.length > 0 ? nextArr : ['original'];
+                                handleUpdateInPlayerBookSettings({ activePersonas: safeArr, voicePersona: pId });
+                                handleSwitchProcessedVoice(pId, 'live');
+                            }}
                         />
                     </div>
                 </div>
@@ -4477,10 +4489,239 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             const currentBookKey = audiobookBookMeta?.book_key || (playingAudio as any).bookKey || '';
                             const editBookHref = `/discover?tab=audiobooks${currentBookKey ? `&bookKey=${encodeURIComponent(currentBookKey)}` : ''}`;
 
+                            const activeReaderCh = audiobookChapterMeta;
+                            const fullLines = activeReaderCh?.synced_lyrics
+                                ? parseLrcStringToLines(activeReaderCh.synced_lyrics)
+                                : (lyricsData?.lines || []);
+                            const currentActiveLine = fullLines.length > 0 && currentLyricIndex >= 0 && currentLyricIndex < fullLines.length
+                                ? fullLines[currentLyricIndex]
+                                : (lyricsData?.lines?.[currentLyricIndex] || null);
+
+                            if (isMinimalistVinylMode) {
+                                return (
+                                    <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-between w-full h-full max-w-6xl mx-auto py-2 px-1 select-none overflow-hidden gap-3 animate-in fade-in duration-300">
+                                        {/* Top Bar: Book Title + Switch to Extended Studio View */}
+                                        <div className="w-full flex items-center justify-between px-4 py-2 bg-zinc-950/80 backdrop-blur-md rounded-2xl border border-zinc-800/80 shrink-0">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                                                <div className="min-w-0">
+                                                    <h2 className="text-base sm:text-lg font-black text-white truncate leading-tight">
+                                                        {playingAudio.album || playingAudio.folder || playingAudio.title}
+                                                    </h2>
+                                                    <p className="text-xs sm:text-sm font-semibold text-zinc-400 truncate">
+                                                        {playingAudio.title} {audiobookBookMeta?.canonical_author ? `• ${audiobookBookMeta.canonical_author}` : ''}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <span className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-amber-300 hidden sm:inline-block">
+                                                    {currentPrimaryArtBadge}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsMinimalistVinylMode(false)}
+                                                    className="p-2 sm:p-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-xl shadow-lg shadow-amber-500/20 transition-all cursor-pointer hover:scale-105 active:scale-95"
+                                                    title="Switch to Extended Studio View"
+                                                >
+                                                    <Maximize2 size={18} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Giant Cinema Visual Stage with Overlaid Subtitles */}
+                                        <div className="relative flex-1 w-full min-h-0 rounded-3xl overflow-hidden border-2 border-zinc-800 bg-black flex items-center justify-center shadow-2xl group/stage">
+                                            {/* Ambient Blurred Background Art */}
+                                            {currentPrimaryArtUrl && (
+                                                <div
+                                                    className="absolute inset-0 bg-cover bg-center blur-3xl opacity-25 scale-110 pointer-events-none"
+                                                    style={{ backgroundImage: `url(${currentPrimaryArtUrl})` }}
+                                                />
+                                            )}
+
+                                            {/* Hero Artwork Image */}
+                                            {currentPrimaryArtUrl ? (
+                                                <img
+                                                    src={currentPrimaryArtUrl}
+                                                    alt=""
+                                                    className="relative z-10 w-full h-full object-contain pointer-events-none transition-all duration-700"
+                                                />
+                                            ) : (
+                                                <div className="relative z-10 w-full h-full flex flex-col items-center justify-center text-zinc-600 gap-4">
+                                                    <BookOpen size={64} className="text-amber-500/40" />
+                                                </div>
+                                            )}
+
+                                            {/* Scene Browsing Arrows (Previous / Next) */}
+                                            {totalScenes > 1 && (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setBrowsedSceneIdx(Math.max(0, currentBrowsedIdx - 1));
+                                                        }}
+                                                        disabled={currentBrowsedIdx <= 0}
+                                                        className="absolute left-4 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white border border-white/10 backdrop-blur-md transition-all cursor-pointer disabled:opacity-0 disabled:pointer-events-none shadow-xl hover:scale-110"
+                                                        title="Previous Scene"
+                                                    >
+                                                        <ChevronLeft size={28} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setBrowsedSceneIdx(Math.min(totalScenes - 1, currentBrowsedIdx + 1));
+                                                        }}
+                                                        disabled={currentBrowsedIdx >= totalScenes - 1}
+                                                        className="absolute right-4 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white border border-white/10 backdrop-blur-md transition-all cursor-pointer disabled:opacity-0 disabled:pointer-events-none shadow-xl hover:scale-110"
+                                                        title="Next Scene"
+                                                    >
+                                                        <ChevronRight size={28} />
+                                                    </button>
+                                                </>
+                                            )}
+
+                                            {/* Overlaid Prominent Subtitles Bar */}
+                                            <div className="absolute inset-x-0 bottom-0 z-20 p-4 sm:p-6 bg-gradient-to-t from-black/95 via-black/80 to-transparent flex flex-col items-center justify-end pointer-events-none">
+                                                <div className="w-full max-w-4xl text-center px-5 py-3.5 bg-black/70 backdrop-blur-xl rounded-2xl border border-white/15 shadow-2xl">
+                                                    {currentActiveLine ? (
+                                                        <p className="text-lg sm:text-2xl md:text-3xl font-black text-amber-300 leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] animate-in fade-in duration-200">
+                                                            {currentActiveLine.text}
+                                                        </p>
+                                                    ) : (
+                                                        <p className="text-sm sm:text-base font-semibold text-zinc-400 italic">
+                                                            {playingAudio.title}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Minimal Playback Controls & Audio Options */}
+                                        <div className="w-full max-w-4xl bg-zinc-950/90 backdrop-blur-xl border border-zinc-800/90 rounded-2xl px-5 py-3 shadow-2xl space-y-2 shrink-0">
+                                            {/* Seekbar */}
+                                            <div className="space-y-1">
+                                                <input
+                                                    type="range"
+                                                    min={0}
+                                                    max={effectiveDuration || 100}
+                                                    value={audioCurrentTime}
+                                                    onChange={e => seekTo(Number(e.target.value))}
+                                                    className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                                />
+                                                <div className="flex justify-between text-xs font-mono text-zinc-400 font-bold">
+                                                    <span>{formatTime(audioCurrentTime)}</span>
+                                                    <span>-{formatTime(Math.max(0, (effectiveDuration || 0) - audioCurrentTime))}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Controls Row */}
+                                            <div className="flex items-center justify-between gap-3 pt-1">
+                                                {/* Audio Options: Speed & Narrator */}
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={cyclePlaybackSpeed}
+                                                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-mono font-black text-xs sm:text-sm cursor-pointer transition-all"
+                                                        title={`Cycle Playback Speed: ${playbackSpeed}x`}
+                                                    >
+                                                        {playbackSpeed}x
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowVoiceMenuPopup(prev => !prev)}
+                                                        className={`p-2 sm:px-3 sm:py-1.5 rounded-xl border cursor-pointer transition-all flex items-center gap-1.5 ${
+                                                            selectedVoicePreset !== 'original'
+                                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                                        }`}
+                                                        title={`Narrator: ${selectedVoicePreset.replace(/_/g, ' ')}`}
+                                                    >
+                                                        <Mic2 size={16} className="text-amber-400" />
+                                                        <span className="hidden sm:inline text-xs font-bold capitalize">
+                                                            {selectedVoicePreset.replace(/_/g, ' ').replace('neural', '')}
+                                                        </span>
+                                                    </button>
+                                                </div>
+
+                                                {/* Transport: Prev, Rewind 15s, Play/Pause, Forward 30s, Next */}
+                                                <div className="flex items-center gap-2 sm:gap-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={prevTrack}
+                                                        className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer transition-all"
+                                                        title="Previous Chapter"
+                                                    >
+                                                        <SkipBack size={18} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => skipSeconds(-15)}
+                                                        className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 cursor-pointer transition-all"
+                                                        title="Rewind 15 seconds"
+                                                    >
+                                                        <RotateCcw size={18} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={togglePlayPause}
+                                                        className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/25 cursor-pointer transition-transform active:scale-95"
+                                                        title={isAudioPlaying ? 'Pause' : 'Play'}
+                                                    >
+                                                        {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
+                                                            <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                                        ) : isAudioPlaying ? (
+                                                            <Pause size={24} />
+                                                        ) : (
+                                                            <Play size={24} className="ml-0.5" />
+                                                        )}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => skipSeconds(30)}
+                                                        className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 cursor-pointer transition-all"
+                                                        title="Forward 30 seconds"
+                                                    >
+                                                        <RotateCcw size={18} className="scale-x-[-1]" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={nextTrack}
+                                                        className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer transition-all"
+                                                        title="Next Chapter"
+                                                    >
+                                                        <SkipForward size={18} />
+                                                    </button>
+                                                </div>
+
+                                                {/* Volume */}
+                                                <div className="flex items-center gap-2">
+                                                    <button type="button" onClick={toggleMute} className="text-zinc-400 hover:text-white cursor-pointer" title="Mute or unmute">
+                                                        {isAudioMuted || audioVolume === 0 ? <VolumeX size={16} className="text-rose-400" /> : <Volume2 size={16} />}
+                                                    </button>
+                                                    <input
+                                                        type="range"
+                                                        min={0}
+                                                        max={1}
+                                                        step={0.01}
+                                                        value={isAudioMuted ? 0 : audioVolume}
+                                                        onChange={e => handleVolumeChange(Number(e.target.value))}
+                                                        className="w-16 sm:w-20 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                                        title="Playback Volume"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            }
+
                             return (
                                 <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-2 overflow-hidden">
                                     {/* ── LEFT PANEL: AUDIOBOOK PLAYER, QUICK PLAYBACK SETTINGS & CHAPTERS ── */}
-                                    <div className="col-span-1 lg:col-span-5 xl:col-span-4 h-full max-h-full flex flex-col bg-zinc-950/90 border border-zinc-800/90 rounded-[2rem] p-4 sm:p-5 shadow-2xl space-y-4 min-h-0 overflow-hidden">
+                                    <div className="col-span-1 lg:col-span-4 xl:col-span-3 h-full max-h-full flex flex-col bg-zinc-950/90 border border-zinc-800/90 rounded-[2rem] p-4 sm:p-5 shadow-2xl space-y-4 min-h-0 overflow-hidden">
                                         {/* Top Header Bar: Player & Chapters + Link to Media Tab Studio */}
                                         <div className="flex items-center justify-between gap-2 p-1.5 bg-zinc-900 rounded-2xl border border-zinc-800 shrink-0 pr-24 lg:pr-1.5">
                                             <div className="py-2 px-3 rounded-xl bg-amber-500 text-black text-sm font-black tracking-wide flex items-center gap-2 shadow-md">
@@ -4757,7 +4998,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     </div>
 
                                     {/* ── RIGHT STAGE: STORYBOARD / PICTUREBOOK + LIVE / FULL TRANSCRIPT ── */}
-                                    <div className="col-span-1 lg:col-span-7 xl:col-span-8 h-full max-h-full flex flex-col bg-zinc-950/90 border border-zinc-800/90 rounded-[2rem] p-4 sm:p-6 shadow-2xl space-y-4 min-h-0 overflow-hidden">
+                                    <div className="col-span-1 lg:col-span-8 xl:col-span-9 h-full max-h-full flex flex-col bg-zinc-950/90 border border-zinc-800/90 rounded-[2rem] p-4 sm:p-6 shadow-2xl space-y-4 min-h-0 overflow-hidden">
                                         {!audiobookTranscriptExpanded && (
                                             <>
                                                 {/* Top View Switcher: Storyboard (3-Card Carousel) | Live Art | Story Gallery */}
@@ -4854,6 +5095,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             <Download size={22} />
                                                         </button>
 
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIsMinimalistVinylMode(true)}
+                                                            className="p-2.5 sm:p-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                                            title="Switch to Cinema Picture Mode (Big Artwork & Subtitles)"
+                                                        >
+                                                            <Minimize2 size={22} />
+                                                        </button>
+
                                                         <span className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs sm:text-sm font-bold text-amber-300">
                                                             {currentPrimaryArtBadge}
                                                         </span>
@@ -4887,7 +5137,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 </div>
                                                             </div>
 
-                                                            <div className="flex-1 max-w-xl h-full max-h-[36vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden relative shadow-[0_20px_60px_rgba(0,0,0,0.85)] z-20 flex items-center justify-center group">
+                                                            <div className="flex-1 max-w-4xl h-full max-h-[58vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden relative shadow-[0_20px_60px_rgba(0,0,0,0.85)] z-20 flex items-center justify-center group">
                                                                 {currentPrimaryArtUrl ? (
                                                                     <img
                                                                         src={currentPrimaryArtUrl}
@@ -4961,7 +5211,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         </div>
                                                     ) : audiobookStageMode === 'live_art' ? (
                                                         <div className="w-full h-full flex items-center justify-center p-2 overflow-hidden">
-                                                            <div className="relative h-full max-h-[42vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden shadow-2xl group">
+                                                            <div className="relative h-full flex-1 max-h-[58vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden shadow-2xl group">
                                                                 {currentPrimaryArtUrl ? (
                                                                     <img src={currentPrimaryArtUrl} alt={playingAudio.title} className="w-full h-full object-cover" />
                                                                 ) : (
@@ -5134,7 +5384,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             const transcribedChaps = audiobookAllChaptersMeta.filter((c: any) => (c.synced_lyrics && c.synced_lyrics.trim().length > 10) || (c.plain_transcript && c.plain_transcript.trim().length > 10));
 
                                             return (
-                                                <div className={`${audiobookTranscriptExpanded ? 'flex-1 h-full' : 'h-[36%] min-h-[185px]'} bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 flex flex-col overflow-hidden shrink-0 transition-all`}>
+                                                <div className={`${audiobookTranscriptExpanded ? 'flex-1 h-full' : 'h-[26%] min-h-[140px] max-h-[200px]'} bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 flex flex-col overflow-hidden shrink-0 transition-all`}>
                                                     <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-zinc-800/80 shrink-0">
                                                         <div className="flex items-center gap-2 flex-wrap">
                                                             <span className="text-sm font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
@@ -6817,16 +7067,25 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                                         <div className="p-3.5 bg-zinc-900/50 rounded-2xl border border-zinc-800 space-y-3">
                                                             <label className="block text-xs font-black uppercase tracking-wider text-zinc-300">
-                                                                Narrator Voice Timbre / Pitch Preset (For This Book)
+                                                                Neural Narrator Personas
                                                             </label>
                                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                                {[
-                                                                    { id: 'original', label: 'Original Voice + Clean Noise', desc: 'Removes tape hiss/hum & boosts vocal clarity' },
-                                                                    { id: 'deep_narrator', label: 'Deep Resonant Narrator', desc: 'Warmer, deeper baritone timbre (-8% pitch)' },
-                                                                    { id: 'warm_storyteller', label: 'Warm Fireside Storyteller', desc: 'Rich chest resonance & smooth treble (-4% pitch)' },
-                                                                    { id: 'crisp_clear', label: 'Crisp Articulation', desc: 'Enhanced consonant definition for muffled tapes' },
-                                                                    { id: 'soft_velvet', label: 'Soft Velvet Reader', desc: 'Gentle slightly higher timbre (+5% pitch) & de-essed' },
-                                                                ].map(preset => (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setSelectedVoicePreset('original');
+                                                                        handleUpdateInPlayerBookSettings({ voicePreset: 'original' });
+                                                                    }}
+                                                                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                                                                        selectedVoicePreset === 'original'
+                                                                            ? 'bg-amber-500/20 border-amber-500/50 text-white'
+                                                                            : 'bg-zinc-950/70 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
+                                                                    }`}
+                                                                >
+                                                                    <div className="text-xs font-black text-amber-300">Original Narrator</div>
+                                                                    <div className="text-[10px] text-zinc-400 mt-0.5">Author / Studio cast recording</div>
+                                                                </button>
+                                                                {AUDIOBOOK_VOICE_TIMBRE_PRESETS.map(preset => (
                                                                     <button
                                                                         key={preset.id}
                                                                         type="button"
@@ -6836,12 +7095,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                         }}
                                                                         className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                                                                             selectedVoicePreset === preset.id
-                                                                                ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
+                                                                                ? 'bg-amber-500/20 border-amber-500/50 text-white'
                                                                                 : 'bg-zinc-950/70 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
                                                                         }`}
                                                                     >
-                                                                        <div className="text-xs font-black text-emerald-300">{preset.label}</div>
-                                                                        <div className="text-[10px] text-zinc-400 mt-0.5">{preset.desc}</div>
+                                                                        <div className="flex items-center justify-between gap-1">
+                                                                            <span className="text-xs font-black text-amber-300">{preset.name}</span>
+                                                                            {preset.modelName && (
+                                                                                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-zinc-800 text-amber-400 border border-amber-500/30">
+                                                                                    {preset.modelName}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-[10px] text-zinc-400 mt-0.5 truncate">{preset.subtitle}</div>
                                                                     </button>
                                                                 ))}
                                                             </div>
@@ -6851,15 +7117,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 <div className="p-3 bg-zinc-950/80 rounded-2xl border border-emerald-500/30 space-y-2">
                                                                     <div className="flex items-center justify-between">
                                                                         <span className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
-                                                                            <Mic2 size={13} /> Processed Voices on Server (Instant Swap)
+                                                                            <Mic2 size={13} /> Processed Voices on Server
                                                                         </span>
                                                                         <span className="text-[10px] font-mono text-zinc-400">
                                                                             {Object.keys(audiobookChapterMeta.processed_voices).length} Ready
                                                                         </span>
                                                                     </div>
-                                                                    <p className="text-[11px] text-zinc-400">
-                                                                        Switch audio stream instantly between processed narrator voices:
-                                                                    </p>
                                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                                                                         <button
                                                                             type="button"
@@ -10281,6 +10544,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 selectedVoicePreset={selectedVoicePreset}
                 onSelectVoicePreset={(presetId) => {
                     handleSwitchProcessedVoice(presetId);
+                }}
+                selectedPersonas={Array.isArray(audiobookBookMeta?.active_personas) ? audiobookBookMeta.active_personas : (Array.isArray((audiobookBookMeta as any)?.activePersonas) ? (audiobookBookMeta as any).activePersonas : [selectedVoicePreset || 'original'])}
+                onTogglePersona={(pId) => {
+                    const rawList: string[] = Array.isArray(audiobookBookMeta?.active_personas) ? audiobookBookMeta.active_personas : (Array.isArray((audiobookBookMeta as any)?.activePersonas) ? (audiobookBookMeta as any).activePersonas : [selectedVoicePreset || 'original']);
+                    const cur = new Set(rawList);
+                    if (cur.has(pId)) cur.delete(pId);
+                    else cur.add(pId);
+                    const nextArr = Array.from(cur);
+                    const safeArr = nextArr.length > 0 ? nextArr : ['original'];
+                    handleUpdateInPlayerBookSettings({ activePersonas: safeArr, voicePersona: pId });
+                    handleSwitchProcessedVoice(pId, 'live');
                 }}
             />
 

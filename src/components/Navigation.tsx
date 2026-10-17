@@ -176,30 +176,30 @@ export function Navigation() {
                         </div>
                     </Link>
 
-                    {/* Clean Wrapped Desktop Items */}
-                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+                    {/* Clean Non-Wrapping Top Navigation */}
+                    <div className="flex items-center gap-1 sm:gap-2 flex-nowrap shrink-0 justify-end">
                         {allNavItems.map(item => {
                             const active = pathname === item.href;
                             return (
                                 <Link 
                                     key={item.href} 
                                     href={item.href}
-                                    title={item.title}
-                                    className={`flex items-center gap-2.5 px-4 py-2.5 text-sm font-black rounded-xl transition-all ${
+                                    title={item.title || item.label}
+                                    className={`relative flex items-center justify-center p-2.5 sm:px-3 sm:py-2.5 text-sm font-black rounded-xl transition-all shrink-0 ${
                                         active 
-                                            ? 'text-white bg-zinc-900 border border-zinc-700/60 shadow-lg shadow-black/40' 
+                                            ? 'text-white bg-zinc-900 border border-zinc-700/60 shadow-lg shadow-black/40 scale-105' 
                                             : 'text-zinc-300 hover:text-white hover:bg-zinc-900/50 border border-transparent'
                                     }`}
                                 >
-                                    <span>{item.icon(active)}</span>
-                                    <span className="tracking-tight">{item.label}</span>
+                                    <span className="shrink-0">{item.icon(active)}</span>
+                                    <span className="hidden 2xl:inline tracking-tight ml-2">{item.label}</span>
                                     {item.href === '/tasks' && totalTasksCount > 0 && (
-                                        <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-amber-500 text-black text-xs font-black flex items-center justify-center animate-pulse">
+                                        <span className="min-w-[20px] h-[20px] px-1 rounded-full bg-amber-500 text-black text-[11px] font-black flex items-center justify-center animate-pulse shadow-md ml-1.5">
                                             {totalTasksCount}
                                         </span>
                                     )}
                                     {item.href === '/downloads' && activeMusicCount > 0 && (
-                                        <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-sky-400 text-black text-xs font-black flex items-center justify-center animate-pulse">
+                                        <span className="min-w-[20px] h-[20px] px-1 rounded-full bg-sky-400 text-black text-[11px] font-black flex items-center justify-center animate-pulse shadow-md ml-1.5">
                                             {activeMusicCount}
                                         </span>
                                     )}
