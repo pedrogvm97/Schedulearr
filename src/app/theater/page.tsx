@@ -8156,7 +8156,8 @@ function TheaterPageContent() {
             {selectedAudiobook && (() => {
                 const bKey = (selectedAudiobook as any).bookKey || `${selectedAudiobook.author || 'Unknown Author'} - ${selectedAudiobook.title}`.toLowerCase().trim();
                 const bMeta = audiobooksStudioMap[bKey];
-                const totalCh = Math.max(1, bMeta?.total_chapters || selectedAudiobook.chapters.length || 1);
+                const safeChapters = Array.isArray(selectedAudiobook?.chapters) ? selectedAudiobook.chapters : [];
+                const totalCh = Math.max(1, bMeta?.total_chapters || safeChapters.length || 1);
                 const transCh = bMeta?.transcribed_chapters || 0;
                 const illCh = bMeta?.illustrated_chapters || 0;
                 const enhCh = bMeta?.enhanced_chapters || 0;
@@ -8172,14 +8173,14 @@ function TheaterPageContent() {
                         0
                     )
                 );
-                const scenedCh = selectedAudiobook.chapters.reduce((acc: number, ch: any, idx: number) => {
+                const scenedCh = safeChapters.reduce((acc: number, ch: any, idx: number) => {
                     const cKey = `${bKey}::ch${idx + 1}`;
                     const cMeta = audiobookChaptersStudioMap[cKey] || audiobookChaptersStudioMap[(ch as any).chapterKey] || audiobookChaptersStudioMap[ch.id];
                     const sc = (cMeta?.images || []).filter((im: any) => im.kept !== false);
                     return acc + (sc.length > 0 ? 1 : 0);
                 }, 0);
                 const scenedPct = totalCh > 0 ? Math.min(100, Math.round((scenedCh / totalCh) * 100)) : 0;
-                const paintedScenes = selectedAudiobook.chapters.reduce((acc: number, ch: any, idx: number) => {
+                const paintedScenes = safeChapters.reduce((acc: number, ch: any, idx: number) => {
                     const cKey = `${bKey}::ch${idx + 1}`;
                     const cMeta = audiobookChaptersStudioMap[cKey] || audiobookChaptersStudioMap[(ch as any).chapterKey] || audiobookChaptersStudioMap[ch.id];
                     const painted = (cMeta?.images || []).filter((im: any) => im.kept !== false && im.url && !String(im.url).toLowerCase().includes('.svg') && !im.url.startsWith('data:image/svg'));
@@ -8277,7 +8278,7 @@ function TheaterPageContent() {
                                             </span>
                                         )}
                                         <span className="px-3 py-1 rounded-xl bg-zinc-900 text-zinc-300 text-xs sm:text-sm font-mono font-bold">
-                                            {selectedAudiobook.chapters.length} {selectedAudiobook.chapters.length === 1 ? 'Ch' : 'Chapters'}
+                                            {safeChapters.length} {safeChapters.length === 1 ? 'Ch' : 'Chapters'}
                                         </span>
                                         {selectedAudiobook.totalDurationMs > 0 && (
                                             <span className="px-3 py-1 rounded-xl bg-zinc-900 text-zinc-300 text-xs sm:text-sm font-mono font-bold">
@@ -8341,14 +8342,14 @@ function TheaterPageContent() {
                                     {/* Row 1: Action Controls (Play, Bedside, Finished, Grade Star, Settings Sliders) */}
                                     <div className="grid grid-cols-5 gap-2.5 w-full">
                                         <button
-                                            disabled={selectedAudiobook.chapters.length === 0}
+                                            disabled={safeChapters.length === 0}
                                             onClick={() => {
-                                                if (selectedAudiobook.chapters.length > 0) {
+                                                if (safeChapters.length > 0) {
                                                     handleUpdateBookReadingState(selectedAudiobook, {
                                                         readingStatus: 'ongoing',
                                                         onBedsideTable: true
                                                     });
-                                                    handlePlayAlbum(selectedAudiobook.chapters);
+                                                    handlePlayAlbum(safeChapters);
                                                     closeAudiobookModal();
                                                     openExpandedPlayer();
                                                 }
@@ -8811,11 +8812,11 @@ function TheaterPageContent() {
                                 <div className="space-y-3 pt-1">
                                     <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                                         <BookMarked size={16} className="text-orange-400" />
-                                        Chapters ({selectedAudiobook.chapters.length})
+                                        Chapters ({safeChapters.length})
                                     </h3>
 
                                     <div className="divide-y divide-zinc-900/80 bg-zinc-950/60 rounded-3xl border border-zinc-900 overflow-hidden">
-                                        {selectedAudiobook.chapters.map((ch, idx) => {
+                                        {safeChapters.map((ch, idx) => {
                                             const cKey = `${bKey}::ch${idx + 1}`;
                                             const cMeta =
                                                 audiobookChaptersStudioMap[cKey] ||
@@ -8833,7 +8834,7 @@ function TheaterPageContent() {
                                                 <div
                                                     key={ch.id || idx}
                                                     onClick={() => {
-                                                        playAlbum(selectedAudiobook.chapters, idx);
+                                                        playAlbum(safeChapters, idx);
                                                         closeAudiobookModal();
                                                         openExpandedPlayer();
                                                     }}
@@ -8910,7 +8911,7 @@ function TheaterPageContent() {
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                playAlbum(selectedAudiobook.chapters, idx);
+                                                                playAlbum(safeChapters, idx);
                                                             }}
                                                             className="w-9 h-9 rounded-xl bg-zinc-900 group-hover:bg-orange-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer"
                                                             title="Play Chapter"
@@ -9128,7 +9129,7 @@ function TheaterPageContent() {
 
                                         {/* Chapters List */}
                                         <div className="space-y-3">
-                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                            {safeChapters.map((ch, idx) => {
                                                 const cKey = `${bKey}::ch${idx + 1}`;
                                                 const cMeta =
                                                     audiobookChaptersStudioMap[cKey] ||
@@ -9254,8 +9255,8 @@ function TheaterPageContent() {
                                                         disabled={transCh === 0 || runningBookModalTask !== null}
                                                         onClick={async () => {
                                                             toast.info('Detecting scene transitions from transcripts...');
-                                                            for (let i = 0; i < selectedAudiobook.chapters.length; i++) {
-                                                                const ch = selectedAudiobook.chapters[i];
+                                                            for (let i = 0; i < safeChapters.length; i++) {
+                                                                const ch = safeChapters[i];
                                                                 const cKey = `${bKey}::ch${i + 1}`;
                                                                 await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'detect_scenes');
                                                             }
@@ -9288,7 +9289,7 @@ function TheaterPageContent() {
 
                                         {/* Chapters & Detected Scene Intervals */}
                                         <div className="space-y-4">
-                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                            {safeChapters.map((ch, idx) => {
                                                 const cKey = `${bKey}::ch${idx + 1}`;
                                                 const cMeta =
                                                     audiobookChaptersStudioMap[cKey] ||
@@ -9428,8 +9429,8 @@ function TheaterPageContent() {
                                                         disabled={totalBookScenes === 0 || runningBookModalTask !== null}
                                                         onClick={async () => {
                                                             toast.info('Painting detected scenes...');
-                                                            for (let i = 0; i < selectedAudiobook.chapters.length; i++) {
-                                                                const ch = selectedAudiobook.chapters[i];
+                                                            for (let i = 0; i < safeChapters.length; i++) {
+                                                                const ch = safeChapters[i];
                                                                 const cKey = `${bKey}::ch${i + 1}`;
                                                                 await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'paint_scenes');
                                                             }
@@ -9467,7 +9468,7 @@ function TheaterPageContent() {
 
                                         {/* Chapters & Scenes Artwork */}
                                         <div className="space-y-4">
-                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                            {safeChapters.map((ch, idx) => {
                                                 const cKey = `${bKey}::ch${idx + 1}`;
                                                 const cMeta =
                                                     audiobookChaptersStudioMap[cKey] ||
@@ -9866,7 +9867,7 @@ function TheaterPageContent() {
 
                                         {/* Chapters Voice Processing List */}
                                         <div className="space-y-3">
-                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                            {safeChapters.map((ch, idx) => {
                                                 const cKey = `${bKey}::ch${idx + 1}`;
                                                 const cMeta =
                                                     audiobookChaptersStudioMap[cKey] ||
@@ -9900,7 +9901,7 @@ function TheaterPageContent() {
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    playAlbum(selectedAudiobook.chapters, idx);
+                                                                    playAlbum(safeChapters, idx);
                                                                 }}
                                                                 title="Preview Chapter Audio"
                                                                 className="p-2.5 rounded-xl bg-zinc-900 hover:bg-orange-500 text-zinc-400 hover:text-black border border-zinc-800 cursor-pointer transition-all"

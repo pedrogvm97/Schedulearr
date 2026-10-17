@@ -94,6 +94,11 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     const [retentionDays, setRetentionDays] = useState(30);
     const [pruningDb, setPruningDb] = useState(false);
 
+    const safeCandidates = Array.isArray(candidates) ? candidates : [];
+    const safeLibraryLimits = Array.isArray(libraryLimits) ? libraryLimits : [];
+    const safeInstances = Array.isArray(instances) ? instances : [];
+    const safeInstanceSegments = Array.isArray(instanceSegments) ? instanceSegments : [];
+
     // Audiobook Studio Cleaner State
     const [audiobookScope, setAudiobookScope] = useState<'all' | 'images' | 'scenes' | 'transcripts' | 'voices' | 'api_history'>('all');
     const [audiobookTargetMode, setAudiobookTargetMode] = useState<'all_books' | 'single_book'>('all_books');
@@ -373,7 +378,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 
                                 {/* Segmented Progress Bar */}
                                 <div className="relative h-5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800 flex">
-                                    {instanceSegments.map((seg: any) => (
+                                    {safeInstanceSegments.map((seg: any) => (
                                         <div
                                             key={seg.id}
                                             className="h-full transition-all duration-700 first:rounded-l-full last:rounded-r-full hover:opacity-90 relative group"
@@ -401,9 +406,9 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                 </div>
 
                                 {/* Legend */}
-                                {instanceSegments.length > 0 && (
+                                {safeInstanceSegments.length > 0 && (
                                     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-3 border-t border-zinc-900 text-xs">
-                                        {instanceSegments.map((seg: any) => (
+                                        {safeInstanceSegments.map((seg: any) => (
                                             <div key={seg.id} className="flex items-center gap-2 text-zinc-300 font-bold">
                                                 <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: seg.colorHex }} />
                                                 <span>{seg.name}:</span>
@@ -563,7 +568,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             <div className="space-y-3 pt-2 border-t border-zinc-800">
                                 <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">Excluded Protected Libraries</span>
                                 <div className="flex flex-wrap gap-2.5">
-                                    {instances.filter(i => i.type === 'radarr' || i.type === 'sonarr' || i.type === 'lidarr').map(inst => {
+                                    {safeInstances.filter(i => i.type === 'radarr' || i.type === 'sonarr' || i.type === 'lidarr').map(inst => {
                                         const isIgnored = diskSmartCleanIgnoredInstances.includes(inst.id);
                                         return (
                                             <button
@@ -603,13 +608,13 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             </h3>
                         </div>
 
-                        {libraryLimits.length === 0 ? (
+                        {safeLibraryLimits.length === 0 ? (
                             <div className="p-6 bg-zinc-950 rounded-2xl border border-zinc-800 text-sm font-bold text-zinc-500 text-center">
                                 No instances configured.
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-4">
-                                {libraryLimits.map(lib => {
+                                {safeLibraryLimits.map(lib => {
                                     const instDisk = diskInfo?.byInstance?.find((i: any) => i.id === lib.instanceId || i.name === lib.name || (lib.type === 'iptv_dvr' && i.type === 'iptv_dvr'));
                                     const colorHex = instDisk?.colorHex || (lib.type === 'iptv_dvr' ? '#f43f5e' : (lib.type === 'lidarr' ? '#10b981' : twColorToHex(instDisk?.color)));
                                     const folders = Array.isArray(instDisk?.folders) ? instDisk.folders : [];
@@ -755,7 +760,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                             <div className="flex items-center gap-3">
                                 <Trash2 size={24} className="text-amber-400" />
-                                <h3 className="text-xl font-black text-white">Cleanup Candidates ({candidates.length})</h3>
+                                <h3 className="text-xl font-black text-white">Cleanup Candidates ({safeCandidates.length})</h3>
                             </div>
 
                             <div className="flex items-center gap-3">
@@ -780,13 +785,13 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 
                         {loadingCandidates ? (
                             <div className="p-8 text-center text-sm font-bold text-zinc-500 italic">Calculating cleanup candidates...</div>
-                        ) : candidates.length === 0 ? (
+                        ) : safeCandidates.length === 0 ? (
                             <div className="p-8 text-center bg-zinc-950 rounded-2xl border border-zinc-800 text-sm font-bold text-zinc-500">
                                 No items matching cleanup criteria. Storage is healthy.
                             </div>
                         ) : (
                             <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-                                {candidates.slice(0, 30).map((c, idx) => (
+                                {safeCandidates.slice(0, 30).map((c, idx) => (
                                     <div
                                         key={c.key || idx}
                                         className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
@@ -1095,7 +1100,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                         <div className="p-5 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-3">
                             <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">Table Breakdown</span>
                             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                                {dbStats?.tableStats.map((table: any) => (
+                                {Array.isArray(dbStats?.tableStats) && dbStats.tableStats.map((table: any) => (
                                     <div key={table.name} className="flex items-center justify-between p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800/80">
                                         <span className="text-xs font-bold text-zinc-300 capitalize">{table.name.replace(/_/g, ' ')}</span>
                                         <span className="text-xs font-black text-white font-mono">{table.count.toLocaleString()}</span>

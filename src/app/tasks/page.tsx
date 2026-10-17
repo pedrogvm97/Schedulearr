@@ -115,23 +115,23 @@ export default function TasksPage() {
         art: { doneChapters: 0, totalChapters: 0, keptScenes: 0, pendingChapters: 0, failedChapters: 0 },
         voices: { done: 0, total: 0, pending: 0, failed: 0 }
     };
-    const queueBreakdown = studio?.queueBreakdown || {
-        transcriptionQueue: [],
-        llmSceneQueue: [],
-        artQueue: [],
-        voiceQueue: []
+    const queueBreakdown = {
+        transcriptionQueue: Array.isArray(studio?.queueBreakdown?.transcriptionQueue) ? studio.queueBreakdown.transcriptionQueue : [],
+        llmSceneQueue: Array.isArray(studio?.queueBreakdown?.llmSceneQueue) ? studio.queueBreakdown.llmSceneQueue : [],
+        artQueue: Array.isArray(studio?.queueBreakdown?.artQueue) ? studio.queueBreakdown.artQueue : [],
+        voiceQueue: Array.isArray(studio?.queueBreakdown?.voiceQueue) ? studio.queueBreakdown.voiceQueue : []
     };
-    const queuedBooks: any[] = studio?.queuedBooks || [];
-    const availableBooks: any[] = studio?.availableBooks || [];
+    const queuedBooks: any[] = Array.isArray(studio?.queuedBooks) ? studio.queuedBooks : [];
+    const availableBooks: any[] = Array.isArray(studio?.availableBooks) ? studio.availableBooks : [];
     const arrScheduler = data?.arrScheduler || {};
     const calendarSync = data?.calendarSync || { enabled: true, intervalMin: 15, cachedCount: 0, isRunning: false };
-    const liveStreams: any[] = data?.liveStreams || [];
-    const epgSyncs: any[] = data?.epgSyncs || [];
-    const epgSchedules: any[] = data?.epgSchedules || [];
-    const dvrActive: any[] = data?.dvr?.active || [];
-    const dvrScheduled: any[] = data?.dvr?.scheduled || [];
-    const transfersActive: any[] = data?.transfers?.active || [];
-    const recentLogs: any[] = data?.recentSystemLogs || [];
+    const liveStreams: any[] = Array.isArray(data?.liveStreams) ? data.liveStreams : [];
+    const epgSyncs: any[] = Array.isArray(data?.epgSyncs) ? data.epgSyncs : [];
+    const epgSchedules: any[] = Array.isArray(data?.epgSchedules) ? data.epgSchedules : [];
+    const dvrActive: any[] = Array.isArray(data?.dvr?.active) ? data.dvr.active : [];
+    const dvrScheduled: any[] = Array.isArray(data?.dvr?.scheduled) ? data.dvr.scheduled : [];
+    const transfersActive: any[] = Array.isArray(data?.transfers?.active) ? data.transfers.active : [];
+    const recentLogs: any[] = Array.isArray(data?.recentSystemLogs) ? data.recentSystemLogs : [];
 
     const quotaReached = (studioCfg.imagesGeneratedToday ?? 0) >= (studioCfg.dailyImageQuota ?? 20);
     const totalFailedChapters =
@@ -1091,7 +1091,7 @@ export default function TasksPage() {
                         </div>
 
                         <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                            {(studio?.history || []).slice(0, 10).map((h: any, i: number) => (
+                            {(Array.isArray(studio?.history) ? studio.history : []).slice(0, 10).map((h: any, i: number) => (
                                 <div key={h.id || i} className="text-xs font-mono bg-black/40 border border-white/5 rounded-xl p-3 flex items-center justify-between gap-3">
                                     <span className={h.status === 'failed' ? 'text-rose-300 truncate' : 'text-gray-200 truncate'}>
                                         [{(h.queueType || h.taskType || 'TASK').toUpperCase()}] {h.bookTitle}{h.chapterTitle ? ` — ${h.chapterTitle}` : ''}: {h.detail || h.details}
