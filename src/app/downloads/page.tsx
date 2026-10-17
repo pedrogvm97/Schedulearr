@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon, Music, Folder, Disc } from "lucide-react";
+import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon, Music, Folder, Disc, RefreshCw } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { IndexersPanel } from "@/components/IndexersPanel";
@@ -177,43 +178,43 @@ function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: Me
                 </span>
             </div>
 
-            {/* Action buttons — always visible */}
+            {/* Action buttons — prominent, high-contrast, squared */}
             <div className="absolute top-3 right-3 md:relative md:top-auto md:right-auto flex-shrink-0 flex items-center gap-1.5">
                 {/* More Info */}
                 <button
                     onClick={(e) => { e.stopPropagation(); onOpenMedia(torrent); }}
-                    className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-md transition-all shadow-sm"
+                    className="p-2.5 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg transition-all shadow-md cursor-pointer border border-zinc-700/60"
                     title="View Media Details"
                 >
-                    <Info size={15} />
+                    <Info size={18} />
                 </button>
 
                 {/* Pause / Resume */}
                 {isPaused ? (
                     <button
                         onClick={(e) => { e.stopPropagation(); onPauseResume(torrent, 'resume'); }}
-                        className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/80 hover:text-white text-emerald-500 rounded-md transition-all shadow-sm"
-                        title="Resume"
+                        className="p-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-lg transition-all shadow-md cursor-pointer"
+                        title="Resume Download"
                     >
-                        <Play size={15} fill="currentColor" />
+                        <Play size={18} fill="currentColor" />
                     </button>
                 ) : (
                     <button
                         onClick={(e) => { e.stopPropagation(); onPauseResume(torrent, 'pause'); }}
-                        className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-md transition-all shadow-sm"
-                        title="Pause"
+                        className="p-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-all shadow-md cursor-pointer border border-zinc-700/60"
+                        title="Pause Download"
                     >
-                        <Pause size={15} fill="currentColor" />
+                        <Pause size={18} fill="currentColor" />
                     </button>
                 )}
 
                 {/* Delete */}
                 <button
                     onClick={(e) => { e.stopPropagation(); onDeleteClick(torrent); }}
-                    className="p-1.5 bg-red-500/10 hover:bg-red-500/80 hover:text-white text-red-500 rounded-md transition-all shadow-sm"
+                    className="p-2.5 bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-lg transition-all shadow-md cursor-pointer"
                     title="Delete Torrent"
                 >
-                    <Trash2 size={15} />
+                    <Trash2 size={18} />
                 </button>
             </div>
         </div>
@@ -335,10 +336,10 @@ function MusicJobRow({ job, onCancel, onOpenMedia }: MusicJobRowProps) {
             <div className="absolute top-3 right-3 md:relative md:top-auto md:right-auto flex-shrink-0 flex items-center gap-1.5">
                 <button
                     onClick={() => onCancel(job.id)}
-                    className="p-1.5 bg-red-500/10 hover:bg-red-500/80 hover:text-white text-red-500 rounded-md transition-all shadow-sm cursor-pointer"
+                    className="p-2.5 bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-lg transition-all shadow-md cursor-pointer"
                     title="Remove from Queue"
                 >
-                    <Trash2 size={15} />
+                    <Trash2 size={18} />
                 </button>
             </div>
         </div>
@@ -672,9 +673,6 @@ function DownloadsContent() {
                     <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
                         <DownloadIcon size={26} className="text-sky-400" /> Transfers
                     </h1>
-                    <p className="text-sm text-zinc-500 mt-1 font-medium">
-                        Manage active torrent downloads, configure quality profiles, sync indexers, and manage Plex user permissions.
-                    </p>
                 </div>
 
                 {/* Segmented Switcher */}
@@ -870,244 +868,44 @@ function DownloadsContent() {
                         </div>
                     )}
 
-                    {/* ── Auto-Cleanup & Smart Tools ───────────────────────────────────── */}
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
-                            <div>
-                                <h3 className="text-base font-black text-white flex items-center gap-2">
-                                    <HardDrive size={18} className="text-emerald-400" /> Auto-Cleanup &amp; Stagnation Watchdog
-                                </h3>
-                                <p className="text-xs text-zinc-400 mt-0.5 font-medium">
-                                    Automatically delete stalled torrents, oversized files, and free disk space.
-                                </p>
+                    {/* ── Downloads Cleaner Compact Control Bar ──────────────────────── */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <HardDrive size={20} />
                             </div>
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={handleSmartClean}
-                                    disabled={isRunningSmartClean}
-                                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                                >
-                                    {isRunningSmartClean ? 'Cleaning...' : '⚡ Clean Stalled Now'}
-                                </button>
-                                <button
-                                    onClick={() => setIsCleanupSettingsOpen(!isCleanupSettingsOpen)}
-                                    className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold rounded-xl border border-zinc-700 transition-all cursor-pointer"
-                                >
-                                    {isCleanupSettingsOpen ? 'Hide Rules' : 'Configure Rules'}
-                                </button>
+                            <div className="flex items-center gap-2.5">
+                                <span className="text-base font-black text-white">Downloads Cleaner</span>
+                                <Toggle
+                                    value={qbitCleanupEnabled}
+                                    onChange={v => {
+                                        setQbitCleanupEnabled(v);
+                                        updateSetting('qbit_cleanup_enabled', v);
+                                        toast.success(v ? 'Downloads Cleaner Enabled' : 'Downloads Cleaner Disabled');
+                                    }}
+                                />
                             </div>
                         </div>
 
-                        {isCleanupSettingsOpen && (
-                            <div className="space-y-6 pt-2 animate-in fade-in slide-in-from-top-3 duration-200">
-                                {/* Section 1: Core Automation Toggles */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div className="flex items-center justify-between p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
-                                        <div>
-                                            <span className="text-sm font-bold text-white block">Auto Cleanup Engine</span>
-                                            <span className="text-xs text-zinc-400">Run background watchdog periodically</span>
-                                        </div>
-                                        <Toggle
-                                            value={qbitCleanupEnabled}
-                                            onChange={v => { setQbitCleanupEnabled(v); updateSetting('qbit_cleanup_enabled', v); }}
-                                        />
-                                    </div>
+                        <div className="flex items-center gap-2.5 shrink-0">
+                            <button
+                                onClick={handleSmartClean}
+                                disabled={isRunningSmartClean}
+                                className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                                title="Run Downloads Cleaner to trim unseeded and purge stalled torrents now"
+                            >
+                                <RefreshCw size={14} className={isRunningSmartClean ? 'animate-spin' : ''} />
+                                <span>{isRunningSmartClean ? 'Cleaning...' : 'Clean Stalled Now'}</span>
+                            </button>
 
-                                    <div className="flex items-center justify-between p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
-                                        <div>
-                                            <span className="text-sm font-bold text-white block">Delete Files From Disk</span>
-                                            <span className="text-xs text-zinc-400">Reclaim physical storage immediately</span>
-                                        </div>
-                                        <Toggle
-                                            value={qbitDeleteFiles}
-                                            onChange={v => { setQbitDeleteFiles(v); updateSetting('qbit_cleanup_delete_files', v); }}
-                                        />
-                                    </div>
-
-                                    <div className="flex items-center justify-between p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
-                                        <div>
-                                            <span className="text-sm font-bold text-white block">Blacklist Failed Release</span>
-                                            <span className="text-xs text-zinc-400">Instruct Sonarr/Radarr to find alternate</span>
-                                        </div>
-                                        <Toggle
-                                            value={qbitBlacklist}
-                                            onChange={v => { setQbitBlacklist(v); updateSetting('qbit_cleanup_blacklist', v); }}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Section 2: Timing, Stagnation & Size Thresholds */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    {/* Scan Interval */}
-                                    <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
-                                        <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider block">
-                                            Scan Interval (Minutes)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            value={qbitCleanupIntervalMin}
-                                            onChange={e => {
-                                                const v = parseInt(e.target.value) || 15;
-                                                setQbitCleanupIntervalMin(v);
-                                                updateSetting('qbit_cleanup_interval_min', v);
-                                            }}
-                                            className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
-                                        />
-                                        <p className="text-xs text-zinc-400 leading-relaxed">
-                                            How often the background process scans for stalled items.
-                                        </p>
-                                    </div>
-
-                                    {/* Stagnation Limit */}
-                                    <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                                                Stagnation Timeout
-                                            </label>
-                                            <Toggle
-                                                value={qbitStagnationEnabled}
-                                                onChange={v => { setQbitStagnationEnabled(v); updateSetting('qbit_cleanup_stagnation_enabled', v); }}
-                                            />
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                disabled={!qbitStagnationEnabled}
-                                                value={qbitStagnationMin}
-                                                onChange={e => {
-                                                    const v = parseInt(e.target.value) || 60;
-                                                    setQbitStagnationMin(v);
-                                                    updateSetting('qbit_cleanup_stagnation_min', v);
-                                                }}
-                                                className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all disabled:opacity-30"
-                                            />
-                                            <span className="text-xs font-bold text-zinc-400">min</span>
-                                        </div>
-                                        <p className="text-xs text-zinc-400 leading-relaxed">
-                                            Purge downloads stalled at 0 B/s for longer than this.
-                                        </p>
-                                    </div>
-
-                                    {/* Max Size */}
-                                    <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                                                Max Release Size
-                                            </label>
-                                            <Toggle
-                                                value={qbitSizeCleanupEnabled}
-                                                onChange={v => { setQbitSizeCleanupEnabled(v); updateSetting('qbit_cleanup_max_size_enabled', v); }}
-                                            />
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                disabled={!qbitSizeCleanupEnabled}
-                                                value={qbitMaxSizeGb}
-                                                onChange={e => {
-                                                    const v = parseInt(e.target.value) || 15;
-                                                    setQbitMaxSizeGb(v);
-                                                    updateSetting('qbit_cleanup_max_size_gb', v);
-                                                }}
-                                                className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all disabled:opacity-30"
-                                            />
-                                            <span className="text-xs font-bold text-zinc-400">GB</span>
-                                        </div>
-                                        <p className="text-xs text-zinc-400 leading-relaxed">
-                                            Releases exceeding this size limit are rejected and purged.
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {/* Section 3: Whitelist & Exclusions */}
-                                <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
-                                    <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider block">
-                                        Exclusions / Whitelist
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="seeding, keep, manual, radarr-4k, specific-tag"
-                                        value={qbitCleanupExclusions}
-                                        onChange={e => {
-                                            const v = e.target.value;
-                                            setQbitCleanupExclusions(v);
-                                            updateSetting('qbit_cleanup_exclusions', v);
-                                        }}
-                                        className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
-                                    />
-                                    <p className="text-xs text-zinc-400 leading-relaxed">
-                                        Comma-separated categories, release names, or torrent hashes to exempt from automatic cleanup.
-                                    </p>
-                                </div>
-
-                                {/* Section 4: Smart Storage Guard */}
-                                <div className="p-5 bg-zinc-950/70 rounded-2xl border border-emerald-500/20 space-y-5">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
-                                            <HardDrive size={18} />
-                                        </div>
-                                        <div>
-                                            <h4 className="text-sm font-bold text-white">Smart Auto-Clean &amp; Storage Guard</h4>
-                                            <p className="text-xs text-zinc-400">Intelligently target which stalled or oversized files to clean first.</p>
-                                        </div>
-                                    </div>
-
-                                    {/* Sort mode selector */}
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Priority Mode</label>
-                                        <div className="flex flex-wrap gap-2.5">
-                                            {([
-                                                { id: 'largest', label: 'Largest Files', icon: <HardDrive size={14} /> },
-                                                { id: 'oldest', label: 'Oldest Added', icon: <Clock size={14} /> },
-                                                { id: 'unplayed', label: 'Unplayed / Incomplete', icon: <Tv size={14} /> },
-                                            ] as const).map(opt => (
-                                                <button
-                                                    key={opt.id}
-                                                    onClick={() => { setSmartCleanMode(opt.id); updateSetting('media_smart_clean_mode', opt.id); }}
-                                                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all cursor-pointer ${smartCleanMode === opt.id
-                                                        ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 shadow-sm'
-                                                        : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
-                                                        }`}
-                                                >
-                                                    {opt.icon}
-                                                    {opt.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Immunity toggle */}
-                                    <div className="flex items-center justify-between p-3.5 bg-zinc-900/60 rounded-xl border border-zinc-800/60">
-                                        <div className="flex items-center gap-2.5">
-                                            <ShieldCheck size={16} className={smartCleanImmunityEnabled ? 'text-amber-400' : 'text-zinc-600'} />
-                                            <div>
-                                                <div className="text-sm font-bold text-zinc-200">Protect Recently Added Downloads</div>
-                                                <p className="text-xs text-zinc-400 flex items-center flex-wrap gap-1 mt-0.5">
-                                                    <span>Skip torrents added within the last</span>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        max="90"
-                                                        disabled={!smartCleanImmunityEnabled}
-                                                        value={smartCleanImmunityDays}
-                                                        onChange={e => { const v = parseInt(e.target.value) || 7; setSmartCleanImmunityDays(v); updateSetting('media_smart_clean_immunity_days', v); }}
-                                                        className="w-12 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-white text-xs font-bold text-center outline-none focus:border-amber-500 disabled:opacity-30 transition-all"
-                                                    />
-                                                    <span>days.</span>
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <Toggle
-                                            value={smartCleanImmunityEnabled}
-                                            onChange={v => { setSmartCleanImmunityEnabled(v); updateSetting('media_smart_clean_immunity_enabled', v); }}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                            <Link
+                                href="/settings?tab=cleaners&subTab=torrents"
+                                className="p-2.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-xl border border-zinc-700 transition-all cursor-pointer flex items-center justify-center shadow-md"
+                                title="Open Downloads Cleaner & Stagnation Watchdog Rules in Settings"
+                            >
+                                <Sliders size={18} />
+                            </Link>
+                        </div>
                     </div>
                 </div>
             )}

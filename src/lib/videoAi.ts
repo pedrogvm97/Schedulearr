@@ -265,7 +265,7 @@ function srtToVtt(srtContent: string): string {
 
 export async function translateSrtContent(srt: string, targetLang: string): Promise<string> {
     const cleanLang = (targetLang || 'en').toLowerCase().trim();
-    if (cleanLang === 'en' || !srt || srt.trim().length === 0) return srt;
+    if (!srt || srt.trim().length === 0) return srt;
 
     const blocks = srt.split(/\n\s*\n/).filter(b => b.trim().length > 0);
     if (blocks.length === 0) return srt;
@@ -291,7 +291,7 @@ export async function translateSrtContent(srt: string, targetLang: string): Prom
 
         let translatedLines: string[] = [];
 
-        // Primary: Free Google Translate dict-chrome-ex client
+        // Primary: Free Google Translate dict-chrome-ex client (auto-detects source language including foreign films)
         try {
             const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=${encodeURIComponent(cleanLang)}&q=${encodeURIComponent(combinedText)}`;
             const res = await axios.get(url, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -313,7 +313,7 @@ export async function translateSrtContent(srt: string, targetLang: string): Prom
                     continue;
                 }
                 try {
-                    const myMemUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(item.text)}&langpair=en|${encodeURIComponent(cleanLang)}`;
+                    const myMemUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(item.text)}&langpair=autodetect|${encodeURIComponent(cleanLang)}`;
                     const mmRes = await axios.get(myMemUrl, { timeout: 4000 });
                     const trans = mmRes.data?.responseData?.translatedText;
                     translatedLines.push(trans || item.text);
@@ -402,11 +402,7 @@ export async function translateExistingSubtitle(params: {
     for (const lCode of langs) {
         const cleanCode = lCode.toLowerCase().trim();
         const langName = langLabels[cleanCode] || cleanCode.toUpperCase();
-        let translated = srtContent;
-
-        if (cleanCode !== 'en') {
-            translated = await translateSrtContent(srtContent, cleanCode);
-        }
+        let translated = await translateSrtContent(srtContent, cleanCode);
 
         let savedPath = path.join(videoDir, `${videoBase}.${cleanCode}.srt`);
         try {
@@ -549,90 +545,53 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
 
         const createdSubs: VideoAiSubtitle[] = [];
 
-        // Save English / Base Subtitle first
-        const enPath = path.join(videoDir, `${videoBase}.en.srt`);
+        // Save original companion .srt alongside video file for Plex default playback
         const defPath = path.join(videoDir, `${videoBase}.srt`);
         try {
-            fs.writeFileSync(enPath, baseSrtContent, 'utf8');
-            try { fs.writeFileSync(defPath, baseSrtContent, 'utf8'); } catch {}
+            fs.writeFileSync(defPath, baseSrtContent, 'utf8');
         } catch {
             const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
             if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
-            fs.writeFileSync(path.join(fallbackDir, `${videoBase}.en.srt`), baseSrtContent, 'utf8');
+            fs.writeFileSync(path.join(fallbackDir, `${videoBase}.srt`), baseSrtContent, 'utf8');
         }
 
         try {
             const centralDir = path.join(process.cwd(), 'data', 'subtitles');
             if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
-            fs.writeFileSync(path.join(centralDir, `${videoBase}.en.srt`), baseSrtContent, 'utf8');
             fs.writeFileSync(path.join(centralDir, `${videoBase}.srt`), baseSrtContent, 'utf8');
         } catch {}
 
         const durationMs = Date.now() - startTimeMs;
-        const enSize = fs.existsSync(enPath) ? fs.statSync(enPath).size : baseSrtContent.length;
         const cpuUsage = getCpuTelemetry().systemCpuPercent;
 
-        const enRecord: VideoAiSubtitle = {
-            id: `sub_${Date.now()}_en_${Math.random().toString(36).substring(2, 6)}`,
-            video_path: resolvedVideoPath,
-            media_title: mediaTitle || videoBase,
-            media_type: mediaType,
-            library_id: libraryId,
-            library_name: libraryName,
-            language: 'en',
-            language_name: 'English',
-            sub_path: fs.existsSync(enPath) ? enPath : path.join(process.cwd(), 'data', 'subtitles', `${videoBase}.en.srt`),
-            sub_size_bytes: enSize,
-            status: 'completed',
-            duration_ms: durationMs,
-            cpu_power_pct: cpuUsage,
-            cpu_threads: cpuThreads,
-            updated_at: new Date().toISOString()
-        };
-        upsertVideoAiSubtitle(enRecord);
-        logVideoAiHistory({
-            id: `hist_${Date.now()}_en_${Math.random().toString(36).substring(2, 6)}`,
-            video_path: resolvedVideoPath,
-            media_title: mediaTitle || videoBase,
-            library_id: libraryId,
-            library_name: libraryName,
-            language: 'en',
-            action: 'speech_to_text_transcribe',
-            status: 'completed',
-            duration_ms: durationMs,
-            cpu_power_pct: cpuUsage,
-            cpu_threads: cpuThreads,
-            details: `Transcribed via ${engineProviderLabel} (${(durationMs / 1000).toFixed(1)}s, ${allLines.length} subtitle cues)`
-        });
-        createdSubs.push(enRecord);
-
-        // Auto-translate to all other chosen target languages
+        // Auto-translate to all chosen target languages and write companion files (<videoBase>.<lang>.srt) alongside video for Plex
         for (const tLang of chosenLangs) {
             const cleanCode = tLang.toLowerCase().trim();
-            if (cleanCode === 'en') continue;
-
             const langName = langLabels[cleanCode] || cleanCode.toUpperCase();
             const transStart = Date.now();
-            const translatedSrt = await translateSrtContent(baseSrtContent, cleanCode);
 
-            let savedPath = path.join(videoDir, `${videoBase}.${cleanCode}.srt`);
+            let targetSrt = baseSrtContent;
+            if (baseSrtContent && allLines.length > 0) {
+                targetSrt = await translateSrtContent(baseSrtContent, cleanCode);
+            }
+
+            const targetSubPath = path.join(videoDir, `${videoBase}.${cleanCode}.srt`);
             try {
-                fs.writeFileSync(savedPath, translatedSrt, 'utf8');
+                fs.writeFileSync(targetSubPath, targetSrt, 'utf8');
             } catch {
                 const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
                 if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
-                savedPath = path.join(fallbackDir, `${videoBase}.${cleanCode}.srt`);
-                fs.writeFileSync(savedPath, translatedSrt, 'utf8');
+                fs.writeFileSync(path.join(fallbackDir, `${videoBase}.${cleanCode}.srt`), targetSrt, 'utf8');
             }
 
             try {
                 const centralDir = path.join(process.cwd(), 'data', 'subtitles');
                 if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
-                fs.writeFileSync(path.join(centralDir, `${videoBase}.${cleanCode}.srt`), translatedSrt, 'utf8');
+                fs.writeFileSync(path.join(centralDir, `${videoBase}.${cleanCode}.srt`), targetSrt, 'utf8');
             } catch {}
 
             const transDuration = Date.now() - transStart;
-            const fileSize = fs.existsSync(savedPath) ? fs.statSync(savedPath).size : translatedSrt.length;
+            const fileSize = fs.existsSync(targetSubPath) ? fs.statSync(targetSubPath).size : targetSrt.length;
 
             const subRecord: VideoAiSubtitle = {
                 id: `sub_${Date.now()}_${cleanCode}_${Math.random().toString(36).substring(2, 6)}`,
@@ -643,12 +602,12 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
                 library_name: libraryName,
                 language: cleanCode,
                 language_name: langName,
-                sub_path: savedPath,
+                sub_path: fs.existsSync(targetSubPath) ? targetSubPath : path.join(process.cwd(), 'data', 'subtitles', `${videoBase}.${cleanCode}.srt`),
                 sub_size_bytes: fileSize,
                 status: 'completed',
-                duration_ms: transDuration,
-                cpu_power_pct: 0,
-                cpu_threads: 1,
+                duration_ms: transDuration || durationMs,
+                cpu_power_pct: cpuUsage,
+                cpu_threads: cpuThreads,
                 updated_at: new Date().toISOString()
             };
 
@@ -660,12 +619,12 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
                 library_id: libraryId,
                 library_name: libraryName,
                 language: cleanCode,
-                action: 'translate_subtitle',
+                action: cleanCode === 'en' ? 'speech_to_text_transcribe' : 'translate_subtitle',
                 status: 'completed',
-                duration_ms: transDuration,
-                cpu_power_pct: 0,
-                cpu_threads: 1,
-                details: `Auto-translated into ${langName} (${allLines.length} cues)`
+                duration_ms: transDuration || durationMs,
+                cpu_power_pct: cpuUsage,
+                cpu_threads: cpuThreads,
+                details: `Companion subtitle generated alongside media file for Plex (${allLines.length} cues, ${engineProviderLabel})`
             });
 
             createdSubs.push(subRecord);

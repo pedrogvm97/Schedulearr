@@ -176,6 +176,7 @@ export function SchedulerQueuePanel() {
     const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
     const [showActiveOnly, setShowActiveOnly] = useState(false);
     const [hideUnmonitored, setHideUnmonitored] = useState(false);
+    const [queueDisplayLimit, setQueueDisplayLimit] = useState<number>(25);
 
     // Dynamic expanded series
     const [expandedSeriesKey, setExpandedSeriesKey] = useState<string | null>(null);
@@ -625,6 +626,22 @@ export function SchedulerQueuePanel() {
         return items;
     }, [movies, episodes, profiles, qualityFilter, instanceFilters, searchQuery, selectedGenres, genreLogic, showActiveOnly, hideUnmonitored, sortProfile, searchToggles, selectedInstanceTab]);
 
+    const activeRankMap = useMemo(() => {
+        const map = new Map<string, number>();
+        let rank = 1;
+        for (const item of combinedList) {
+            if (searchToggles[item.idStr] !== false) {
+                map.set(item.idStr, rank++);
+            }
+        }
+        return map;
+    }, [combinedList, searchToggles]);
+
+    const displayedList = useMemo(() => {
+        if (!queueDisplayLimit || queueDisplayLimit <= 0) return combinedList;
+        return combinedList.slice(0, queueDisplayLimit);
+    }, [combinedList, queueDisplayLimit]);
+
     // Unique genres
     const uniqueGenres = useMemo(() => {
         const set = new Set<string>();
@@ -839,8 +856,11 @@ export function SchedulerQueuePanel() {
 
                     {/* Configuration Inputs Grid */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
-                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Interval (Min)</span>
+                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-3.5">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Interval</span>
+                                <span className="text-xs font-mono font-bold text-amber-300">{schedulerConfig.interval}m</span>
+                            </div>
                             <input
                                 type="number"
                                 min={1}
@@ -850,9 +870,26 @@ export function SchedulerQueuePanel() {
                                 className="bg-transparent text-white text-base font-black outline-none w-full"
                                 title="Minutes between automated search batches"
                             />
+                            <div className="flex items-center gap-1 pt-1 flex-wrap">
+                                {[15, 30, 60, 120, 360, 720, 1440].map(m => (
+                                    <button
+                                        key={m}
+                                        type="button"
+                                        onClick={() => updateConfig({ interval: m })}
+                                        className={`px-1.5 py-0.5 rounded text-[11px] font-bold transition-colors cursor-pointer ${
+                                            schedulerConfig.interval === m
+                                                ? 'bg-amber-500 text-black font-black'
+                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400'
+                                        }`}
+                                        title={`Set interval to ${m >= 60 ? `${m/60}h` : `${m}m`}`}
+                                    >
+                                        {m >= 60 ? `${m/60}h` : `${m}m`}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
-                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
+                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-3.5">
                             <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Batch Size</span>
                             <CustomSelect
                                 minimal
@@ -1087,10 +1124,10 @@ export function SchedulerQueuePanel() {
                 </div>
 
                 {/* Bulk Selection and Total Counter */}
-                <div className="flex items-center justify-between pt-3 border-t border-zinc-800/80 text-xs text-zinc-400">
-                    <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-zinc-800/80 text-xs text-zinc-400">
+                    <div className="flex items-center gap-3 flex-wrap">
                         <span className="font-black text-white text-sm">
-                            {combinedList.length} Items in Queue
+                            {displayedList.length} of {combinedList.length} Items in Queue
                         </span>
                         <span className="text-zinc-600">•</span>
                         <button
@@ -1112,7 +1149,27 @@ export function SchedulerQueuePanel() {
                         </button>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 flex-wrap">
+                        {/* Queue Display Limit Selector */}
+                        <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800">
+                            <span className="text-xs font-black text-zinc-500 uppercase px-1.5">Show:</span>
+                            {[10, 25, 50, 100, 0].map(lim => (
+                                <button
+                                    key={lim}
+                                    type="button"
+                                    onClick={() => setQueueDisplayLimit(lim)}
+                                    className={`px-2 py-0.5 rounded text-xs font-black transition-colors cursor-pointer ${
+                                        queueDisplayLimit === lim
+                                            ? 'bg-indigo-600 text-white shadow-sm'
+                                            : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                                    title={`Show up to ${lim === 0 ? 'All' : lim} queue items`}
+                                >
+                                    {lim === 0 ? 'All' : lim}
+                                </button>
+                            ))}
+                        </div>
+
                         <label className="flex items-center gap-2 cursor-pointer" title="Hide unmonitored media items">
                             <input
                                 type="checkbox"
@@ -1131,39 +1188,61 @@ export function SchedulerQueuePanel() {
                ══════════════════════════════════════════════════════════ */}
             <div className="space-y-3">
                 {loading ? (
-                    <div className="p-16 text-center bg-zinc-900/40 rounded-3xl border border-zinc-800 flex flex-col items-center justify-center gap-3">
+                    <div className="p-16 text-center bg-zinc-900/40 rounded-2xl border border-zinc-800 flex flex-col items-center justify-center gap-3">
                         <RefreshCw size={28} className="animate-spin text-emerald-400" />
                         <span className="text-sm font-black text-zinc-400 uppercase tracking-wider">
                             Loading Queue...
                         </span>
                     </div>
-                ) : combinedList.length === 0 ? (
-                    <div className="p-16 text-center bg-zinc-900/40 rounded-3xl border border-zinc-800 text-zinc-500 font-bold text-sm">
+                ) : displayedList.length === 0 ? (
+                    <div className="p-16 text-center bg-zinc-900/40 rounded-2xl border border-zinc-800 text-zinc-500 font-bold text-sm">
                         No items matching queue filters.
                     </div>
                 ) : (
-                    combinedList.map(item => {
+                    displayedList.map(item => {
                         const isSearchActive = searchToggles[item.idStr] !== false;
                         const liveStatus = searchingItems[item.idStr];
                         const isExpanded = expandedSeriesKey === item.idStr;
                         const cachedEps = seriesEpisodesCache[`${item.instanceId}-${item.id}`] || [];
                         const isEpsLoading = loadingEpisodes[`${item.instanceId}-${item.id}`] || false;
 
+                        const itemRank = activeRankMap.get(item.idStr);
+                        const isInNextBatch = itemRank !== undefined && itemRank <= schedulerConfig.batchSize;
+                        const isInSecondBatch = itemRank !== undefined && itemRank > schedulerConfig.batchSize && itemRank <= schedulerConfig.batchSize * 2;
+
                         return (
                             <div
                                 key={item.idStr}
-                                className={`p-4 sm:p-5 rounded-3xl border-2 transition-all space-y-4 ${
+                                className={`p-4 sm:p-5 rounded-xl border-2 transition-all space-y-4 ${
                                     isSearchActive
-                                        ? 'bg-zinc-900/80 border-zinc-800 hover:border-zinc-700 shadow-xl'
+                                        ? isInNextBatch
+                                            ? 'bg-gradient-to-r from-zinc-900 via-amber-950/20 to-zinc-900 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.12)]'
+                                            : 'bg-zinc-900/80 border-zinc-800 hover:border-zinc-700 shadow-xl'
                                         : 'bg-zinc-950/60 border-zinc-900 opacity-60'
                                 }`}
                             >
                                 <div className="flex items-center justify-between gap-4">
                                     {/* Media Thumbnail & Meta */}
-                                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                        {/* Queue Rank Badge (Squared) */}
+                                        {itemRank !== undefined && (
+                                            <span
+                                                className={`w-8 h-8 rounded-lg font-mono font-black text-xs flex items-center justify-center shrink-0 border ${
+                                                    isInNextBatch
+                                                        ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
+                                                        : isInSecondBatch
+                                                        ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                                                        : 'bg-zinc-800 text-zinc-400 border-white/5'
+                                                }`}
+                                                title={`Queue Position #${itemRank}`}
+                                            >
+                                                #{itemRank}
+                                            </span>
+                                        )}
+
                                         <div
                                             onClick={() => setSelectedMediaItem(item)}
-                                            className="w-14 h-20 sm:w-16 sm:h-24 rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center shadow-md cursor-pointer hover:border-violet-500/50 hover:scale-105 transition-all group"
+                                            className="w-14 h-20 sm:w-16 sm:h-24 rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center shadow-md cursor-pointer hover:border-violet-500/50 hover:scale-105 transition-all group"
                                             title="Open Media Details"
                                         >
                                             {item.poster ? (
@@ -1180,7 +1259,7 @@ export function SchedulerQueuePanel() {
                                         </div>
 
                                         <div className="min-w-0 flex-1 space-y-1.5">
-                                            <div className="flex items-center gap-2.5 flex-wrap">
+                                            <div className="flex items-center gap-2 flex-wrap">
                                                 <h3
                                                     onClick={() => setSelectedMediaItem(item)}
                                                     className="text-base sm:text-lg font-black text-white truncate cursor-pointer hover:text-violet-400 transition-colors"
@@ -1193,16 +1272,27 @@ export function SchedulerQueuePanel() {
                                                         ({item.year})
                                                     </span>
                                                 )}
-                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase text-black ${item.instanceColor || 'bg-emerald-400'}`}>
+                                                <span className={`px-2 py-0.5 rounded-md text-xs font-black uppercase text-black ${item.instanceColor || 'bg-emerald-400'}`}>
                                                     {item.instanceName || item.instanceId}
                                                 </span>
-                                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase border ${
+                                                <span className={`px-2 py-0.5 rounded-md text-xs font-black uppercase border ${
                                                     item.isDownloaded
                                                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                         : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                                                 }`}>
                                                     {item.isDownloaded ? 'Downloaded' : 'Missing'}
                                                 </span>
+                                                {isInNextBatch && (
+                                                    <span className="px-2 py-0.5 rounded-md text-xs font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 shadow-sm">
+                                                        <Sparkles size={12} className="text-amber-400" />
+                                                        Batch #1 (Next)
+                                                    </span>
+                                                )}
+                                                {isInSecondBatch && (
+                                                    <span className="px-2 py-0.5 rounded-md text-xs font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                                                        Batch #2
+                                                    </span>
+                                                )}
                                             </div>
 
                                             <div className="flex items-center gap-3 text-xs text-zinc-400 flex-wrap">
@@ -1213,7 +1303,7 @@ export function SchedulerQueuePanel() {
                                                     <>
                                                         <span>•</span>
                                                         <span className="text-zinc-400">
-                                                            {item.movieFile.quality.quality.name}
+                                                             {item.movieFile.quality.quality.name}
                                                         </span>
                                                     </>
                                                 )}
@@ -1238,8 +1328,8 @@ export function SchedulerQueuePanel() {
                                         </div>
                                     </div>
 
-                                    {/* Action Buttons (Strict Pure Symbols Over Text) */}
-                                    <div className="flex items-center gap-2.5 shrink-0">
+                                    {/* Action Buttons (Strict Pure Symbols Over Text, Squared) */}
+                                    <div className="flex items-center gap-2 shrink-0">
                                         {/* Series Expand Toggle */}
                                         {item.type === 'series' && (
                                             <button
@@ -1252,10 +1342,10 @@ export function SchedulerQueuePanel() {
                                                         fetchSeriesEpisodes(item.instanceId, item.id);
                                                     }
                                                 }}
-                                                className="p-3 rounded-2xl bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer transition-all shadow-md"
+                                                className="p-2.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer transition-all shadow-md"
                                                 title="Expand Season & Episode Breakdown"
                                             >
-                                                {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                                                {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                                             </button>
                                         )}
 
@@ -1264,10 +1354,10 @@ export function SchedulerQueuePanel() {
                                             type="button"
                                             disabled={liveStatus?.isPolling}
                                             onClick={() => handleForceSearchItem(item)}
-                                            className="p-3 rounded-2xl bg-zinc-950 hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 border border-zinc-800 cursor-pointer transition-all shadow-md disabled:opacity-50"
+                                            className="p-2.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 border border-zinc-800 cursor-pointer transition-all shadow-md disabled:opacity-50"
                                             title="Force Automatic Indexer Search"
                                         >
-                                            <RefreshCw size={20} className={liveStatus?.isPolling ? 'animate-spin' : ''} />
+                                            <RefreshCw size={18} className={liveStatus?.isPolling ? 'animate-spin' : ''} />
                                         </button>
 
                                         {/* Interactive Search Modal Button */}
@@ -1279,10 +1369,10 @@ export function SchedulerQueuePanel() {
                                                 instanceId: item.instanceId,
                                                 title: item.title
                                             })}
-                                            className="p-3 rounded-2xl bg-zinc-950 hover:bg-zinc-800 text-indigo-400 hover:text-indigo-300 border border-zinc-800 cursor-pointer transition-all shadow-md"
+                                            className="p-2.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-indigo-400 hover:text-indigo-300 border border-zinc-800 cursor-pointer transition-all shadow-md"
                                             title="Interactive Release Search & 1-Click Grab"
                                         >
-                                            <Search size={20} />
+                                            <Search size={18} />
                                         </button>
 
                                         {/* Delete Button */}
@@ -1295,24 +1385,24 @@ export function SchedulerQueuePanel() {
                                                 title: item.title,
                                                 fileId: item.movieFile?.id
                                             })}
-                                            className="p-3 rounded-2xl bg-zinc-950 hover:bg-rose-950/40 text-rose-400 hover:text-rose-300 border border-zinc-800 hover:border-rose-900 cursor-pointer transition-all shadow-md"
+                                            className="p-2.5 rounded-lg bg-zinc-950 hover:bg-rose-950/40 text-rose-400 hover:text-rose-300 border border-zinc-800 hover:border-rose-900 cursor-pointer transition-all shadow-md"
                                             title="Delete Media File"
                                         >
-                                            <Trash2 size={20} />
+                                            <Trash2 size={18} />
                                         </button>
 
                                         {/* Search Inclusion Checkbox */}
                                         <button
                                             type="button"
                                             onClick={() => setSearchToggles(p => ({ ...p, [item.idStr]: !isSearchActive }))}
-                                            className={`w-9 h-9 rounded-2xl border-2 flex items-center justify-center cursor-pointer transition-all ${
+                                            className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center cursor-pointer transition-all ${
                                                 isSearchActive
                                                     ? 'bg-emerald-500 border-emerald-500 text-black shadow-md'
                                                     : 'border-zinc-700 bg-zinc-950 text-zinc-600'
                                             }`}
                                             title={isSearchActive ? 'Search Active in Batches' : 'Search Excluded'}
                                         >
-                                            {isSearchActive && <Check size={18} className="stroke-[3]" />}
+                                            {isSearchActive && <Check size={16} className="stroke-[3]" />}
                                         </button>
                                     </div>
                                 </div>

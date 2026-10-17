@@ -1966,25 +1966,25 @@ export default function Settings() {
                                                         </span>
                                                     </div>
                                                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
-                                                            <span className="text-[10px] font-black uppercase text-zinc-500">Total Req</span>
-                                                            <div className="text-lg font-black text-white font-mono">{metrics.totalRequests || 0}</div>
+                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Total API calls made to AI language & vision models">
+                                                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Requests</span>
+                                                            <div className="text-xl font-black text-white font-mono">{metrics.totalRequests || 0}</div>
                                                         </div>
-                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
-                                                            <span className="text-[10px] font-black uppercase text-emerald-500">Success</span>
-                                                            <div className="text-lg font-black text-emerald-400 font-mono">{metrics.totalSuccess || 0}</div>
+                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Successful requests processed without error">
+                                                            <span className="text-xs font-black uppercase tracking-wider text-emerald-400">Successful</span>
+                                                            <div className="text-xl font-black text-emerald-400 font-mono">{metrics.totalSuccess || 0}</div>
                                                         </div>
-                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
-                                                            <span className="text-[10px] font-black uppercase text-rose-500">Errors</span>
-                                                            <div className="text-lg font-black text-rose-400 font-mono">{metrics.totalErrors || 0}</div>
+                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Failed or rate-limited requests">
+                                                            <span className="text-xs font-black uppercase tracking-wider text-rose-400">Failed</span>
+                                                            <div className="text-xl font-black text-rose-400 font-mono">{metrics.totalErrors || 0}</div>
                                                         </div>
-                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
-                                                            <span className="text-[10px] font-black uppercase text-amber-500">Scene Analyzed</span>
-                                                            <div className="text-lg font-black text-amber-300 font-mono">{metrics.artPromptRequests || 0}</div>
+                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Audiobook chapters analyzed for visual scene transitions">
+                                                            <span className="text-xs font-black uppercase tracking-wider text-amber-400">Scenes</span>
+                                                            <div className="text-xl font-black text-amber-300 font-mono">{metrics.artPromptRequests || 0}</div>
                                                         </div>
-                                                        <div className="p-3 bg-black/60 rounded-xl border border-zinc-800 space-y-1">
-                                                            <span className="text-[10px] font-black uppercase text-purple-500">Images Painted</span>
-                                                            <div className="text-lg font-black text-purple-300 font-mono">{metrics.imagePaintRequests || 0}</div>
+                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Scene artwork images rendered across active providers">
+                                                            <span className="text-xs font-black uppercase tracking-wider text-purple-400">Illustrations</span>
+                                                            <div className="text-xl font-black text-purple-300 font-mono">{metrics.imagePaintRequests || 0}</div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2378,13 +2378,15 @@ export default function Settings() {
                                             </div>
                                             <select
                                                 disabled={!stage4On}
-                                                value={audiobookStudioConfig.audioEnhancePreset || 'denoise_clarity'}
+                                                value={audiobookStudioConfig.audioEnhancePreset || 'auto'}
                                                 onChange={e => saveAudiobookStudioConfig({ audioEnhancePreset: e.target.value as any })}
                                                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none disabled:opacity-40"
                                             >
-                                                <option value="denoise_clarity">Studio Denoise & Clarity</option>
-                                                <option value="vintage_restore">Warm Vintage Master</option>
-                                                <option value="crystal_voice">Crystal Presence EQ</option>
+                                                <option value="original">None (Original Recording)</option>
+                                                <option value="auto">Auto Master (Level, Denoise &amp; Balanced EQ)</option>
+                                                <option value="warm_bass">Studio Warmth (Warm Mids, Zero Fatigue)</option>
+                                                <option value="clear_voice">Clear Presence (Clarity &amp; Articulation)</option>
+                                                <option value="night_compress">Night Leveler (Dynamic Compression)</option>
                                             </select>
                                         </div>
                                     </div>

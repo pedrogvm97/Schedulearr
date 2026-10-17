@@ -92,6 +92,17 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 }) => {
     const [cleanerSubtab, setCleanerSubtab] = useState<CleanerSubtab>('torrents');
 
+    // Downloads (Torrents & Stagnation Watchdog) State
+    const [qbitCleanupEnabled, setQbitCleanupEnabled] = useState(false);
+    const [qbitDeleteFiles, setQbitDeleteFiles] = useState(true);
+    const [qbitBlacklist, setQbitBlacklist] = useState(true);
+    const [qbitCleanupIntervalMin, setQbitCleanupIntervalMin] = useState(15);
+    const [qbitStagnationEnabled, setQbitStagnationEnabled] = useState(true);
+    const [qbitStagnationMin, setQbitStagnationMin] = useState(60);
+    const [qbitSizeCleanupEnabled, setQbitSizeCleanupEnabled] = useState(false);
+    const [qbitMaxSizeGb, setQbitMaxSizeGb] = useState(15);
+    const [qbitCleanupExclusions, setQbitCleanupExclusions] = useState('seeding, keep, manual');
+
     // Database Auto-Housekeeping State
     const [dbAutoCleanEnabled, setDbAutoCleanEnabled] = useState(true);
     const [retentionDays, setRetentionDays] = useState(30);
@@ -116,6 +127,23 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     const safeInstances = Array.isArray(instances) ? instances : [];
     const safeInstanceSegments = Array.isArray(instanceSegments) ? instanceSegments : [];
 
+    // Parse URL subTab on mount
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const sub = (params.get('subTab') || params.get('subtab') || '').toLowerCase();
+            if (sub === 'torrents' || sub === 'downloads' || sub === 'transfers') {
+                setCleanerSubtab('torrents');
+            } else if (sub === 'media' || sub === 'libraries') {
+                setCleanerSubtab('media');
+            } else if (sub === 'audiobooks' || sub === 'audiobook') {
+                setCleanerSubtab('audiobooks');
+            } else if (sub === 'database' || sub === 'db') {
+                setCleanerSubtab('database');
+            }
+        }
+    }, []);
+
     useEffect(() => {
         fetch('/api/system/settings')
             .then(r => r.ok ? r.json() : null)
@@ -127,6 +155,22 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                 if (data.audiobook_cache_autoclean_enabled !== undefined) setAudiobookAutoCleanEnabled(data.audiobook_cache_autoclean_enabled === 'true');
                 if (data.audiobook_cache_retention_days) setAudiobookRetentionDays(parseInt(data.audiobook_cache_retention_days) || 30);
                 if (data.media_smart_clean_auto_enabled !== undefined) setMediaAutoCleanEnabled(data.media_smart_clean_auto_enabled === 'true');
+            })
+            .catch(() => {});
+
+        fetch('/api/settings')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data) return;
+                if (data.qbit_cleanup_enabled !== undefined) setQbitCleanupEnabled(data.qbit_cleanup_enabled === 'true' || data.qbit_cleanup_enabled === true);
+                if (data.qbit_cleanup_delete_files !== undefined) setQbitDeleteFiles(data.qbit_cleanup_delete_files === 'true' || data.qbit_cleanup_delete_files === true);
+                if (data.qbit_cleanup_blacklist !== undefined) setQbitBlacklist(data.qbit_cleanup_blacklist === 'true' || data.qbit_cleanup_blacklist === true);
+                if (data.qbit_cleanup_interval_min) setQbitCleanupIntervalMin(parseInt(data.qbit_cleanup_interval_min) || 15);
+                if (data.qbit_cleanup_stagnation_enabled !== undefined) setQbitStagnationEnabled(data.qbit_cleanup_stagnation_enabled === 'true' || data.qbit_cleanup_stagnation_enabled === true);
+                if (data.qbit_cleanup_stagnation_min) setQbitStagnationMin(parseInt(data.qbit_cleanup_stagnation_min) || 60);
+                if (data.qbit_cleanup_max_size_enabled !== undefined) setQbitSizeCleanupEnabled(data.qbit_cleanup_max_size_enabled === 'true' || data.qbit_cleanup_max_size_enabled === true);
+                if (data.qbit_cleanup_max_size_gb) setQbitMaxSizeGb(parseInt(data.qbit_cleanup_max_size_gb) || 15);
+                if (data.qbit_cleanup_exclusions) setQbitCleanupExclusions(data.qbit_cleanup_exclusions);
             })
             .catch(() => {});
     }, []);
@@ -245,48 +289,48 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
 
     return (
         <div className="space-y-6 animate-in fade-in duration-200">
-            {/* ── Subtabs Navigation Grid (Zero Scrollbars Ever) ── */}
+            {/* ── Subtabs Navigation Grid (Zero Scrollbars Ever, Squared) ── */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 pb-4 border-b border-zinc-800">
                 <button
                     type="button"
                     onClick={() => setCleanerSubtab('torrents')}
-                    title="Storage Guard: Monitor disk capacity, auto-pause downloaders & trim unseeded torrents"
-                    className={`p-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                    title="Downloads: Stagnation watchdog, size limits, disk thresholds & stalled transfer cleanup"
+                    className={`p-3.5 rounded-xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                         cleanerSubtab === 'torrents'
                             ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
                             : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                 >
                     <Shield size={20} className="shrink-0" />
-                    <span className="truncate">Storage Guard</span>
+                    <span className="truncate">Downloads</span>
                 </button>
 
                 <button
                     type="button"
                     onClick={() => setCleanerSubtab('media')}
-                    title="Media Libraries: Condition-based auto-cleaning for Movies, Series & Music by watched status, age, or library size limits"
-                    className={`p-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                    title="Media: Condition-based auto-cleaning for Movies, Series & Music by watched status, age, or size limits"
+                    className={`p-3.5 rounded-xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                         cleanerSubtab === 'media'
                             ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
                             : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                 >
                     <Layers size={20} className="shrink-0" />
-                    <span className="truncate">Media Libraries</span>
+                    <span className="truncate">Media</span>
                 </button>
 
                 <button
                     type="button"
                     onClick={() => setCleanerSubtab('audiobooks')}
-                    title="Audiobook Cache: Auto-prune temporary audio chunks and selective cache purge"
-                    className={`p-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                    title="Audiobooks: Auto-prune audiobook cache, scenes, art, and voice models"
+                    className={`p-3.5 rounded-xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                         cleanerSubtab === 'audiobooks'
                             ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
                             : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
                     }`}
                 >
                     <Sparkles size={20} className="shrink-0" />
-                    <span className="truncate">Audiobook Cache</span>
+                    <span className="truncate">Audiobooks</span>
                 </button>
 
                 <button
@@ -298,7 +342,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                         }
                     }}
                     title="Database: Automated SQLite maintenance, log retention & table vacuuming"
-                    className={`p-3.5 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                    className={`p-3.5 rounded-xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                         cleanerSubtab === 'database'
                             ? 'bg-purple-500 text-black shadow-lg shadow-purple-500/20'
                             : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
@@ -310,29 +354,29 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════════
-                SUBTAB 1: STORAGE GUARD (DISK CAPACITY & DOWNLOAD TORRENTS)
+                SUBTAB 1: DOWNLOADS CLEANER (STAGNATION WATCHDOG & STORAGE GUARD)
                ═══════════════════════════════════════════════════════════════════ */}
             {cleanerSubtab === 'torrents' && (
                 <div className="space-y-6">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-7 shadow-2xl">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-7 shadow-2xl">
                         {/* Header Row */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 pb-5 border-b border-zinc-800">
                             <div className="flex items-center gap-4">
-                                <div className="p-3.5 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-md">
+                                <div className="p-3.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-md">
                                     <Shield size={28} />
                                 </div>
                                 <div className="flex items-center gap-3">
-                                    <h2 className="text-2xl font-black text-white tracking-tight">Storage Guard</h2>
-                                    <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
-                                        diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                                    <h2 className="text-2xl font-black text-white tracking-tight">Downloads Cleaner</h2>
+                                    <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider ${
+                                        qbitCleanupEnabled || diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
                                     }`}>
-                                        {diskAutocleanEnabled ? 'Active' : 'Off'}
+                                        {qbitCleanupEnabled || diskAutocleanEnabled ? 'Active' : 'Off'}
                                     </span>
                                 </div>
                             </div>
 
                             {/* Master Auto-Clean Switch & Trigger Threshold */}
-                            <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex-shrink-0">
+                            <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-xl border border-zinc-800 flex-shrink-0">
                                 <div className="flex items-center gap-2" title="Disk capacity percentage threshold that triggers automated actions">
                                     <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Trigger:</span>
                                     <input
@@ -347,7 +391,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                             updateSetting('disk_pause_threshold', String(val));
                                             updateSetting('disk_autoclean_threshold', String(val));
                                         }}
-                                        className="w-16 bg-zinc-900 border border-zinc-700 rounded-xl text-center py-1 text-emerald-400 font-black text-base outline-none focus:border-emerald-500"
+                                        className="w-16 bg-zinc-900 border border-zinc-700 rounded-lg text-center py-1 text-emerald-400 font-black text-base outline-none focus:border-emerald-500"
                                         title="Auto-clean capacity trigger percentage"
                                     />
                                     <span className="text-xs font-black text-emerald-400">%</span>
@@ -358,30 +402,203 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                 <button
                                     type="button"
                                     onClick={async () => {
-                                        const next = !diskAutocleanEnabled;
+                                        const next = !qbitCleanupEnabled;
+                                        setQbitCleanupEnabled(next);
                                         setDiskAutocleanEnabled(next);
+                                        await updateSetting('qbit_cleanup_enabled', String(next));
                                         await updateSetting('storage_guard_enabled', String(next));
                                         await updateSetting('disk_autoclean_enabled', String(next));
-                                        toast.success(next ? 'Storage Guard Activated' : 'Storage Guard Deactivated');
+                                        toast.success(next ? 'Downloads Cleaner Activated' : 'Downloads Cleaner Deactivated');
                                     }}
-                                    className={`w-14 h-7 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
-                                    title={diskAutocleanEnabled ? 'Deactivate Storage Guard' : 'Activate Storage Guard'}
+                                    className={`w-14 h-7 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${qbitCleanupEnabled || diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
+                                    title={qbitCleanupEnabled || diskAutocleanEnabled ? 'Deactivate Downloads Cleaner' : 'Activate Downloads Cleaner'}
                                 >
-                                    <div className={`w-6 h-6 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-7' : 'translate-x-0'}`} />
+                                    <div className={`w-6 h-6 rounded-full bg-white transition-transform ${qbitCleanupEnabled || diskAutocleanEnabled ? 'translate-x-7' : 'translate-x-0'}`} />
                                 </button>
+                            </div>
+                        </div>
+
+                        {/* Stagnation Watchdog Rules (Clean Settings Design Language) */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-black uppercase tracking-wider text-zinc-400">
+                                Stagnation Watchdog Rules
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 flex items-center justify-between">
+                                    <span className="text-sm font-bold text-white">Auto Cleanup Watchdog</span>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const next = !qbitCleanupEnabled;
+                                            setQbitCleanupEnabled(next);
+                                            await updateSetting('qbit_cleanup_enabled', String(next));
+                                        }}
+                                        className={`w-12 h-6 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${qbitCleanupEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                                        title="Toggle periodic background watchdog"
+                                    >
+                                        <div className={`w-5 h-5 rounded-full bg-white transition-transform ${qbitCleanupEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                                    </button>
+                                </div>
+
+                                <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 flex items-center justify-between">
+                                    <span className="text-sm font-bold text-white">Delete Files From Disk</span>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const next = !qbitDeleteFiles;
+                                            setQbitDeleteFiles(next);
+                                            await updateSetting('qbit_cleanup_delete_files', String(next));
+                                        }}
+                                        className={`w-12 h-6 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${qbitDeleteFiles ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                                        title="Reclaim physical disk storage upon cleanup"
+                                    >
+                                        <div className={`w-5 h-5 rounded-full bg-white transition-transform ${qbitDeleteFiles ? 'translate-x-6' : 'translate-x-0'}`} />
+                                    </button>
+                                </div>
+
+                                <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 flex items-center justify-between">
+                                    <span className="text-sm font-bold text-white">Blacklist Failed Release</span>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const next = !qbitBlacklist;
+                                            setQbitBlacklist(next);
+                                            await updateSetting('qbit_cleanup_blacklist', String(next));
+                                        }}
+                                        className={`w-12 h-6 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${qbitBlacklist ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                                        title="Instruct Sonarr/Radarr to search for alternatives"
+                                    >
+                                        <div className={`w-5 h-5 rounded-full bg-white transition-transform ${qbitBlacklist ? 'translate-x-6' : 'translate-x-0'}`} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Timing, Stagnation & Size Inputs */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">
+                                        Scan Interval
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={qbitCleanupIntervalMin}
+                                            onChange={e => {
+                                                const v = parseInt(e.target.value) || 15;
+                                                setQbitCleanupIntervalMin(v);
+                                                updateSetting('qbit_cleanup_interval_min', String(v));
+                                            }}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-bold text-white outline-none focus:border-emerald-500"
+                                            title="Interval in minutes between watchdog scans"
+                                        />
+                                        <span className="text-xs font-bold text-zinc-400">min</span>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                                            Stagnation Timeout
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const next = !qbitStagnationEnabled;
+                                                setQbitStagnationEnabled(next);
+                                                await updateSetting('qbit_cleanup_stagnation_enabled', String(next));
+                                            }}
+                                            className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${qbitStagnationEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                                            title="Toggle Stagnation Timeout"
+                                        >
+                                            <div className={`w-4 h-4 rounded-full bg-white transition-transform ${qbitStagnationEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                        </button>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            disabled={!qbitStagnationEnabled}
+                                            value={qbitStagnationMin}
+                                            onChange={e => {
+                                                const v = parseInt(e.target.value) || 60;
+                                                setQbitStagnationMin(v);
+                                                updateSetting('qbit_cleanup_stagnation_min', String(v));
+                                            }}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-bold text-white outline-none focus:border-emerald-500 disabled:opacity-30"
+                                            title="Minutes stalled before removal"
+                                        />
+                                        <span className="text-xs font-bold text-zinc-400">min</span>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                                            Max Release Size
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const next = !qbitSizeCleanupEnabled;
+                                                setQbitSizeCleanupEnabled(next);
+                                                await updateSetting('qbit_cleanup_max_size_enabled', String(next));
+                                            }}
+                                            className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${qbitSizeCleanupEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                                            title="Toggle Max Release Size limit"
+                                        >
+                                            <div className={`w-4 h-4 rounded-full bg-white transition-transform ${qbitSizeCleanupEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                        </button>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            disabled={!qbitSizeCleanupEnabled}
+                                            value={qbitMaxSizeGb}
+                                            onChange={e => {
+                                                const v = parseInt(e.target.value) || 15;
+                                                setQbitMaxSizeGb(v);
+                                                updateSetting('qbit_cleanup_max_size_gb', String(v));
+                                            }}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-bold text-white outline-none focus:border-emerald-500 disabled:opacity-30"
+                                            title="Maximum gigabytes per release"
+                                        />
+                                        <span className="text-xs font-bold text-zinc-400">GB</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Exclusions / Whitelist */}
+                            <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 space-y-2">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">
+                                    Exclusions / Whitelist
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="seeding, keep, manual, radarr-4k, specific-tag"
+                                    value={qbitCleanupExclusions}
+                                    onChange={e => {
+                                        const v = e.target.value;
+                                        setQbitCleanupExclusions(v);
+                                        updateSetting('qbit_cleanup_exclusions', v);
+                                    }}
+                                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-emerald-500"
+                                    title="Exempt categories or tags from automatic cleanup"
+                                />
                             </div>
                         </div>
 
                         {/* Storage Capacity Bar */}
                         {diskInfo ? (
-                            <div className="p-5 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-4">
+                            <div className="p-5 bg-zinc-950 rounded-xl border border-zinc-800 space-y-4">
                                 <div className="flex justify-between items-center text-sm">
                                     <span className="font-black text-white uppercase tracking-wider flex items-center gap-2">
                                         <HardDrive size={18} className="text-emerald-400" />
                                         Storage Capacity
                                     </span>
                                     <div className="flex items-center gap-3">
-                                        <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider ${
+                                        <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider ${
                                             diskInfo.usedPercent >= diskPauseThreshold
                                                 ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
                                                 : diskInfo.usedPercent >= 75
@@ -393,7 +610,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                         <button
                                             type="button"
                                             onClick={refreshDiskInfo}
-                                            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                                            className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
                                             title="Refresh disk storage capacity"
                                         >
                                             <RefreshCw size={16} />
@@ -445,14 +662,14 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                 )}
                             </div>
                         ) : (
-                            <div className="p-6 bg-zinc-950 rounded-2xl border border-zinc-800 text-sm font-bold text-zinc-500 animate-pulse text-center">
+                            <div className="p-6 bg-zinc-950 rounded-xl border border-zinc-800 text-sm font-bold text-zinc-500 animate-pulse text-center">
                                 Querying storage capacity...
                             </div>
                         )}
 
                         {/* Automated Conditions & Master Controls */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4">
+                            <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4">
                                 <span className="text-sm font-black text-white">Pause Downloader on Threshold</span>
                                 <button
                                     type="button"
@@ -469,12 +686,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                 </button>
                             </div>
 
-                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4">
+                            <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-4">
                                 <span className="text-sm font-black text-white">Trim Unseeded Torrents</span>
                                 <button
                                     type="button"
                                     onClick={handleCleanToThreshold}
-                                    className="p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition-all cursor-pointer flex items-center gap-2"
+                                    className="p-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition-all cursor-pointer flex items-center gap-2"
                                     title="Trim finished/unseeded torrents immediately"
                                 >
                                     <Trash2 size={18} />

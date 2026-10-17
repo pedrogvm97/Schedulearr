@@ -210,57 +210,6 @@ export function Navigation() {
                 </div>
             </nav>
 
-            {/* ── Global "Ongoing" Summary Banner (Active Playback, EPG Sync, Audiobook Studio, DVR & Housekeeping) ── */}
-            {hasOngoingActivity && (
-                <div className="w-full bg-gradient-to-r from-zinc-950 via-[#101418] to-zinc-950 border-b border-emerald-500/20 px-4 py-2 z-40">
-                    <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto no-scrollbar scrollbar-none">
-                        <Link
-                            href="/tasks"
-                            title="Open Server Tasks & Pipelines Dashboard"
-                            className="flex items-center gap-2 shrink-0 hover:opacity-90 transition-opacity"
-                        >
-                            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                                Ongoing ({totalTasksCount})
-                            </span>
-                        </Link>
-
-                        <div className="flex items-center gap-3 flex-1 min-w-0 overflow-x-auto no-scrollbar scrollbar-none">
-                            {playingAudio && (
-                                <button
-                                    onClick={() => openExpandedPlayer()}
-                                    title="Click to open full Audiobook / Music Player"
-                                    className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs text-amber-200 flex items-center gap-2 shrink-0 cursor-pointer transition-colors"
-                                >
-                                    <Play size={14} className={isAudioPlaying ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-zinc-400'} />
-                                    <span className="font-black">{playingAudio.isAudiobook ? 'Reading:' : 'Playing:'}</span>
-                                    <span className="truncate max-w-[220px] font-bold">{playingAudio.title}</span>
-                                </button>
-                            )}
-
-                            {ongoingTasks.map(task => (
-                                <Link
-                                    key={task.id}
-                                    href="/tasks"
-                                    title={`${task.title}: ${task.detail} — Click to open Tasks dashboard`}
-                                    className="px-3 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-200 flex items-center gap-2 shrink-0 transition-colors"
-                                >
-                                    {task.category === 'epg' ? (
-                                        <Radio size={14} className="text-amber-400 animate-spin" />
-                                    ) : task.category === 'audiobook' ? (
-                                        <BookOpen size={14} className="text-orange-400 animate-pulse" />
-                                    ) : (
-                                        <Activity size={14} className="text-emerald-400 animate-pulse" />
-                                    )}
-                                    <span className="font-black text-white">{task.title}:</span>
-                                    <span className="text-zinc-300 truncate max-w-[260px]">{task.detail}</span>
-                                </Link>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {/* ── Modern Floating Glass Bottom Tab Bar (<640px Mobile Only) ── */}
             <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 px-3 pb-3 pointer-events-none" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
                 <div className="pointer-events-auto max-w-sm mx-auto bg-zinc-950/85 backdrop-blur-3xl border border-white/10 rounded-[1.75rem] shadow-[0_20px_50px_rgba(0,0,0,0.85)] flex items-center justify-between h-16 px-2 gap-1">

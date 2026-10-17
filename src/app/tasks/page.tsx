@@ -276,100 +276,84 @@ export default function TasksPage() {
                ═══════════════════════════════════════════════════════════════════ */}
             {activeLibraryTab === 'audiobooks' && (
                 <div className="space-y-6">
-                    {/* Active Step Live Running Banner */}
-                    <div className={`rounded-2xl p-5 border flex flex-wrap items-center justify-between gap-4 ${
-                        studioStatus.isRunning
-                            ? 'bg-emerald-500/10 border-emerald-500/30 shadow-lg shadow-emerald-500/10'
-                            : quotaReached && totals.art.pendingChapters > 0
-                            ? 'bg-rose-500/10 border-rose-500/30'
-                            : 'bg-[#0d111a] border-white/10'
-                    }`}>
-                        <div className="space-y-1.5 min-w-[280px] flex-1">
-                            <div className="flex items-center gap-3 flex-wrap">
-                                <span className="text-xs font-black uppercase tracking-wider text-gray-400">Current Step:</span>
-                                <span className="text-lg font-black text-white">
-                                    {studioStatus.isRunning
-                                        ? `[${studioStatus.activeTask || 'Working'}] ${studioStatus.activeBookTitle || 'Audiobook'} — ${studioStatus.activeChapterTitle || ''}`
-                                        : (studioStatus.idleReason || studioStatus.lastLog || 'Pipeline Ready')}
-                                </span>
-                            </div>
-                            {studioStatus.isRunning && studioStatus.lastLog && (
-                                <p className="text-sm text-emerald-300 font-semibold">{studioStatus.lastLog}</p>
-                            )}
-                        </div>
-
-                        {studioStatus.isRunning && (
-                            <div className="w-full md:w-80 space-y-1.5">
-                                <div className="flex justify-between text-xs font-black text-emerald-300">
-                                    <span>{studioStatus.activeTask || 'Processing'}</span>
-                                    <span>{studioStatus.progress ?? 0}%</span>
-                                </div>
-                                <div className="w-full h-3 rounded-full bg-black/60 overflow-hidden border border-white/10">
-                                    <div
-                                        className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-300"
-                                        style={{ width: `${Math.max(5, studioStatus.progress || 10)}%` }}
-                                    />
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="flex items-center gap-2.5">
-                            <button
-                                onClick={() => runAction('run_worker', { action: 'trigger_audiobook_worker' })}
-                                disabled={busyKey === 'run_worker'}
-                                title="Run pipeline queue immediately"
-                                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm flex items-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-50 shadow-md"
-                            >
-                                <Play className="w-4 h-4 fill-current" />
-                                <span>Run</span>
-                            </button>
-                            <button
-                                onClick={() => runAction('toggle_worker', { action: 'toggle_audiobook_worker', enabled: !studioCfg.enabled })}
-                                disabled={busyKey === 'toggle_worker'}
-                                title={studioCfg.enabled ? 'Pause background worker' : 'Resume background worker'}
-                                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-sm flex items-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-50"
-                            >
-                                {studioCfg.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                                <span>{studioCfg.enabled ? 'Pause' : 'Resume'}</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Clean Division: LOCAL TASKS (CPU) vs AI CLOUD TASKS (API & QUOTA) */}
+                    {/* ── Dual Concurrent Pipelines: LOCAL (CPU) vs API (Cloud) ── */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* ── 1. Local Tasks (Server / CPU) ── */}
-                        <div className="rounded-3xl bg-[#0d111a] border border-emerald-500/30 p-6 space-y-5 shadow-xl">
+                        {/* ── 1. Local Pipeline (Server Hardware / Offline CPU) ── */}
+                        <div className="rounded-2xl bg-[#0d111a] border border-emerald-500/30 p-6 space-y-5 shadow-2xl">
                             <div className="flex items-center justify-between pb-4 border-b border-white/10">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-3 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                                    <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
                                         <Cpu size={24} />
                                     </div>
-                                    <div>
-                                        <div className="flex items-center gap-2.5">
-                                            <h3 className="text-xl font-black text-white">Local Tasks</h3>
-                                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                                                Server CPU • 0 API Cost
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-gray-400 font-semibold mt-0.5">Whisper STT audio transcription & narrator voice DSP</p>
+                                    <div className="flex items-center gap-2.5">
+                                        <h3 className="text-2xl font-black text-white">Local Pipeline</h3>
+                                        <span className={`px-2.5 py-1 rounded-md text-xs font-black uppercase tracking-wider ${
+                                            isLocalTasksActive
+                                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
+                                                : 'bg-white/5 text-gray-400 border border-white/10'
+                                        }`}>
+                                            {isLocalTasksActive ? 'Running' : 'Idle'}
+                                        </span>
                                     </div>
                                 </div>
-                                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${
-                                    isLocalTasksActive
-                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
-                                        : 'bg-white/5 text-gray-400 border border-white/10'
-                                }`}>
-                                    {isLocalTasksActive ? 'Active' : 'Idle'}
-                                </span>
+
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => runAction('run_worker_local', { action: 'trigger_audiobook_worker', target: 'transcriptions' })}
+                                        disabled={busyKey === 'run_worker_local'}
+                                        title="Run local transcription immediately"
+                                        className="p-2.5 rounded-md bg-emerald-500 hover:bg-emerald-400 text-black cursor-pointer shadow disabled:opacity-50"
+                                    >
+                                        <Play size={18} className="fill-current" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => runAction('toggle_local_worker', { action: 'toggle_audiobook_worker', enabled: !studioCfg.enabled })}
+                                        disabled={busyKey === 'toggle_local_worker'}
+                                        title={studioCfg.enabled ? 'Pause local worker' : 'Resume local worker'}
+                                        className="p-2.5 rounded-md bg-white/10 hover:bg-white/15 border border-white/15 text-white cursor-pointer disabled:opacity-50"
+                                    >
+                                        {studioCfg.enabled ? <Pause size={18} /> : <Play size={18} />}
+                                    </button>
+                                </div>
                             </div>
 
+                            {/* Local Live Lane */}
+                            <div className="p-4 rounded-xl bg-black/60 border border-emerald-500/20 space-y-2.5">
+                                <div className="flex items-center justify-between gap-3 text-xs">
+                                    <span className="font-black text-emerald-400 uppercase tracking-wider">
+                                        {isLocalTasksActive ? (studioStatus.activeTask || 'Local Processing') : 'Ready'}
+                                    </span>
+                                    {isLocalTasksActive && (
+                                        <span className="font-mono font-bold text-emerald-300">
+                                            {studioStatus.progress ?? 0}%
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="text-base font-black text-white truncate">
+                                    {isLocalTasksActive
+                                        ? `${studioStatus.activeBookTitle || 'Audiobook'} — ${studioStatus.activeChapterTitle || ''}`
+                                        : 'Server CPU Idle • Ready for transcription & DSP'}
+                                </div>
+                                {isLocalTasksActive && (
+                                    <div className="w-full h-2.5 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
+                                        <div
+                                            className="h-full bg-emerald-400 transition-all duration-300"
+                                            style={{ width: `${Math.max(5, studioStatus.progress || 10)}%` }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Sub-stages */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 {/* Stage 1: Transcription */}
-                                <div className="rounded-2xl bg-black/40 border border-indigo-500/30 p-4 space-y-3">
+                                <div className="rounded-xl bg-black/40 border border-indigo-500/30 p-4 space-y-2.5">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2 text-indigo-300 font-black text-sm">
                                             <Mic size={18} />
-                                            <span>1. Audio → Text</span>
+                                            <span>Audio → Text</span>
                                         </div>
                                         <span className="text-xs font-mono font-bold text-gray-400">
                                             {totals.transcriptions.done}/{totals.transcriptions.total} Ch
@@ -378,7 +362,7 @@ export default function TasksPage() {
                                     <div className="text-xs text-gray-400 font-semibold">
                                         {totals.transcriptions.pending} queued • {totals.transcriptions.failed > 0 ? `${totals.transcriptions.failed} errors` : '0 errors'}
                                     </div>
-                                    <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden border border-white/5">
+                                    <div className="w-full h-2 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
                                         <div
                                             className="h-full bg-indigo-500 transition-all duration-300"
                                             style={{
@@ -389,11 +373,11 @@ export default function TasksPage() {
                                 </div>
 
                                 {/* Stage 1B: Voice DSP */}
-                                <div className="rounded-2xl bg-black/40 border border-emerald-500/30 p-4 space-y-3">
+                                <div className="rounded-xl bg-black/40 border border-emerald-500/30 p-4 space-y-2.5">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2 text-emerald-300 font-black text-sm">
                                             <Volume2 size={18} />
-                                            <span>1B. Audio → Voice</span>
+                                            <span>Audio → Voice</span>
                                         </div>
                                         <span className="text-xs font-mono font-bold text-gray-400">
                                             {totals.voices.done}/{totals.voices.total} Ch
@@ -402,7 +386,7 @@ export default function TasksPage() {
                                     <div className="text-xs text-gray-400 font-semibold">
                                         {totals.voices.pending} queued • {totals.voices.failed > 0 ? `${totals.voices.failed} errors` : '0 errors'}
                                     </div>
-                                    <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden border border-white/5">
+                                    <div className="w-full h-2 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
                                         <div
                                             className="h-full bg-emerald-500 transition-all duration-300"
                                             style={{
@@ -414,39 +398,81 @@ export default function TasksPage() {
                             </div>
                         </div>
 
-                        {/* ── 2. AI Cloud Tasks (API & Quota-Gated) ── */}
-                        <div className="rounded-3xl bg-[#0d111a] border border-purple-500/30 p-6 space-y-5 shadow-xl">
+                        {/* ── 2. Cloud / API Pipeline (External Quotas & LLM/Flux) ── */}
+                        <div className="rounded-2xl bg-[#0d111a] border border-purple-500/30 p-6 space-y-5 shadow-2xl">
                             <div className="flex items-center justify-between pb-4 border-b border-white/10">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-3 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/40">
+                                    <div className="p-3 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/40">
                                         <Brain size={24} />
                                     </div>
-                                    <div>
-                                        <div className="flex items-center gap-2.5">
-                                            <h3 className="text-xl font-black text-white">AI Cloud Tasks</h3>
-                                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                                                API • Quota-Gated
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-gray-400 font-semibold mt-0.5">LLM scene transition analysis & Flux artwork painting</p>
+                                    <div className="flex items-center gap-2.5">
+                                        <h3 className="text-2xl font-black text-white">API Pipeline</h3>
+                                        <span className={`px-2.5 py-1 rounded-md text-xs font-black uppercase tracking-wider ${
+                                            isAiCloudTasksActive
+                                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse'
+                                                : 'bg-white/5 text-gray-400 border border-white/10'
+                                        }`}>
+                                            {isAiCloudTasksActive ? 'Running' : 'Idle'}
+                                        </span>
                                     </div>
                                 </div>
-                                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${
-                                    isAiCloudTasksActive
-                                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse'
-                                        : 'bg-white/5 text-gray-400 border border-white/10'
-                                }`}>
-                                    {isAiCloudTasksActive ? 'Active' : 'Idle'}
-                                </span>
+
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => runAction('reset_quota_api', { action: 'update_studio_limits', resetDailyUsage: true })}
+                                        className="p-2.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 cursor-pointer shadow"
+                                        title="Reset daily API image quota counter"
+                                    >
+                                        <RotateCcw size={18} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => runAction('run_worker_api', { action: 'trigger_audiobook_worker', target: 'all' })}
+                                        disabled={busyKey === 'run_worker_api'}
+                                        title="Run API cloud pipeline immediately"
+                                        className="p-2.5 rounded-md bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shadow disabled:opacity-50"
+                                    >
+                                        <Play size={18} className="fill-current" />
+                                    </button>
+                                </div>
                             </div>
 
+                            {/* Cloud Live Lane */}
+                            <div className="p-4 rounded-xl bg-black/60 border border-purple-500/20 space-y-2.5">
+                                <div className="flex items-center justify-between gap-3 text-xs">
+                                    <span className="font-black text-purple-400 uppercase tracking-wider">
+                                        {isAiCloudTasksActive ? (studioStatus.activeTask || 'Cloud Generating') : 'Ready'}
+                                    </span>
+                                    <span className="font-mono font-bold text-amber-300">
+                                        Quota: {studioCfg.imagesGeneratedToday ?? 0} / {studioCfg.dailyImageQuota ?? 20}
+                                    </span>
+                                </div>
+                                <div className="text-base font-black text-white truncate">
+                                    {isAiCloudTasksActive
+                                        ? `${studioStatus.activeBookTitle || 'Audiobook'} — ${studioStatus.activeChapterTitle || ''}`
+                                        : quotaReached
+                                        ? 'Daily API image quota limit reached'
+                                        : 'API Quota Ready • Waiting for scening & art tasks'}
+                                </div>
+                                {isAiCloudTasksActive && (
+                                    <div className="w-full h-2.5 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
+                                        <div
+                                            className="h-full bg-purple-400 transition-all duration-300"
+                                            style={{ width: `${Math.max(5, studioStatus.progress || 10)}%` }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Sub-stages */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 {/* Stage 2: LLM Scene Detection */}
-                                <div className="rounded-2xl bg-black/40 border border-cyan-500/30 p-4 space-y-3">
+                                <div className="rounded-xl bg-black/40 border border-cyan-500/30 p-4 space-y-2.5">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2 text-cyan-300 font-black text-sm">
                                             <Wand2 size={18} />
-                                            <span>2. Text → Scenes</span>
+                                            <span>Text → Scenes</span>
                                         </div>
                                         <span className="text-xs font-mono font-bold text-gray-400">
                                             {totals.llmScenes?.doneChapters ?? 0}/{totals.llmScenes?.totalChapters ?? 0} Ch
@@ -455,7 +481,7 @@ export default function TasksPage() {
                                     <div className="text-xs text-gray-400 font-semibold">
                                         {totals.llmScenes?.detectedScenes ?? 0} scenes • {totals.llmScenes?.pendingChapters ?? 0} waiting
                                     </div>
-                                    <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden border border-white/5">
+                                    <div className="w-full h-2 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
                                         <div
                                             className="h-full bg-cyan-500 transition-all duration-300"
                                             style={{
@@ -466,32 +492,20 @@ export default function TasksPage() {
                                 </div>
 
                                 {/* Stage 3: Scene Art Painting & Daily Quota */}
-                                <div className="rounded-2xl bg-black/40 border border-purple-500/30 p-4 space-y-3">
+                                <div className="rounded-xl bg-black/40 border border-purple-500/30 p-4 space-y-2.5">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2 text-purple-300 font-black text-sm">
                                             <ImageIcon size={18} />
-                                            <span>3. Scenes → Art</span>
+                                            <span>Scenes → Art</span>
                                         </div>
                                         <span className="text-xs font-mono font-bold text-gray-400">
                                             {totals.art.doneChapters}/{totals.art.totalChapters} Ch
                                         </span>
                                     </div>
-                                    <div className="flex items-center justify-between text-xs">
-                                        <span className="text-gray-400 font-semibold">
-                                            Quota: <span className={quotaReached ? 'text-rose-400 font-black' : 'text-amber-300 font-black'}>
-                                                {studioCfg.imagesGeneratedToday ?? 0}/{studioCfg.dailyImageQuota ?? 20}
-                                            </span>
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={() => runAction('reset_quota_art', { action: 'update_studio_limits', resetDailyUsage: true })}
-                                            className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-pointer"
-                                            title="Reset daily image count to 0"
-                                        >
-                                            Reset
-                                        </button>
+                                    <div className="text-xs text-gray-400 font-semibold">
+                                        {totals.art.keptScenes || 0} painted • {totals.art.pendingChapters} queued
                                     </div>
-                                    <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden border border-white/5">
+                                    <div className="w-full h-2 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
                                         <div
                                             className="h-full bg-purple-500 transition-all duration-300"
                                             style={{
@@ -570,15 +584,15 @@ export default function TasksPage() {
                                         return (
                                             <div
                                                 key={book.book_key}
-                                                className={`rounded-2xl p-4 border flex items-center justify-between gap-4 flex-nowrap overflow-x-auto ${
+                                                className={`rounded-xl p-3.5 sm:p-4 border flex items-center justify-between gap-4 flex-nowrap overflow-x-auto ${
                                                     isBookActive
-                                                        ? 'bg-emerald-500/10 border-emerald-500/40 shadow-lg'
+                                                        ? 'bg-emerald-500/10 border-emerald-500/50 shadow-lg'
                                                         : 'bg-black/40 border-white/10 hover:border-white/20'
                                                 }`}
                                             >
                                                 {/* Book Title & Index */}
                                                 <div className="flex items-center gap-3 shrink-0 min-w-[200px] max-w-[260px]">
-                                                    <span className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-sm font-black text-gray-300 shrink-0">
+                                                    <span className="w-8 h-8 rounded-md bg-white/10 flex items-center justify-center text-sm font-black text-gray-300 shrink-0 border border-white/10">
                                                         #{idx + 1}
                                                     </span>
                                                     <div className="min-w-0">
@@ -593,7 +607,7 @@ export default function TasksPage() {
                                                     </div>
                                                 </div>
 
-                                                {/* Explicit Auto Toggle Pill */}
+                                                {/* Explicit Auto Toggle Pill (Squared) */}
                                                 <button
                                                     type="button"
                                                     onClick={() => runAction(`auto_toggle_${book.book_key}`, {
@@ -603,7 +617,7 @@ export default function TasksPage() {
                                                         field: 'transcribe_enabled'
                                                     })}
                                                     title={isAutoOn ? "Auto-processing is active for this book" : "Auto-processing is paused"}
-                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                                    className={`px-3 py-1.5 rounded-md text-xs font-black uppercase tracking-wider border flex items-center gap-1.5 shrink-0 cursor-pointer ${
                                                         isAutoOn
                                                             ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                             : 'bg-zinc-800 text-zinc-400 border-zinc-700'
@@ -613,7 +627,7 @@ export default function TasksPage() {
                                                     <span>{isAutoOn ? 'AUTO ON' : 'PAUSED'}</span>
                                                 </button>
 
-                                                {/* Stage Progress Meters (Single-line, pure symbols + counts with tooltips) */}
+                                                {/* Stage Progress Meters (Squared, pure symbols + counts with tooltips) */}
                                                 <div className="flex items-center gap-2 shrink-0 flex-nowrap">
                                                     <button
                                                         type="button"
@@ -624,7 +638,7 @@ export default function TasksPage() {
                                                             field: 'transcribe_enabled'
                                                         })}
                                                         title={`Stage 1: Speech-to-Text Transcription (${book.transcribed_chapters || 0}/${totalCh} chapters)`}
-                                                        className={`px-2.5 py-1.5 rounded-xl text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                                        className={`px-2.5 py-1.5 rounded-md text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
                                                             book.transcribe_enabled
                                                                 ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
                                                                 : 'bg-white/5 text-gray-500 border-white/10 line-through'
@@ -636,7 +650,7 @@ export default function TasksPage() {
 
                                                     <div
                                                         title={`Stage 2: LLM Scene Detection (${book.detected_scenes_count ?? book.total_scenes ?? 0} scenes detected across ${book.scened_chapters_count ?? book.scened_chapters ?? 0}/${totalCh} chapters)`}
-                                                        className="px-2.5 py-1.5 rounded-xl text-xs font-mono font-black border bg-cyan-500/15 text-cyan-300 border-cyan-500/35 flex items-center gap-1.5 shrink-0"
+                                                        className="px-2.5 py-1.5 rounded-md text-xs font-mono font-black border bg-cyan-500/15 text-cyan-300 border-cyan-500/35 flex items-center gap-1.5 shrink-0"
                                                     >
                                                         <Wand2 size={15} />
                                                         <span>{book.detected_scenes_count ?? book.total_scenes ?? 0} Sc</span>
@@ -651,7 +665,7 @@ export default function TasksPage() {
                                                             field: 'illustrate_enabled'
                                                         })}
                                                         title={`Stage 3: Scene Artwork Painting (${book.painted_scenes_count ?? book.illustrated_scenes ?? 0}/${book.detected_scenes_count ?? book.total_scenes ?? 0} scenes painted)`}
-                                                        className={`px-2.5 py-1.5 rounded-xl text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                                        className={`px-2.5 py-1.5 rounded-md text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
                                                             book.illustrate_enabled
                                                                 ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
                                                                 : 'bg-white/5 text-gray-500 border-white/10 line-through'
@@ -670,7 +684,7 @@ export default function TasksPage() {
                                                             field: 'enhance_audio_enabled'
                                                         })}
                                                         title={`Stage 1B: Narrator Voice Processing (${book.enhanced_chapters || 0}/${totalCh} chapters)`}
-                                                        className={`px-2.5 py-1.5 rounded-xl text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                                        className={`px-2.5 py-1.5 rounded-md text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
                                                             book.enhance_audio_enabled
                                                                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                                 : 'bg-white/5 text-gray-500 border-white/10 line-through'
@@ -681,7 +695,7 @@ export default function TasksPage() {
                                                     </button>
                                                 </div>
 
-                                                {/* Single-Row Action Controls (Pure symbols + tooltips) */}
+                                                {/* Single-Row Action Controls (Pure symbols + tooltips, Squared) */}
                                                 <div className="flex items-center gap-1.5 shrink-0">
                                                     <button
                                                         type="button"
@@ -691,7 +705,7 @@ export default function TasksPage() {
                                                             subAction: 'start_now'
                                                         })}
                                                         title="Start running pipeline for this book immediately"
-                                                        className="p-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black transition-all cursor-pointer shadow"
+                                                        className="p-2 rounded-md bg-emerald-500 hover:bg-emerald-400 text-black transition-all cursor-pointer shadow"
                                                     >
                                                         <Play size={16} className="fill-current" />
                                                     </button>
@@ -705,7 +719,7 @@ export default function TasksPage() {
                                                                 subAction: 'prioritize_top'
                                                             })}
                                                             title="Move book to top of priority queue"
-                                                            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
+                                                            className="p-2 rounded-md bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
                                                         >
                                                             <ArrowUp size={16} />
                                                         </button>
@@ -720,7 +734,7 @@ export default function TasksPage() {
                                                                 subAction: 'retry_failed'
                                                             })}
                                                             title="Retry failed chapters"
-                                                            className="p-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all cursor-pointer"
+                                                            className="p-2 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all cursor-pointer"
                                                         >
                                                             <RotateCcw size={16} />
                                                         </button>
@@ -735,7 +749,7 @@ export default function TasksPage() {
                                                             subAction: 'redo_art'
                                                         })}
                                                         title={(book.transcribed_chapters || 0) === 0 ? 'Requires transcription first' : 'Redo scene detection & artwork'}
-                                                        className="p-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition-all cursor-pointer disabled:opacity-30"
+                                                        className="p-2 rounded-md bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition-all cursor-pointer disabled:opacity-30"
                                                     >
                                                         <Sparkles size={16} />
                                                     </button>
@@ -743,7 +757,7 @@ export default function TasksPage() {
                                                     <Link
                                                         href={`/discover?tab=audiobooks&bookKey=${encodeURIComponent(book.book_key)}`}
                                                         title="Open in Media Manager"
-                                                        className="p-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition-all cursor-pointer"
+                                                        className="p-2 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition-all cursor-pointer"
                                                     >
                                                         <Sliders size={16} />
                                                     </Link>
@@ -756,7 +770,7 @@ export default function TasksPage() {
                                                             subAction: 'remove_queue'
                                                         })}
                                                         title="Remove from queue"
-                                                        className="p-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition-all cursor-pointer"
+                                                        className="p-2 rounded-md bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition-all cursor-pointer"
                                                     >
                                                         <X size={16} />
                                                     </button>

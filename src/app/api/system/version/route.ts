@@ -8,6 +8,13 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.40] Tasks Dual-Pipeline Execution (Local vs API), Squared UI Geometry, Batch-Prioritized Search Queue, Transfers Watchdog Migration & Plex Companion Subtitles',
+  '  - Overhaul Tasks UI with parallel Local Pipeline (Hardware DSP, Whisper CPU) and Cloud/API Pipeline (LLM Scene Detection, Art Painting) and remove persistent bottom bar',
+  '  - Enforce crisp squared geometry across queue badges, counters, action buttons, and cards',
+  '  - Add search queue batch limit filter (10, 25, 50, 100, All), batch highlighting (Batch #1, Batch #2), and periodicity controls (15m to 24h)',
+  '  - Move Transfers stagnation watchdog & cleanup rules into Settings Cleaners tab, with plain 1-word subtabs (Downloads, Media, Audiobooks, Database), manual cleaner toggle, and quick-settings icon button',
+  '  - Save Plex companion subtitles directly alongside video files in media directories with auto-translation from foreign audio into English and chosen target languages',
+  '  - Align AI voice settings presets to Theater options and remove repetitive zero-context API metric text',
   '• [v0.6.39] Automatic Subtitle Translation to Chosen Target Languages & 1-Click Multi-Language Companion SRT Generation',
   '  - Add configurable target subtitle languages with high-contrast flag pills (PT, EN, ES, FR, DE, IT, NL, PL, JA, KO, ZH) in Video AI Tools',
   '  - Automatic companion subtitle translation into all chosen target languages upon Speech-to-Text completion, saving .lang.srt directly to media folder and central library',
@@ -98,7 +105,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.39';
+    let currentVersion = '0.6.40';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

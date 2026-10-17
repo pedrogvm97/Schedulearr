@@ -380,37 +380,45 @@ export const VideoAiToolsPanel: React.FC = () => {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {libraries.map(lib => (
-                            <div
-                                key={lib.id}
-                                className={`p-5 rounded-2xl border transition-all flex items-center justify-between gap-4 ${
-                                    lib.autoProcess
-                                        ? 'bg-zinc-950 border-emerald-500/40 shadow-lg shadow-emerald-500/5'
-                                        : 'bg-zinc-950/40 border-zinc-900 opacity-65'
-                                }`}
-                            >
-                                <div className="space-y-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`w-3 h-3 rounded-full flex-shrink-0 ${lib.autoProcess ? 'bg-emerald-400 shadow-sm' : 'bg-zinc-600'}`} />
-                                        <h4 className="text-base font-black text-white truncate" title={lib.name}>{lib.name}</h4>
-                                    </div>
-                                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400 block">
-                                        {lib.type === 'iptv_dvr' ? 'IPTV DVR' : lib.type}
-                                    </span>
-                                </div>
-
-                                <button
-                                    type="button"
-                                    onClick={() => handleToggleLibrary(lib.id, lib.autoProcess)}
-                                    className={`w-14 h-7 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${
-                                        lib.autoProcess ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]' : 'bg-zinc-800'
+                        {libraries.map(lib => {
+                            const instColor = lib.color || (lib.type === 'radarr' ? 'bg-amber-500' : lib.type === 'sonarr' ? 'bg-sky-500' : 'bg-emerald-500');
+                            return (
+                                <div
+                                    key={lib.id}
+                                    className={`p-5 rounded-xl border transition-all flex items-center justify-between gap-4 ${
+                                        lib.autoProcess
+                                            ? 'bg-zinc-950 border-zinc-700 shadow-lg'
+                                            : 'bg-zinc-950/40 border-zinc-900 opacity-60'
                                     }`}
-                                    title={lib.autoProcess ? `Deactivate auto-processing for ${lib.name}` : `Activate auto-processing for ${lib.name}`}
                                 >
-                                    <div className={`w-6 h-6 rounded-full bg-white transition-transform ${lib.autoProcess ? 'translate-x-7' : 'translate-x-0'}`} />
-                                </button>
-                            </div>
-                        ))}
+                                    <div className="space-y-1.5 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className={`w-3 h-3 rounded-full flex-shrink-0 ${lib.autoProcess ? instColor : 'bg-zinc-600'}`} />
+                                            <h4 className="text-base font-black text-white truncate" title={lib.name}>{lib.name}</h4>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`px-2 py-0.5 rounded-md text-[11px] font-black uppercase text-black ${instColor}`}>
+                                                {lib.type === 'iptv_dvr' ? 'IPTV DVR' : lib.type}
+                                            </span>
+                                            <span className="text-xs font-bold text-zinc-400">
+                                                {lib.autoProcess ? 'Auto-STT Active' : 'Off'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleToggleLibrary(lib.id, lib.autoProcess)}
+                                        className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${
+                                            lib.autoProcess ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]' : 'bg-zinc-800'
+                                        }`}
+                                        title={lib.autoProcess ? `Deactivate auto-processing for ${lib.name}` : `Activate auto-processing for ${lib.name}`}
+                                    >
+                                        <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${lib.autoProcess ? 'translate-x-5.5' : 'translate-x-0'}`} />
+                                    </button>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
