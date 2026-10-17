@@ -291,7 +291,9 @@ function TimelineDateGroup({
                         <div
                             key={item.id}
                             onClick={() => onSelectEvent(item.primaryEvent)}
-                            className={`group relative flex flex-col sm:flex-row bg-[#0e0e11] border border-zinc-800/80 hover:border-emerald-500/50 rounded-[2rem] p-5 sm:p-6 gap-5 sm:gap-6 transition-all duration-300 hover:bg-zinc-900/70 shadow-2xl cursor-pointer hover:-translate-y-1 ${
+                            className={`group relative ${
+                                totalReleases === 2 ? 'flex flex-col xl:flex-row' : 'flex flex-col sm:flex-row'
+                            } bg-[#0e0e11] border border-zinc-800/80 hover:border-emerald-500/50 rounded-[2rem] p-5 sm:p-6 gap-5 sm:gap-6 transition-all duration-300 hover:bg-zinc-900/70 shadow-2xl cursor-pointer hover:-translate-y-1 ${
                                 totalReleases > 2 ? 'min-w-[420px] sm:min-w-[500px] md:min-w-[560px] max-w-[620px] shrink-0 snap-start' : 'w-full'
                             }`}
                         >
@@ -401,16 +403,16 @@ function TimelineDateGroup({
                                 </div>
 
                                 {/* Footer Status & Instance Tag */}
-                                <div className="flex items-center justify-between text-xs font-bold pt-3 border-t border-zinc-900 mt-2">
-                                    <span className="px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 truncate max-w-[150px]">
+                                <div className="flex items-center justify-between gap-2.5 flex-wrap text-xs font-bold pt-3 border-t border-zinc-900 mt-2">
+                                    <span className="px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 truncate max-w-[160px] shrink min-w-0" title={item.instanceName}>
                                         {item.instanceName}
                                     </span>
                                     {item.hasFile ? (
-                                        <span className="text-emerald-400 font-black flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1 rounded-xl border border-emerald-500/20">
+                                        <span className="text-emerald-400 font-black flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1 rounded-xl border border-emerald-500/20 shrink-0 whitespace-nowrap ml-auto">
                                             <CheckCircle2 size={14} /> Available on Disk
                                         </span>
                                     ) : (
-                                        <span className="text-zinc-400 font-bold flex items-center gap-1.5 bg-zinc-900 px-3 py-1 rounded-xl border border-zinc-800">
+                                        <span className="text-zinc-400 font-bold flex items-center gap-1.5 bg-zinc-900 px-3 py-1 rounded-xl border border-zinc-800 shrink-0 whitespace-nowrap ml-auto">
                                             <Clock size={13} /> Scheduled Release
                                         </span>
                                     )}

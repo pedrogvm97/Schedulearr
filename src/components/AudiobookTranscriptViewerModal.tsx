@@ -32,16 +32,20 @@ export const AudiobookTranscriptViewerModal: React.FC<AudiobookTranscriptViewerM
     initialChapterIndex = null,
     onClose
 }) => {
-    const [selectedChapterIdx, setSelectedChapterIdx] = useState<number | null>(initialChapterIndex);
+    const [selectedChapterIdx, setSelectedChapterIdx] = useState<number | null>(
+        initialChapterIndex !== null && initialChapterIndex >= 0 ? initialChapterIndex : (chapters.length > 0 ? 0 : null)
+    );
     const [searchQuery, setSearchQuery] = useState('');
     const [copied, setCopied] = useState(false);
     const [viewFormat, setViewFormat] = useState<'timestamped' | 'prose'>('timestamped');
+    const [visibleLineLimit, setVisibleLineLimit] = useState(300);
 
     // Update selected chapter when modal opens with a specific initialChapterIndex
     React.useEffect(() => {
-        setSelectedChapterIdx(initialChapterIndex);
+        setSelectedChapterIdx(initialChapterIndex !== null && initialChapterIndex >= 0 ? initialChapterIndex : (chapters.length > 0 ? 0 : null));
         setSearchQuery('');
-    }, [initialChapterIndex, isOpen]);
+        setVisibleLineLimit(300);
+    }, [initialChapterIndex, isOpen, chapters.length]);
 
     // Parse lines per chapter
     const parsedChapters = useMemo(() => {
@@ -293,45 +297,71 @@ export const AudiobookTranscriptViewerModal: React.FC<AudiobookTranscriptViewerM
                                 Run Step 1 (Speech-to-Text Transcription) in the Audiobook Studio to generate verbatim synced lines.
                             </p>
                         </div>
-                    ) : (
-                        filteredChapters.map((ch) => (
-                            <div key={ch.chapterIndex} className="space-y-3">
-                                {/* Chapter Banner */}
-                                <div className="sticky top-0 z-10 px-4 py-2.5 rounded-2xl bg-zinc-900/95 border border-zinc-800 flex items-center justify-between gap-3 backdrop-blur shadow-md">
-                                    <div className="flex items-center gap-3">
-                                        <span className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-300 font-mono text-xs font-black flex items-center justify-center">
-                                            {ch.displayNumber}
-                                        </span>
-                                        <h4 className="text-sm sm:text-base font-black text-white truncate">
-                                            {ch.title}
-                                        </h4>
-                                    </div>
-                                    <span className="text-xs font-mono font-bold text-amber-300/80">
-                                        {ch.lines.length} lines
-                                    </span>
-                                </div>
+                    ) : (() => {
+                        let lineCounter = 0;
+                        const hasMoreLines = totalLinesInView > visibleLineLimit;
 
-                                {/* Spoken Lines */}
-                                <div className="space-y-2 pl-1 sm:pl-3">
-                                    {ch.lines.map((line) => (
-                                        <div
-                                            key={line.id}
-                                            className="group p-3 rounded-2xl bg-zinc-900/40 hover:bg-zinc-900/80 border border-zinc-800/60 hover:border-amber-500/40 flex items-start gap-3 transition-colors"
-                                        >
-                                            {viewFormat === 'timestamped' && line.timeTag && (
-                                                <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 group-hover:bg-amber-500/25 text-amber-300 font-mono text-xs sm:text-sm font-black shrink-0 tracking-wider">
-                                                    [{line.timeTag}]
+                        return (
+                            <>
+                                {filteredChapters.map((ch) => {
+                                    if (lineCounter >= visibleLineLimit) return null;
+                                    const availableBudget = visibleLineLimit - lineCounter;
+                                    const linesToRender = ch.lines.slice(0, availableBudget);
+                                    lineCounter += linesToRender.length;
+
+                                    return (
+                                        <div key={ch.chapterIndex} className="space-y-3">
+                                            {/* Chapter Banner */}
+                                            <div className="sticky top-0 z-10 px-4 py-2.5 rounded-2xl bg-zinc-900/95 border border-zinc-800 flex items-center justify-between gap-3 backdrop-blur shadow-md">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-300 font-mono text-xs font-black flex items-center justify-center">
+                                                        {ch.displayNumber}
+                                                    </span>
+                                                    <h4 className="text-sm sm:text-base font-black text-white truncate">
+                                                        {ch.title}
+                                                    </h4>
+                                                </div>
+                                                <span className="text-xs font-mono font-bold text-amber-300/80">
+                                                    {ch.lines.length} lines
                                                 </span>
-                                            )}
-                                            <p className="text-base sm:text-lg text-zinc-100 font-medium leading-relaxed flex-1 select-text">
-                                                {line.text}
-                                            </p>
+                                            </div>
+
+                                            {/* Spoken Lines */}
+                                            <div className="space-y-2 pl-1 sm:pl-3">
+                                                {linesToRender.map((line) => (
+                                                    <div
+                                                        key={line.id}
+                                                        className="group p-3 rounded-2xl bg-zinc-900/40 hover:bg-zinc-900/80 border border-zinc-800/60 hover:border-amber-500/40 flex items-start gap-3 transition-colors"
+                                                    >
+                                                        {viewFormat === 'timestamped' && line.timeTag && (
+                                                            <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 group-hover:bg-amber-500/25 text-amber-300 font-mono text-xs sm:text-sm font-black shrink-0 tracking-wider">
+                                                                [{line.timeTag}]
+                                                            </span>
+                                                        )}
+                                                        <p className="text-base sm:text-lg text-zinc-100 font-medium leading-relaxed flex-1 select-text">
+                                                            {line.text}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ))
-                    )}
+                                    );
+                                })}
+
+                                {hasMoreLines && (
+                                    <div className="pt-4 pb-2 text-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => setVisibleLineLimit(prev => prev + 300)}
+                                            className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider cursor-pointer shadow-lg transition-all"
+                                        >
+                                            Show Next 300 Lines ({visibleLineLimit} of {totalLinesInView} shown)
+                                        </button>
+                                    </div>
+                                )}
+                            </>
+                        );
+                    })()}
                 </div>
             </div>
         </div>
