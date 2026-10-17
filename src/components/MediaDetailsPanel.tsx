@@ -527,7 +527,8 @@ function MediaDetailsPanelInner({
             });
             const data = await res.json();
             if (data.ok && data.success) {
-                toast.success('Subtitles generated and saved to media folder!');
+                const subCount = Array.isArray(data.subtitles) ? data.subtitles.length : 1;
+                toast.success(subCount > 1 ? `Subtitles generated in ${subCount} languages!` : 'Subtitles generated and saved to media folder!');
             } else {
                 toast.error(data.error || 'Failed to generate subtitles');
             }

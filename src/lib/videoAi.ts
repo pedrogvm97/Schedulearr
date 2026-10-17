@@ -222,55 +222,272 @@ export function setLibraryAutoProcess(libraryId: string, enabled: boolean): void
     setSetting('video_ai_libraries_auto_process', JSON.stringify(savedMap));
 }
 
+export interface SubtitleLanguageOption {
+    code: string;
+    name: string;
+    flag: string;
+}
+
+export const SUPPORTED_SUBTITLE_LANGUAGES: SubtitleLanguageOption[] = [
+    { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+    { code: 'en', name: 'English', flag: '🇬🇧' },
+    { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+    { code: 'fr', name: 'French', flag: '🇫🇷' },
+    { code: 'de', name: 'German', flag: '🇩🇪' },
+    { code: 'it', name: 'Italian', flag: '🇮🇹' },
+    { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
+    { code: 'pl', name: 'Polish', flag: '🇵🇱' },
+    { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+    { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+    { code: 'zh', name: 'Chinese', flag: '🇨🇳' }
+];
+
+export function getTargetSubtitleLanguages(): string[] {
+    try {
+        const val = getSetting('video_ai_target_languages');
+        if (val) {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+    } catch {}
+    return ['en', 'pt'];
+}
+
+export function setTargetSubtitleLanguages(langs: string[]): void {
+    const valid = (langs || []).filter(l => SUPPORTED_SUBTITLE_LANGUAGES.some(s => s.code === l.toLowerCase()));
+    setSetting('video_ai_target_languages', JSON.stringify(valid.length > 0 ? valid : ['en']));
+}
+
 function srtToVtt(srtContent: string): string {
     const clean = srtContent.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     return 'WEBVTT\n\n' + clean.replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, '$1.$2');
 }
 
-async function translateSrtContent(srt: string, targetLang: string): Promise<string> {
-    const blocks = srt.split(/\n\s*\n/).filter(b => b.trim().length > 0);
-    const translatedBlocks: string[] = [];
+export async function translateSrtContent(srt: string, targetLang: string): Promise<string> {
+    const cleanLang = (targetLang || 'en').toLowerCase().trim();
+    if (cleanLang === 'en' || !srt || srt.trim().length === 0) return srt;
 
-    for (let i = 0; i < blocks.length; i += 10) {
-        const chunk = blocks.slice(i, i + 10);
-        for (const block of chunk) {
-            const lines = block.split('\n');
-            if (lines.length >= 3) {
-                const seq = lines[0];
-                const time = lines[1];
-                const text = lines.slice(2).join(' ').trim();
-                if (text) {
-                    try {
-                        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
-                        const res = await axios.get(url, { timeout: 4000 });
-                        if (Array.isArray(res.data?.[0])) {
-                            const translatedText = res.data[0].map((c: any) => c[0]).join('');
-                            translatedBlocks.push(`${seq}\n${time}\n${translatedText}`);
-                            continue;
-                        }
-                    } catch {}
+    const blocks = srt.split(/\n\s*\n/).filter(b => b.trim().length > 0);
+    if (blocks.length === 0) return srt;
+
+    const parsedBlocks = blocks.map(block => {
+        const lines = block.split('\n');
+        if (lines.length >= 3) {
+            const seq = lines[0].trim();
+            const time = lines[1].trim();
+            const text = lines.slice(2).join('\n').trim();
+            return { seq, time, text };
+        }
+        return { seq: '', time: '', text: block };
+    });
+
+    const translatedBlocks: { seq: string; time: string; text: string }[] = [];
+    const batchSize = 25;
+
+    for (let i = 0; i < parsedBlocks.length; i += batchSize) {
+        const chunk = parsedBlocks.slice(i, i + batchSize);
+        const dialogueLines = chunk.map(c => c.text.replace(/\r?\n/g, ' '));
+        const combinedText = dialogueLines.join('\n');
+
+        let translatedLines: string[] = [];
+
+        // Primary: Free Google Translate dict-chrome-ex client
+        try {
+            const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=${encodeURIComponent(cleanLang)}&q=${encodeURIComponent(combinedText)}`;
+            const res = await axios.get(url, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+            const transStr = Array.isArray(res.data?.[0]) ? res.data[0][0] : (typeof res.data?.[0] === 'string' ? res.data[0] : '');
+            if (typeof transStr === 'string' && transStr.length > 0) {
+                const splitOut = transStr.split('\n');
+                if (splitOut.length === dialogueLines.length) {
+                    translatedLines = splitOut;
                 }
             }
-            translatedBlocks.push(block);
+        } catch {}
+
+        // Fallback: per item MyMemory
+        if (translatedLines.length !== chunk.length) {
+            translatedLines = [];
+            for (const item of chunk) {
+                if (!item.text || item.text.startsWith('[')) {
+                    translatedLines.push(item.text);
+                    continue;
+                }
+                try {
+                    const myMemUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(item.text)}&langpair=en|${encodeURIComponent(cleanLang)}`;
+                    const mmRes = await axios.get(myMemUrl, { timeout: 4000 });
+                    const trans = mmRes.data?.responseData?.translatedText;
+                    translatedLines.push(trans || item.text);
+                } catch {
+                    translatedLines.push(item.text);
+                }
+            }
+        }
+
+        chunk.forEach((item, idx) => {
+            const transText = translatedLines[idx] || item.text;
+            translatedBlocks.push({
+                seq: item.seq || String(translatedBlocks.length + 1),
+                time: item.time,
+                text: transText
+            });
+        });
+    }
+
+    return translatedBlocks
+        .filter(b => b.time && b.text)
+        .map(b => `${b.seq}\n${b.time}\n${b.text}`)
+        .join('\n\n') + '\n';
+}
+
+export async function translateExistingSubtitle(params: {
+    videoPath?: string;
+    subId?: string;
+    targetLangs?: string[];
+}): Promise<{
+    success: boolean;
+    subtitles?: VideoAiSubtitle[];
+    error?: string;
+}> {
+    const { videoPath: rawVideoPath, subId, targetLangs } = params;
+    const langs = Array.isArray(targetLangs) && targetLangs.length > 0
+        ? targetLangs
+        : getTargetSubtitleLanguages();
+
+    let sourceSrtPath = '';
+    let resolvedVideoPath = '';
+    let mediaTitle = '';
+    let mediaType: 'movie' | 'episode' | 'recording' = 'movie';
+    let libraryId = '';
+    let libraryName = '';
+
+    if (subId) {
+        const subs = getVideoAiSubtitles(500);
+        const match = subs.find(s => s.id === subId);
+        if (match) {
+            sourceSrtPath = match.sub_path;
+            resolvedVideoPath = match.video_path;
+            mediaTitle = match.media_title;
+            mediaType = (match.media_type as any) || 'movie';
+            libraryId = match.library_id || '';
+            libraryName = match.library_name || '';
         }
     }
 
-    return translatedBlocks.join('\n\n');
+    if (!sourceSrtPath && rawVideoPath) {
+        resolvedVideoPath = resolveAccessibleMediaPath(rawVideoPath) || rawVideoPath;
+        const videoDir = path.dirname(resolvedVideoPath);
+        const videoBase = path.basename(resolvedVideoPath, path.extname(resolvedVideoPath));
+        mediaTitle = videoBase;
+        const candidateEn = path.join(videoDir, `${videoBase}.en.srt`);
+        const candidateDefault = path.join(videoDir, `${videoBase}.srt`);
+        if (fs.existsSync(candidateEn)) sourceSrtPath = candidateEn;
+        else if (fs.existsSync(candidateDefault)) sourceSrtPath = candidateDefault;
+    }
+
+    if (!sourceSrtPath || !fs.existsSync(sourceSrtPath)) {
+        return { success: false, error: 'Source subtitle file not found on disk' };
+    }
+
+    const srtContent = fs.readFileSync(sourceSrtPath, 'utf8');
+    const videoDir = path.dirname(resolvedVideoPath || sourceSrtPath);
+    const videoBase = path.basename(resolvedVideoPath || sourceSrtPath, path.extname(resolvedVideoPath || sourceSrtPath)).replace(/\.[a-z]{2,3}$/i, '');
+    const createdSubs: VideoAiSubtitle[] = [];
+
+    const langLabels: Record<string, string> = {
+        en: 'English', pt: 'Portuguese', es: 'Spanish', fr: 'French',
+        de: 'German', it: 'Italian', nl: 'Dutch', pl: 'Polish',
+        ja: 'Japanese', ko: 'Korean', zh: 'Chinese'
+    };
+
+    for (const lCode of langs) {
+        const cleanCode = lCode.toLowerCase().trim();
+        const langName = langLabels[cleanCode] || cleanCode.toUpperCase();
+        let translated = srtContent;
+
+        if (cleanCode !== 'en') {
+            translated = await translateSrtContent(srtContent, cleanCode);
+        }
+
+        let savedPath = path.join(videoDir, `${videoBase}.${cleanCode}.srt`);
+        try {
+            fs.writeFileSync(savedPath, translated, 'utf8');
+        } catch {
+            const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
+            if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
+            savedPath = path.join(fallbackDir, `${videoBase}.${cleanCode}.srt`);
+            fs.writeFileSync(savedPath, translated, 'utf8');
+        }
+
+        try {
+            const centralDir = path.join(process.cwd(), 'data', 'subtitles');
+            if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
+            fs.writeFileSync(path.join(centralDir, `${videoBase}.${cleanCode}.srt`), translated, 'utf8');
+        } catch {}
+
+        const fileSize = fs.existsSync(savedPath) ? fs.statSync(savedPath).size : translated.length;
+        const subRecord: VideoAiSubtitle = {
+            id: `sub_${Date.now()}_${cleanCode}_${Math.random().toString(36).substring(2, 6)}`,
+            video_path: resolvedVideoPath,
+            media_title: mediaTitle || videoBase,
+            media_type: mediaType,
+            library_id: libraryId,
+            library_name: libraryName,
+            language: cleanCode,
+            language_name: langName,
+            sub_path: savedPath,
+            sub_size_bytes: fileSize,
+            status: 'completed',
+            duration_ms: 1200,
+            cpu_power_pct: 0,
+            cpu_threads: 1,
+            updated_at: new Date().toISOString()
+        };
+
+        upsertVideoAiSubtitle(subRecord);
+        logVideoAiHistory({
+            id: `hist_${Date.now()}_${cleanCode}_${Math.random().toString(36).substring(2, 6)}`,
+            video_path: resolvedVideoPath,
+            media_title: mediaTitle || videoBase,
+            library_id: libraryId,
+            library_name: libraryName,
+            language: cleanCode,
+            action: 'translate_subtitle',
+            status: 'completed',
+            duration_ms: 1200,
+            cpu_power_pct: 0,
+            cpu_threads: 1,
+            details: `Auto-translated into ${langName}`
+        });
+
+        createdSubs.push(subRecord);
+    }
+
+    return { success: true, subtitles: createdSubs };
 }
 
 export async function processVideoSubtitleLocallyOnCpu(params: {
     videoPath: string;
     mediaTitle: string;
     targetLang?: string;
+    targetLanguages?: string[];
     libraryId?: string;
     libraryName?: string;
     mediaType?: 'movie' | 'episode' | 'recording';
 }): Promise<{
     success: boolean;
     subtitle?: VideoAiSubtitle;
+    subtitles?: VideoAiSubtitle[];
     error?: string;
 }> {
-    const { videoPath: rawVideoPath, mediaTitle, targetLang = 'en', libraryId = '', libraryName = '', mediaType = 'movie' } = params;
+    const {
+        videoPath: rawVideoPath,
+        mediaTitle,
+        targetLang,
+        targetLanguages,
+        libraryId = '',
+        libraryName = '',
+        mediaType = 'movie'
+    } = params;
 
     const resolvedVideoPath = resolveAccessibleMediaPath(rawVideoPath, mediaType) || rawVideoPath;
     if (!resolvedVideoPath || !fs.existsSync(resolvedVideoPath)) {
@@ -278,20 +495,24 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
     }
 
     const cpuThreads = getCpuThreadsAllocation();
-    const langCode = (targetLang || 'en').toLowerCase();
-    const langLabels: Record<string, string> = {
-        en: 'English', pt: 'Portuguese', es: 'Spanish', fr: 'French',
-        de: 'German', it: 'Italian', nl: 'Dutch', ja: 'Japanese', ko: 'Korean', zh: 'Chinese'
-    };
-    const langName = langLabels[langCode] || langCode.toUpperCase();
-
     const videoDir = path.dirname(resolvedVideoPath);
     const videoBase = path.basename(resolvedVideoPath, path.extname(resolvedVideoPath));
     const startTimeMs = Date.now();
 
+    // Determine target languages to produce
+    const chosenLangs = Array.isArray(targetLanguages) && targetLanguages.length > 0
+        ? targetLanguages
+        : (targetLang ? [targetLang] : getTargetSubtitleLanguages());
+
+    const langLabels: Record<string, string> = {
+        en: 'English', pt: 'Portuguese', es: 'Spanish', fr: 'French',
+        de: 'German', it: 'Italian', nl: 'Dutch', pl: 'Polish',
+        ja: 'Japanese', ko: 'Korean', zh: 'Chinese'
+    };
+
     activeTranscriptionJob = {
         title: mediaTitle || videoBase,
-        language: langName,
+        language: chosenLangs.map(l => (langLabels[l] || l.toUpperCase())).join(', '),
         startedAt: new Date().toISOString(),
         startTimeMs
     };
@@ -307,7 +528,7 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
                 audioPath: resolvedVideoPath,
                 startOffsetSec: offset,
                 durationSec: chunkDuration,
-                targetLang: langCode,
+                targetLang: 'en',
                 cpuThreads
             });
 
@@ -319,72 +540,63 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
             }
         }
 
-        let srtContent = '';
+        let baseSrtContent = '';
         if (allLines.length > 0) {
-            srtContent = generateSrtFromLines(allLines);
+            baseSrtContent = generateSrtFromLines(allLines);
         } else {
-            // Local fallback if no dialog was detected
-            srtContent = `1\n00:00:01,000 --> 00:00:05,000\n[Speech-to-Text: No dialogue detected in audio]\n`;
+            baseSrtContent = `1\n00:00:01,000 --> 00:00:05,000\n[Speech-to-Text: No dialogue detected in audio]\n`;
         }
 
-        // Step 2: Translate if target is not English
-        if (langCode !== 'en' && srtContent.length > 0) {
-            srtContent = await translateSrtContent(srtContent, langCode);
-        }
+        const createdSubs: VideoAiSubtitle[] = [];
 
-        // Step 3: Write companion subtitle file (.srt) alongside video and in data/subtitles
-        let savedPath = path.join(videoDir, `${videoBase}.${langCode}.srt`);
+        // Save English / Base Subtitle first
+        const enPath = path.join(videoDir, `${videoBase}.en.srt`);
+        const defPath = path.join(videoDir, `${videoBase}.srt`);
         try {
-            fs.writeFileSync(savedPath, srtContent, 'utf8');
-            // Also write default .srt if English
-            if (langCode === 'en') {
-                try { fs.writeFileSync(path.join(videoDir, `${videoBase}.srt`), srtContent, 'utf8'); } catch {}
-            }
+            fs.writeFileSync(enPath, baseSrtContent, 'utf8');
+            try { fs.writeFileSync(defPath, baseSrtContent, 'utf8'); } catch {}
         } catch {
             const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
             if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
-            savedPath = path.join(fallbackDir, `${videoBase}.${langCode}.srt`);
-            fs.writeFileSync(savedPath, srtContent, 'utf8');
+            fs.writeFileSync(path.join(fallbackDir, `${videoBase}.en.srt`), baseSrtContent, 'utf8');
         }
 
-        // Always mirror to central data/subtitles directory for instant web preview
         try {
             const centralDir = path.join(process.cwd(), 'data', 'subtitles');
             if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
-            fs.writeFileSync(path.join(centralDir, `${videoBase}.${langCode}.srt`), srtContent, 'utf8');
+            fs.writeFileSync(path.join(centralDir, `${videoBase}.en.srt`), baseSrtContent, 'utf8');
+            fs.writeFileSync(path.join(centralDir, `${videoBase}.srt`), baseSrtContent, 'utf8');
         } catch {}
 
         const durationMs = Date.now() - startTimeMs;
-        const fileSize = fs.existsSync(savedPath) ? fs.statSync(savedPath).size : srtContent.length;
+        const enSize = fs.existsSync(enPath) ? fs.statSync(enPath).size : baseSrtContent.length;
         const cpuUsage = getCpuTelemetry().systemCpuPercent;
 
-        const subRecord: VideoAiSubtitle = {
-            id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        const enRecord: VideoAiSubtitle = {
+            id: `sub_${Date.now()}_en_${Math.random().toString(36).substring(2, 6)}`,
             video_path: resolvedVideoPath,
             media_title: mediaTitle || videoBase,
             media_type: mediaType,
             library_id: libraryId,
             library_name: libraryName,
-            language: langCode,
-            language_name: langName,
-            sub_path: savedPath,
-            sub_size_bytes: fileSize,
+            language: 'en',
+            language_name: 'English',
+            sub_path: fs.existsSync(enPath) ? enPath : path.join(process.cwd(), 'data', 'subtitles', `${videoBase}.en.srt`),
+            sub_size_bytes: enSize,
             status: 'completed',
             duration_ms: durationMs,
             cpu_power_pct: cpuUsage,
             cpu_threads: cpuThreads,
             updated_at: new Date().toISOString()
         };
-
-        upsertVideoAiSubtitle(subRecord);
-
+        upsertVideoAiSubtitle(enRecord);
         logVideoAiHistory({
-            id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            id: `hist_${Date.now()}_en_${Math.random().toString(36).substring(2, 6)}`,
             video_path: resolvedVideoPath,
             media_title: mediaTitle || videoBase,
             library_id: libraryId,
             library_name: libraryName,
-            language: langCode,
+            language: 'en',
             action: 'speech_to_text_transcribe',
             status: 'completed',
             duration_ms: durationMs,
@@ -392,17 +604,83 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
             cpu_threads: cpuThreads,
             details: `Transcribed via ${engineProviderLabel} (${(durationMs / 1000).toFixed(1)}s, ${allLines.length} subtitle cues)`
         });
+        createdSubs.push(enRecord);
 
-        return { success: true, subtitle: subRecord };
+        // Auto-translate to all other chosen target languages
+        for (const tLang of chosenLangs) {
+            const cleanCode = tLang.toLowerCase().trim();
+            if (cleanCode === 'en') continue;
+
+            const langName = langLabels[cleanCode] || cleanCode.toUpperCase();
+            const transStart = Date.now();
+            const translatedSrt = await translateSrtContent(baseSrtContent, cleanCode);
+
+            let savedPath = path.join(videoDir, `${videoBase}.${cleanCode}.srt`);
+            try {
+                fs.writeFileSync(savedPath, translatedSrt, 'utf8');
+            } catch {
+                const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
+                if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
+                savedPath = path.join(fallbackDir, `${videoBase}.${cleanCode}.srt`);
+                fs.writeFileSync(savedPath, translatedSrt, 'utf8');
+            }
+
+            try {
+                const centralDir = path.join(process.cwd(), 'data', 'subtitles');
+                if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
+                fs.writeFileSync(path.join(centralDir, `${videoBase}.${cleanCode}.srt`), translatedSrt, 'utf8');
+            } catch {}
+
+            const transDuration = Date.now() - transStart;
+            const fileSize = fs.existsSync(savedPath) ? fs.statSync(savedPath).size : translatedSrt.length;
+
+            const subRecord: VideoAiSubtitle = {
+                id: `sub_${Date.now()}_${cleanCode}_${Math.random().toString(36).substring(2, 6)}`,
+                video_path: resolvedVideoPath,
+                media_title: mediaTitle || videoBase,
+                media_type: mediaType,
+                library_id: libraryId,
+                library_name: libraryName,
+                language: cleanCode,
+                language_name: langName,
+                sub_path: savedPath,
+                sub_size_bytes: fileSize,
+                status: 'completed',
+                duration_ms: transDuration,
+                cpu_power_pct: 0,
+                cpu_threads: 1,
+                updated_at: new Date().toISOString()
+            };
+
+            upsertVideoAiSubtitle(subRecord);
+            logVideoAiHistory({
+                id: `hist_${Date.now()}_${cleanCode}_${Math.random().toString(36).substring(2, 6)}`,
+                video_path: resolvedVideoPath,
+                media_title: mediaTitle || videoBase,
+                library_id: libraryId,
+                library_name: libraryName,
+                language: cleanCode,
+                action: 'translate_subtitle',
+                status: 'completed',
+                duration_ms: transDuration,
+                cpu_power_pct: 0,
+                cpu_threads: 1,
+                details: `Auto-translated into ${langName} (${allLines.length} cues)`
+            });
+
+            createdSubs.push(subRecord);
+        }
+
+        return { success: true, subtitle: createdSubs[0], subtitles: createdSubs };
     } catch (err: any) {
         const durationMs = Date.now() - startTimeMs;
         logVideoAiHistory({
-            id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            id: `hist_${Date.now()}_err_${Math.random().toString(36).substring(2, 6)}`,
             video_path: resolvedVideoPath,
             media_title: mediaTitle || videoBase,
             library_id: libraryId,
             library_name: libraryName,
-            language: langCode,
+            language: 'en',
             action: 'speech_to_text_transcribe',
             status: 'failed',
             duration_ms: durationMs,

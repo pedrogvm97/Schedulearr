@@ -8,6 +8,11 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.39] Automatic Subtitle Translation to Chosen Target Languages & 1-Click Multi-Language Companion SRT Generation',
+  '  - Add configurable target subtitle languages with high-contrast flag pills (PT, EN, ES, FR, DE, IT, NL, PL, JA, KO, ZH) in Video AI Tools',
+  '  - Automatic companion subtitle translation into all chosen target languages upon Speech-to-Text completion, saving .lang.srt directly to media folder and central library',
+  '  - 1-click on-demand subtitle translation button for existing subtitles without needing to re-transcribe audio',
+  '  - Simplified 1-word headings (Power, Libraries, Languages, Queue, Subtitles, History) and strict symbol-over-text accessibility scale compliance',
   '• [v0.6.38] Multi-tier Speech-to-Text for Movies, Series & Songs, 1-Click Subtitles & Karaoke LRC Alignment, and Accessibility Polish',
   '  - Add multi-tier Speech-to-Text engine supporting Gemini Audio STT, Groq Whisper Large v3 Turbo, OpenAI Whisper, and local whisper.cpp across Movies, Series, and Songs',
   '  - Automatic path resolution between Sonarr/Radarr container paths and physical Unraid storage paths to eliminate disk file missing errors',
@@ -93,7 +98,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.38';
+    let currentVersion = '0.6.39';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

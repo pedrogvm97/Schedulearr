@@ -4,9 +4,23 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     Cpu, Film, RefreshCw, Trash2, Play, Pause, Check, X,
     Sliders, Clock, ListFilter, ArrowUpDown, Shield, FileText,
-    Download, Activity, AlertCircle, Sparkles, Layers
+    Download, Activity, AlertCircle, Sparkles, Layers, Globe, Languages
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const DEFAULT_SUPPORTED_LANGUAGES = [
+    { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+    { code: 'en', name: 'English', flag: '🇬🇧' },
+    { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+    { code: 'fr', name: 'French', flag: '🇫🇷' },
+    { code: 'de', name: 'German', flag: '🇩🇪' },
+    { code: 'it', name: 'Italian', flag: '🇮🇹' },
+    { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
+    { code: 'pl', name: 'Polish', flag: '🇵🇱' },
+    { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+    { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+    { code: 'zh', name: 'Chinese', flag: '🇨🇳' }
+];
 
 export const VideoAiToolsPanel: React.FC = () => {
     const [loading, setLoading] = useState(true);
@@ -19,6 +33,9 @@ export const VideoAiToolsPanel: React.FC = () => {
     const [queue, setQueue] = useState<any[]>([]);
     const [historyFilter, setHistoryFilter] = useState<'all' | 'completed' | 'failed'>('all');
     const [processingItemPath, setProcessingItemPath] = useState<string | null>(null);
+    const [targetLanguages, setTargetLanguages] = useState<string[]>(['en', 'pt']);
+    const [supportedLanguages, setSupportedLanguages] = useState<any[]>(DEFAULT_SUPPORTED_LANGUAGES);
+    const [translatingSubId, setTranslatingSubId] = useState<string | null>(null);
 
     const fetchData = useCallback(async () => {
         try {
@@ -32,6 +49,12 @@ export const VideoAiToolsPanel: React.FC = () => {
                 if (data.priorityRule) setPriorityRule(data.priorityRule);
                 if (data.cpuThreads) setCpuThreads(data.cpuThreads);
                 setQueue(data.queue || []);
+                if (data.targetLanguages && Array.isArray(data.targetLanguages)) {
+                    setTargetLanguages(data.targetLanguages);
+                }
+                if (data.supportedLanguages && Array.isArray(data.supportedLanguages)) {
+                    setSupportedLanguages(data.supportedLanguages);
+                }
             }
         } catch {
         } finally {
@@ -152,6 +175,65 @@ export const VideoAiToolsPanel: React.FC = () => {
         }
     };
 
+    const handleToggleTargetLanguage = async (code: string) => {
+        const clean = code.toLowerCase().trim();
+        let next: string[];
+        if (targetLanguages.includes(clean)) {
+            if (targetLanguages.length <= 1) {
+                toast.warning('At least one target language must remain active');
+                return;
+            }
+            next = targetLanguages.filter(l => l !== clean);
+        } else {
+            next = [...targetLanguages, clean];
+        }
+        setTargetLanguages(next);
+        try {
+            const res = await fetch('/api/ai/video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'set_target_languages', languages: next })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                toast.success('Target languages updated');
+                fetchData();
+            } else {
+                toast.error(data.error || 'Failed to update target languages');
+            }
+        } catch {
+            toast.error('Failed to update target languages');
+        }
+    };
+
+    const handleTranslateSubtitle = async (sub: any) => {
+        setTranslatingSubId(sub.id);
+        toast.info(`Translating subtitles for "${sub.media_title}" into chosen languages...`);
+        try {
+            const res = await fetch('/api/ai/video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'translate_subtitle',
+                    subId: sub.id,
+                    videoPath: sub.video_path,
+                    targetLangs: targetLanguages
+                })
+            });
+            const data = await res.json();
+            if (data.ok && data.success) {
+                toast.success(`Subtitles translated into ${data.translatedCount || 'chosen'} language(s)!`);
+                fetchData();
+            } else {
+                toast.error(data.error || 'Translation failed');
+            }
+        } catch {
+            toast.error('Error translating subtitle');
+        } finally {
+            setTranslatingSubId(null);
+        }
+    };
+
     const handleClearHistory = async () => {
         try {
             const res = await fetch('/api/ai/video', {
@@ -189,7 +271,7 @@ export const VideoAiToolsPanel: React.FC = () => {
                         </div>
                         <div>
                             <div className="flex items-center gap-3 flex-wrap">
-                                <h2 className="text-2xl font-black text-white tracking-tight">CPU Power</h2>
+                                <h2 className="text-2xl font-black text-white tracking-tight">Power</h2>
                                 <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                                     Local CPU Whisper
                                 </span>
@@ -288,7 +370,7 @@ export const VideoAiToolsPanel: React.FC = () => {
                 <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
                     <h3 className="text-xl font-black text-white flex items-center gap-2.5">
                         <Layers size={22} className="text-indigo-400" />
-                        Libraries Auto-Processing
+                        Libraries
                     </h3>
                 </div>
 
@@ -333,12 +415,45 @@ export const VideoAiToolsPanel: React.FC = () => {
                 )}
             </div>
 
-            {/* ── 3. Priority Queue Rules & Pending Queue ── */}
+            {/* ── 3. Target Subtitle Languages ── */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
+                <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+                    <h3 className="text-xl font-black text-white flex items-center gap-2.5">
+                        <Globe size={22} className="text-sky-400" />
+                        Languages
+                    </h3>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                    {supportedLanguages.map(lang => {
+                        const active = targetLanguages.includes(lang.code);
+                        return (
+                            <button
+                                key={lang.code}
+                                type="button"
+                                onClick={() => handleToggleTargetLanguage(lang.code)}
+                                className={`px-4 py-3 rounded-2xl text-base font-black transition-all border cursor-pointer flex items-center gap-2.5 ${
+                                    active
+                                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-md shadow-sky-500/10'
+                                        : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white hover:border-zinc-700'
+                                }`}
+                                title={active ? `Deactivate ${lang.name} translation` : `Activate ${lang.name} translation`}
+                            >
+                                <span className="text-xl leading-none">{lang.flag}</span>
+                                <span className="tracking-wide uppercase">{lang.code}</span>
+                                <span className={`w-2.5 h-2.5 rounded-full ${active ? 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)]' : 'bg-zinc-700'}`} />
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* ── 4. Priority Queue Rules & Pending Queue ── */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                     <div className="flex items-center gap-3">
                         <ArrowUpDown size={22} className="text-indigo-400" />
-                        <h3 className="text-xl font-black text-white">Queue &amp; Priority Rules</h3>
+                        <h3 className="text-xl font-black text-white">Queue</h3>
                     </div>
 
                     {/* Priority Rule Selector */}
@@ -413,12 +528,12 @@ export const VideoAiToolsPanel: React.FC = () => {
                 )}
             </div>
 
-            {/* ── 4. Subtitles Generated ── */}
+            {/* ── 5. Subtitles Generated ── */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
                 <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
                     <div className="flex items-center gap-3">
                         <FileText size={22} className="text-emerald-400" />
-                        <h3 className="text-xl font-black text-white">Generated Subtitles ({subtitles.length})</h3>
+                        <h3 className="text-xl font-black text-white">Subtitles</h3>
                     </div>
                 </div>
 
@@ -439,12 +554,12 @@ export const VideoAiToolsPanel: React.FC = () => {
                                             {sub.media_title}
                                         </h4>
                                         <div className="flex items-center gap-2 flex-wrap text-xs">
-                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-bold uppercase">
+                                            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black uppercase">
                                                 {sub.language_name || sub.language}
                                             </span>
-                                            <span className="text-zinc-400 font-semibold">{sub.library_name || 'Local'}</span>
+                                            <span className="text-zinc-300 font-bold">{sub.library_name || 'Local'}</span>
                                             {sub.sub_size_bytes > 0 && (
-                                                <span className="text-zinc-500 font-mono font-bold">
+                                                <span className="text-zinc-400 font-mono font-bold">
                                                     {(sub.sub_size_bytes / 1024).toFixed(1)} KB
                                                 </span>
                                             )}
@@ -453,6 +568,20 @@ export const VideoAiToolsPanel: React.FC = () => {
 
                                     {/* Action icons (Zero text!) */}
                                     <div className="flex items-center gap-2 flex-shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTranslateSubtitle(sub)}
+                                            disabled={translatingSubId === sub.id}
+                                            className="p-2.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition-all cursor-pointer disabled:opacity-50"
+                                            title="Translate subtitles into chosen target languages"
+                                        >
+                                            {translatingSubId === sub.id ? (
+                                                <RefreshCw size={18} className="animate-spin" />
+                                            ) : (
+                                                <Languages size={18} />
+                                            )}
+                                        </button>
+
                                         <a
                                             href={`/api/theater/subtitles?fetchVttPath=${encodeURIComponent(sub.sub_path)}`}
                                             target="_blank"
@@ -474,9 +603,9 @@ export const VideoAiToolsPanel: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="pt-2 border-t border-zinc-900 flex items-center justify-between text-xs text-zinc-500 font-medium">
+                                <div className="pt-2 border-t border-zinc-900 flex items-center justify-between text-xs text-zinc-400 font-medium">
                                     <span>{new Date(sub.updated_at || sub.created_at).toLocaleString()}</span>
-                                    <span className="font-mono text-zinc-400">Local CPU ({sub.cpu_threads || 2}T)</span>
+                                    <span className="font-mono text-zinc-300">Local CPU ({sub.cpu_threads || 2}T)</span>
                                 </div>
                             </div>
                         ))}
@@ -484,12 +613,12 @@ export const VideoAiToolsPanel: React.FC = () => {
                 )}
             </div>
 
-            {/* ── 5. Processing History ── */}
+            {/* ── 6. Processing History ── */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                     <div className="flex items-center gap-3">
                         <Activity size={22} className="text-amber-400" />
-                        <h3 className="text-xl font-black text-white">Processing History ({filteredHistory.length})</h3>
+                        <h3 className="text-xl font-black text-white">History</h3>
                     </div>
 
                     <div className="flex items-center gap-3">

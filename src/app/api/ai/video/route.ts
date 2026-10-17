@@ -10,7 +10,11 @@ import {
     setLibraryAutoProcess,
     scanExistingSubtitles,
     getVideoAiQueueList,
-    processVideoSubtitleLocallyOnCpu
+    processVideoSubtitleLocallyOnCpu,
+    getTargetSubtitleLanguages,
+    setTargetSubtitleLanguages,
+    SUPPORTED_SUBTITLE_LANGUAGES,
+    translateExistingSubtitle
 } from '@/lib/videoAi';
 import {
     getVideoAiSubtitles,
@@ -30,6 +34,8 @@ export async function GET() {
         const priorityRule = getQueuePriorityRule();
         const cpuThreads = getCpuThreadsAllocation();
         const queue = getVideoAiQueueList();
+        const targetLanguages = getTargetSubtitleLanguages();
+        const supportedLanguages = SUPPORTED_SUBTITLE_LANGUAGES;
 
         return NextResponse.json({
             ok: true,
@@ -39,7 +45,9 @@ export async function GET() {
             libraries,
             priorityRule,
             cpuThreads,
-            queue
+            queue,
+            targetLanguages,
+            supportedLanguages
         });
     } catch (err: any) {
         console.error('GET /api/ai/video error:', err);
@@ -106,6 +114,21 @@ export async function POST(req: Request) {
                 try { fs.unlinkSync(subPath); } catch {}
             }
             return NextResponse.json({ ok: true, message: 'Subtitle removed' });
+        }
+
+        if (action === 'set_target_languages') {
+            const { languages } = body;
+            if (!Array.isArray(languages)) {
+                return NextResponse.json({ ok: false, error: 'Languages must be an array of codes' }, { status: 400 });
+            }
+            const updated = setTargetSubtitleLanguages(languages);
+            return NextResponse.json({ ok: true, targetLanguages: updated });
+        }
+
+        if (action === 'translate_subtitle') {
+            const { videoPath, subId, targetLangs } = body;
+            const res = await translateExistingSubtitle({ videoPath, subId, targetLangs });
+            return NextResponse.json({ ok: res.success, ...res });
         }
 
         if (action === 'clear_history') {
