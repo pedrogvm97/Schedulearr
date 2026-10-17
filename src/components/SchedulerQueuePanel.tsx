@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
 import { DeleteMediaModal } from '@/components/DeleteMediaModal';
+import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 
 interface SchedulerConfig {
     enabled: boolean;
@@ -160,6 +161,11 @@ export function SchedulerQueuePanel() {
     const [isRunningBatch, setIsRunningBatch] = useState(false);
     const [triggeringInstanceId, setTriggeringInstanceId] = useState<string | null>(null);
 
+    // Instance Tab & Search Mode Settings
+    const [selectedInstanceTab, setSelectedInstanceTab] = useState<string>('all');
+    const [sonarrSearchModes, setSonarrSearchModes] = useState<Record<string, 'missing' | 'general'>>({});
+    const [selectedMediaItem, setSelectedMediaItem] = useState<any | null>(null);
+
     // Queue Filters & State
     const [searchQuery, setSearchQuery] = useState('');
     const [qualityFilter, setQualityFilter] = useState('missing'); // all | missing | upgradeable
@@ -256,6 +262,9 @@ export function SchedulerQueuePanel() {
                 if (s.ui_genre_logic) setGenreLogic(s.ui_genre_logic);
                 if (s.ui_active_only !== undefined) setShowActiveOnly(s.ui_active_only === 'true');
                 if (s.ui_hide_unmonitored !== undefined) setHideUnmonitored(s.ui_hide_unmonitored === 'true');
+                if (s.sonarr_search_modes) {
+                    try { setSonarrSearchModes(JSON.parse(s.sonarr_search_modes)); } catch { }
+                }
             }
         } catch { }
         setLoading(false);
@@ -266,6 +275,21 @@ export function SchedulerQueuePanel() {
         const id = setInterval(fetchData, 60000);
         return () => clearInterval(id);
     }, [fetchData]);
+
+    const handleSetSonarrSearchMode = async (instanceId: string, mode: 'missing' | 'general') => {
+        const updated = { ...sonarrSearchModes, [instanceId]: mode };
+        setSonarrSearchModes(updated);
+        try {
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'sonarr_search_modes', value: JSON.stringify(updated) })
+            });
+            toast.success(mode === 'general' ? 'General Series search mode saved' : 'Missing Episodes search mode saved');
+        } catch {
+            toast.error('Failed to save search mode preference');
+        }
+    };
 
     const updateConfig = async (updates: Partial<SchedulerConfig>) => {
         const nc = { ...schedulerConfig, ...updates };
@@ -307,10 +331,18 @@ export function SchedulerQueuePanel() {
                     body: JSON.stringify({ instanceId: inst.id, name: 'MoviesSearch' })
                 });
             } else if (inst.type === 'sonarr') {
+                const searchMode = sonarrSearchModes[inst.id] || 'missing';
+                const commandName = searchMode === 'general' ? 'SeriesSearch' : 'MissingEpisodeSearch';
                 res = await fetch('/api/sonarr/command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ instanceId: inst.id, name: 'MissingEpisodeSearch' })
+                    body: JSON.stringify({ instanceId: inst.id, name: commandName })
+                });
+            } else if (inst.type === 'lidarr') {
+                res = await fetch('/api/lidarr/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ instanceId: inst.id, name: 'MissingAlbumSearch' })
                 });
             }
             if (res && res.ok) {
@@ -585,8 +617,13 @@ export function SchedulerQueuePanel() {
             items.sort((a, b) => (b.sortDate || 0) - (a.sortDate || 0));
         }
 
+        // Filter by selected instance tab if not 'all'
+        if (selectedInstanceTab !== 'all') {
+            items = items.filter(i => i.instanceId === selectedInstanceTab);
+        }
+
         return items;
-    }, [movies, episodes, profiles, qualityFilter, instanceFilters, searchQuery, selectedGenres, genreLogic, showActiveOnly, hideUnmonitored, sortProfile, searchToggles]);
+    }, [movies, episodes, profiles, qualityFilter, instanceFilters, searchQuery, selectedGenres, genreLogic, showActiveOnly, hideUnmonitored, sortProfile, searchToggles, selectedInstanceTab]);
 
     // Unique genres
     const uniqueGenres = useMemo(() => {
@@ -598,7 +635,7 @@ export function SchedulerQueuePanel() {
     }, [movies, episodes]);
 
     const activeInstancesList = useMemo(() => {
-        return (Array.isArray(instances) ? instances : []).filter(i => i.type === 'radarr' || i.type === 'sonarr');
+        return (Array.isArray(instances) ? instances : []).filter(i => i.type === 'radarr' || i.type === 'sonarr' || i.type === 'lidarr');
     }, [instances]);
 
     const handleSelectAll = () => {
@@ -620,144 +657,289 @@ export function SchedulerQueuePanel() {
     return (
         <div className="space-y-6 animate-in fade-in duration-200">
             {/* ══════════════════════════════════════════════════════════
-                CARD 1: SCHEDULER ENGINE & LIVE COUNTDOWN
+                INSTANCE NAVIGATION TABS MENU
                ══════════════════════════════════════════════════════════ */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <Sliders size={26} />
-                        </div>
-                        <h2 className="text-2xl font-black text-white tracking-tight">
-                            Scheduler Engine
-                        </h2>
-                    </div>
+            <div className="flex items-center gap-2.5 overflow-x-auto pb-1 flex-wrap">
+                <button
+                    type="button"
+                    onClick={() => setSelectedInstanceTab('all')}
+                    className={`px-5 py-3 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap border ${
+                        selectedInstanceTab === 'all'
+                            ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg shadow-emerald-500/20'
+                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                    }`}
+                    title="Master Scheduler Engine & All Instance Queues"
+                >
+                    <Layers size={20} />
+                    <span>All</span>
+                </button>
 
-                    <div className="flex items-center gap-3 flex-wrap">
-                        {/* Countdown to Next Run */}
-                        <div className="px-4 py-2 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center gap-2.5">
-                            <Clock size={18} className="text-amber-400 shrink-0" />
-                            <CountdownTimer nextRun={nextRun} enabled={schedulerConfig.enabled} />
-                        </div>
-
-                        {/* Master State Switch */}
+                {activeInstancesList.map(inst => {
+                    const isSelected = selectedInstanceTab === inst.id;
+                    const Icon = inst.type === 'radarr' ? Film : inst.type === 'sonarr' ? Tv : Disc;
+                    return (
                         <button
+                            key={inst.id}
                             type="button"
-                            onClick={() => updateConfig({ enabled: !schedulerConfig.enabled })}
-                            className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-2xl transition-all border cursor-pointer ${
-                                schedulerConfig.enabled
-                                    ? 'bg-emerald-500 hover:bg-emerald-400 text-black border-emerald-400 shadow-lg shadow-emerald-500/30'
-                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                            onClick={() => setSelectedInstanceTab(inst.id)}
+                            className={`px-5 py-3 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap border ${
+                                isSelected
+                                    ? 'bg-violet-600 text-white border-violet-500 shadow-lg shadow-violet-600/30'
+                                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
                             }`}
-                            title={schedulerConfig.enabled ? 'Click to Pause Scheduler' : 'Click to Enable Scheduler'}
+                            title={`Automation & Search Settings for ${inst.name} (${inst.type})`}
                         >
-                            {schedulerConfig.enabled ? 'Active' : 'Paused'}
+                            <Icon size={20} />
+                            <span className={`w-2.5 h-2.5 rounded-full ${inst.color || 'bg-emerald-400'}`} />
+                            <span>{inst.name}</span>
                         </button>
-                    </div>
-                </div>
+                    );
+                })}
+            </div>
 
-                {/* Configuration Inputs Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Interval (Min)</span>
-                        <input
-                            type="number"
-                            min={1}
-                            max={10080}
-                            value={schedulerConfig.interval}
-                            onChange={e => updateConfig({ interval: Math.max(1, Math.min(10080, parseInt(e.target.value) || 30)) })}
-                            className="bg-transparent text-white text-base font-black outline-none w-full"
-                            title="Minutes between automated search batches"
-                        />
-                    </div>
+            {/* ══════════════════════════════════════════════════════════
+                VIEW A: PER-INSTANCE SETTINGS MENU (When Instance Selected)
+               ══════════════════════════════════════════════════════════ */}
+            {selectedInstanceTab !== 'all' && (() => {
+                const activeInstance = activeInstancesList.find(i => i.id === selectedInstanceTab);
+                if (!activeInstance) return null;
+                const Icon = activeInstance.type === 'radarr' ? Film : activeInstance.type === 'sonarr' ? Tv : Disc;
+                const currentSonarrMode = sonarrSearchModes[activeInstance.id] || 'missing';
 
-                    <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Batch Size</span>
-                        <CustomSelect
-                            minimal
-                            options={[...Array(50)].map((_, i) => ({ id: i + 1, name: `${i + 1} items` }))}
-                            value={schedulerConfig.batchSize}
-                            onChange={val => updateConfig({ batchSize: Number(String(val).match(/\d+/)?.[0] || 10) })}
-                        />
-                    </div>
+                return (
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 rounded-2xl bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                                    <Icon size={26} />
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
+                                        <span>{activeInstance.name}</span>
+                                        <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase text-black bg-violet-400">
+                                            {activeInstance.type}
+                                        </span>
+                                    </h2>
+                                </div>
+                            </div>
 
-                    <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Rotation Mode</span>
-                        <CustomSelect
-                            minimal
-                            options={[{ id: 'repeat', name: 'Repeat' }, { id: 'rotate', name: 'Rotate' }]}
-                            value={schedulerConfig.batchBehavior}
-                            onChange={val => updateConfig({ batchBehavior: String(val) })}
-                        />
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5 justify-center">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Max Attempts</span>
-                        <input
-                            type="number"
-                            min={1}
-                            max={20}
-                            value={schedulerConfig.maxAttempts}
-                            onChange={e => updateConfig({ maxAttempts: Math.max(1, parseInt(e.target.value) || 3) })}
-                            className="bg-transparent text-white text-base font-black outline-none w-full"
-                            title="Maximum search attempts per cycle"
-                        />
-                    </div>
-                </div>
-
-                {/* Instant Master Trigger & Per-Instance Quick Triggers */}
-                <div className="pt-2 space-y-4">
-                    <button
-                        type="button"
-                        onClick={handleRunBatchNow}
-                        disabled={isRunningBatch || !schedulerConfig.enabled}
-                        className={`w-full py-4 text-sm font-black uppercase tracking-wider rounded-2xl transition-all border cursor-pointer flex items-center justify-center gap-3 ${
-                            isRunningBatch
-                                ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                : !schedulerConfig.enabled
-                                    ? 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed'
-                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-xl shadow-indigo-600/20'
-                        }`}
-                        title="Trigger Immediate Batch Search across all active instances"
-                    >
-                        {isRunningBatch ? (
-                            <RefreshCw size={20} className="animate-spin" />
-                        ) : (
-                            <Play size={20} className="fill-current" />
-                        )}
-                        <span>Run Batch Search Now</span>
-                    </button>
-
-                    {/* Per-Instance Trigger Buttons */}
-                    {activeInstancesList.length > 0 && (
-                        <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500 block">
-                                Quick Instance Search Triggers
-                            </span>
-                            <div className="flex flex-wrap gap-2.5">
-                                {activeInstancesList.map(inst => (
-                                    <button
-                                        key={inst.id}
-                                        type="button"
-                                        disabled={triggeringInstanceId === inst.id}
-                                        onClick={() => handleTriggerInstanceSearch(inst)}
-                                        className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-white border border-zinc-800 flex items-center gap-2.5 text-xs font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-102 active:scale-98 shadow-md"
-                                        title={`Trigger Missing & Upgrade Search for ${inst.name} (${inst.type})`}
-                                    >
-                                        <span className={`w-2.5 h-2.5 rounded-full ${inst.color || 'bg-emerald-400'}`} />
-                                        <span>{inst.name}</span>
-                                        {triggeringInstanceId === inst.id ? (
-                                            <RefreshCw size={14} className="animate-spin text-amber-400" />
-                                        ) : (
-                                            <RefreshCw size={14} className="text-zinc-500 hover:text-white" />
-                                        )}
-                                    </button>
-                                ))}
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    disabled={triggeringInstanceId === activeInstance.id}
+                                    onClick={() => handleTriggerInstanceSearch(activeInstance)}
+                                    className="px-6 py-3 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2.5 cursor-pointer shadow-lg shadow-violet-600/30 transition-all disabled:opacity-50"
+                                    title={`Trigger ${activeInstance.type === 'sonarr' && currentSonarrMode === 'general' ? 'General Series' : 'Missing'} Search on ${activeInstance.name}`}
+                                >
+                                    {triggeringInstanceId === activeInstance.id ? (
+                                        <RefreshCw size={18} className="animate-spin text-white" />
+                                    ) : (
+                                        <Play size={18} className="fill-current" />
+                                    )}
+                                    <span>
+                                        {activeInstance.type === 'sonarr'
+                                            ? (currentSonarrMode === 'general' ? 'Search Series' : 'Search Missing')
+                                            : activeInstance.type === 'radarr'
+                                                ? 'Search Movies'
+                                                : 'Search Music'}
+                                    </span>
+                                </button>
                             </div>
                         </div>
-                    )}
+
+                        {/* Sonarr Series Search Mode Switcher (Missing vs General) */}
+                        {activeInstance.type === 'sonarr' && (
+                            <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-4">
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                    <span className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                                        <Search size={16} className="text-violet-400" />
+                                        Search Mode
+                                    </span>
+                                    <span className="text-xs font-bold text-zinc-400">
+                                        {currentSonarrMode === 'general' ? 'General Series Search' : 'Missing Episodes Only'}
+                                    </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSetSonarrSearchMode(activeInstance.id, 'missing')}
+                                        className={`p-4 rounded-xl border flex items-center gap-3 cursor-pointer transition-all ${
+                                            currentSonarrMode === 'missing'
+                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-lg'
+                                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-white'
+                                        }`}
+                                        title="Search only missing monitored episodes across series on this instance"
+                                    >
+                                        <ListFilter size={22} className="shrink-0" />
+                                        <div className="text-left min-w-0">
+                                            <span className="text-sm font-black uppercase tracking-wider block">Missing</span>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSetSonarrSearchMode(activeInstance.id, 'general')}
+                                        className={`p-4 rounded-xl border flex items-center gap-3 cursor-pointer transition-all ${
+                                            currentSonarrMode === 'general'
+                                                ? 'bg-violet-600/25 text-violet-300 border-violet-500/60 shadow-lg'
+                                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-white'
+                                        }`}
+                                        title="Search generally for all monitored series and quality upgrades on this instance"
+                                    >
+                                        <Sparkles size={22} className="shrink-0" />
+                                        <div className="text-left min-w-0">
+                                            <span className="text-sm font-black uppercase tracking-wider block">General</span>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
+
+            {/* ══════════════════════════════════════════════════════════
+                VIEW B: MASTER SCHEDULER ENGINE (When "All" Selected)
+               ══════════════════════════════════════════════════════════ */}
+            {selectedInstanceTab === 'all' && (
+                <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <Sliders size={26} />
+                            </div>
+                            <h2 className="text-2xl font-black text-white tracking-tight">
+                                Scheduler Engine
+                            </h2>
+                        </div>
+
+                        <div className="flex items-center gap-3 flex-wrap">
+                            {/* Countdown to Next Run */}
+                            <div className="px-4 py-2 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center gap-2.5">
+                                <Clock size={18} className="text-amber-400 shrink-0" />
+                                <CountdownTimer nextRun={nextRun} enabled={schedulerConfig.enabled} />
+                            </div>
+
+                            {/* Master State Switch */}
+                            <button
+                                type="button"
+                                onClick={() => updateConfig({ enabled: !schedulerConfig.enabled })}
+                                className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-2xl transition-all border cursor-pointer ${
+                                    schedulerConfig.enabled
+                                        ? 'bg-emerald-500 hover:bg-emerald-400 text-black border-emerald-400 shadow-lg shadow-emerald-500/30'
+                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                                }`}
+                                title={schedulerConfig.enabled ? 'Click to Pause Scheduler' : 'Click to Enable Scheduler'}
+                            >
+                                {schedulerConfig.enabled ? 'Active' : 'Paused'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Configuration Inputs Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Interval (Min)</span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={10080}
+                                value={schedulerConfig.interval}
+                                onChange={e => updateConfig({ interval: Math.max(1, Math.min(10080, parseInt(e.target.value) || 30)) })}
+                                className="bg-transparent text-white text-base font-black outline-none w-full"
+                                title="Minutes between automated search batches"
+                            />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Batch Size</span>
+                            <CustomSelect
+                                minimal
+                                options={[...Array(50)].map((_, i) => ({ id: i + 1, name: `${i + 1} items` }))}
+                                value={schedulerConfig.batchSize}
+                                onChange={val => updateConfig({ batchSize: Number(String(val).match(/\d+/)?.[0] || 10) })}
+                            />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Rotation Mode</span>
+                            <CustomSelect
+                                minimal
+                                options={[{ id: 'repeat', name: 'Repeat' }, { id: 'rotate', name: 'Rotate' }]}
+                                value={schedulerConfig.batchBehavior}
+                                onChange={val => updateConfig({ batchBehavior: String(val) })}
+                            />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5 justify-center">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Max Attempts</span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={20}
+                                value={schedulerConfig.maxAttempts}
+                                onChange={e => updateConfig({ maxAttempts: Math.max(1, parseInt(e.target.value) || 3) })}
+                                className="bg-transparent text-white text-base font-black outline-none w-full"
+                                title="Maximum search attempts per cycle"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Instant Master Trigger & Per-Instance Quick Triggers */}
+                    <div className="pt-2 space-y-4">
+                        <button
+                            type="button"
+                            onClick={handleRunBatchNow}
+                            disabled={isRunningBatch || !schedulerConfig.enabled}
+                            className={`w-full py-4 text-sm font-black uppercase tracking-wider rounded-2xl transition-all border cursor-pointer flex items-center justify-center gap-3 ${
+                                isRunningBatch
+                                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                    : !schedulerConfig.enabled
+                                        ? 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed'
+                                        : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-xl shadow-indigo-600/20'
+                            }`}
+                            title="Trigger Immediate Batch Search across all active instances"
+                        >
+                            {isRunningBatch ? (
+                                <RefreshCw size={20} className="animate-spin" />
+                            ) : (
+                                <Play size={20} className="fill-current" />
+                            )}
+                            <span>Run Batch Search Now</span>
+                        </button>
+
+                        {/* Per-Instance Trigger Buttons */}
+                        {activeInstancesList.length > 0 && (
+                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500 block">
+                                    Quick Instance Search Triggers
+                                </span>
+                                <div className="flex flex-wrap gap-2.5">
+                                    {activeInstancesList.map(inst => (
+                                        <button
+                                            key={inst.id}
+                                            type="button"
+                                            disabled={triggeringInstanceId === inst.id}
+                                            onClick={() => handleTriggerInstanceSearch(inst)}
+                                            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-white border border-zinc-800 flex items-center gap-2.5 text-xs font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-102 active:scale-98 shadow-md"
+                                            title={`Trigger Search for ${inst.name} (${inst.type})`}
+                                        >
+                                            <span className={`w-2.5 h-2.5 rounded-full ${inst.color || 'bg-emerald-400'}`} />
+                                            <span>{inst.name}</span>
+                                            {triggeringInstanceId === inst.id ? (
+                                                <RefreshCw size={14} className="animate-spin text-amber-400" />
+                                            ) : (
+                                                <RefreshCw size={14} className="text-zinc-500 hover:text-white" />
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* ══════════════════════════════════════════════════════════
                 CARD 2: FILTER CONTROLS & GENRE LOGIC
@@ -979,12 +1161,16 @@ export function SchedulerQueuePanel() {
                                 <div className="flex items-center justify-between gap-4">
                                     {/* Media Thumbnail & Meta */}
                                     <div className="flex items-center gap-4 min-w-0 flex-1">
-                                        <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center shadow-md">
+                                        <div
+                                            onClick={() => setSelectedMediaItem(item)}
+                                            className="w-14 h-20 sm:w-16 sm:h-24 rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center shadow-md cursor-pointer hover:border-violet-500/50 hover:scale-105 transition-all group"
+                                            title="Open Media Details"
+                                        >
                                             {item.poster ? (
                                                 <img
                                                     src={item.poster}
                                                     alt=""
-                                                    className="w-full h-full object-cover"
+                                                    className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
                                                 />
                                             ) : item.type === 'movie' ? (
                                                 <Film size={24} className="text-zinc-600" />
@@ -995,7 +1181,11 @@ export function SchedulerQueuePanel() {
 
                                         <div className="min-w-0 flex-1 space-y-1.5">
                                             <div className="flex items-center gap-2.5 flex-wrap">
-                                                <h3 className="text-base sm:text-lg font-black text-white truncate">
+                                                <h3
+                                                    onClick={() => setSelectedMediaItem(item)}
+                                                    className="text-base sm:text-lg font-black text-white truncate cursor-pointer hover:text-violet-400 transition-colors"
+                                                    title="Open Media Details"
+                                                >
                                                     {item.title}
                                                 </h3>
                                                 {item.year && (
@@ -1031,7 +1221,7 @@ export function SchedulerQueuePanel() {
                                                     <>
                                                         <span>•</span>
                                                         <span className="text-emerald-400 font-bold">
-                                                            {item.statistics.episodeFileCount} / {item.statistics.episodeCount} eps ({item.statistics.percentOfEpisodes}%)
+                                                            {item.statistics.episodeFileCount} / {item.statistics.episodeCount} eps ({Math.round(Number(item.statistics.percentOfEpisodes) || 0)}%)
                                                         </span>
                                                     </>
                                                 )}
@@ -1240,6 +1430,60 @@ export function SchedulerQueuePanel() {
                 onConfirm={executeDelete}
                 loading={isDeletingFile}
             />
+
+            {/* ══════════════════════════════════════════════════════════
+                MEDIA DETAILS PANEL (Matches Media / Theater)
+               ══════════════════════════════════════════════════════════ */}
+            {selectedMediaItem && (
+                <MediaDetailsPanel
+                    item={{
+                        ...selectedMediaItem,
+                        mediaType: selectedMediaItem.type === 'movie' ? 'movie' : 'tv',
+                        posterPath: selectedMediaItem.images?.find((img: any) => img.coverType === 'poster')?.url || selectedMediaItem.poster,
+                        poster_path: selectedMediaItem.images?.find((img: any) => img.coverType === 'poster')?.url || selectedMediaItem.poster,
+                        backdropPath: selectedMediaItem.images?.find((img: any) => img.coverType === 'fanart')?.url,
+                        backdrop_path: selectedMediaItem.images?.find((img: any) => img.coverType === 'fanart')?.url
+                    }}
+                    libStatus={{
+                        exists: true,
+                        hasFile: Boolean(selectedMediaItem.hasFile || selectedMediaItem.isDownloaded),
+                        isDownloading: Boolean(selectedMediaItem.isDownloading),
+                        sizeOnDisk: selectedMediaItem.sizeOnDisk || (selectedMediaItem.movieFile?.size) || (selectedMediaItem.statistics?.sizeOnDisk) || 0,
+                        percentage: selectedMediaItem.isDownloaded ? 100 : (selectedMediaItem.statistics?.percentOfEpisodes ? Math.round(Number(selectedMediaItem.statistics.percentOfEpisodes)) : 0),
+                        qualityProfileId: selectedMediaItem.qualityProfileId,
+                        instances: [{
+                            id: selectedMediaItem.instanceId,
+                            name: selectedMediaItem.instanceName || selectedMediaItem.instanceId,
+                            internalId: selectedMediaItem.id,
+                            colorHex: selectedMediaItem.colorHex || selectedMediaItem.instanceColor
+                        }]
+                    }}
+                    onClose={() => setSelectedMediaItem(null)}
+                    onInteractiveSearch={(ep) => {
+                        setSelectedMediaItem(null);
+                        handleOpenInteractiveSearch({
+                            type: selectedMediaItem.type,
+                            id: selectedMediaItem.id,
+                            instanceId: selectedMediaItem.instanceId,
+                            title: selectedMediaItem.title,
+                            episodeId: ep?.id
+                        });
+                    }}
+                    onQuickSearch={() => {
+                        handleForceSearchItem(selectedMediaItem);
+                    }}
+                    onDelete={() => {
+                        setSelectedMediaItem(null);
+                        setConfirmDeleteTarget({
+                            type: selectedMediaItem.type,
+                            id: selectedMediaItem.id,
+                            instanceId: selectedMediaItem.instanceId,
+                            title: selectedMediaItem.title,
+                            fileId: selectedMediaItem.movieFile?.id
+                        });
+                    }}
+                />
+            )}
         </div>
     );
 }

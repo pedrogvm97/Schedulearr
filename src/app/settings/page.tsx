@@ -43,7 +43,7 @@ export default function Settings() {
     const [activeTroubleshootModal, setActiveTroubleshootModal] = useState<'socket' | 'perms' | null>(null);
     const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'cleaners' | 'ai' | 'system'>('instances');
     const [aiMediaCategory, setAiMediaCategory] = useState<'general' | 'audiobooks' | 'video'>('general');
-    const [voiceNarrationMode, setVoiceNarrationMode] = useState<'rvc_filter' | 'neural_tts'>('rvc_filter');
+    const [voiceNarrationMode, setVoiceNarrationMode] = useState<'timbre_filter' | 'neural_tts'>('timbre_filter');
     const [selectedVoiceModel, setSelectedVoiceModel] = useState<string>('morgan_freeman');
     const [imageProvidersList, setImageProvidersList] = useState<Array<{
         id: 'pollinations_flux' | 'gemini' | 'openai' | 'custom';
@@ -2834,7 +2834,7 @@ export default function Settings() {
 
                                 {versionInfo?.updateAvailable ? (
                                     <button
-                                        onClick={() => handleUpdate()}
+                                        onClick={() => handleUpdate(versionInfo?.latestVersion ? `v${versionInfo.latestVersion.replace(/^v/, '')}` : 'latest')}
                                         disabled={updating}
                                         className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-black py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-emerald-500/15 flex items-center justify-center gap-2 active:scale-95 border border-emerald-500/30"
                                     >

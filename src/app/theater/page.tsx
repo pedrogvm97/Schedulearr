@@ -8856,7 +8856,7 @@ function TheaterPageContent() {
                                                                         type="button"
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            setTheaterTranscriptViewerState({ isOpen: true, activeChapterIndex: idx });
+                                                                            setTheaterTranscriptViewerState({ isOpen: true, chapterIndex: idx });
                                                                         }}
                                                                         title="Read synchronized chapter transcript"
                                                                         className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 font-black cursor-pointer transition-colors"

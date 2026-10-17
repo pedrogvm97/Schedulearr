@@ -1,7 +1,27 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
 
 export const dynamic = 'force-dynamic';
+
+function getCurrentPackageVersion(): string {
+  try {
+    const possiblePaths = [
+      path.join(process.cwd(), 'package.json'),
+      path.join(process.cwd(), '..', 'package.json'),
+      '/app/package.json',
+      '/app/.next/standalone/package.json'
+    ];
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (pkg.version) return `v${pkg.version.replace(/^v/, '')}`;
+      }
+    }
+  } catch {}
+  return 'v0.6.37';
+}
 
 function semverCompare(v1: string, v2: string): number {
   const p1 = v1.replace(/^v/i, '').trim().split('.').map(n => parseInt(n, 10) || 0);
@@ -17,21 +37,22 @@ function semverCompare(v1: string, v2: string): number {
 
 export async function GET() {
   try {
+    const currentAppVersion = getCurrentPackageVersion();
     const ghHeaders = {
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'Schedulearr-Releases'
     };
 
     const [relSettled, tagsSettled, commitsSettled] = await Promise.allSettled([
-      axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/releases?per_page=20', {
+      axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/releases?per_page=100', {
         headers: ghHeaders,
         timeout: 6000
       }),
-      axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/tags?per_page=20', {
+      axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/tags?per_page=100', {
         headers: ghHeaders,
         timeout: 6000
       }),
-      axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/commits?per_page=25', {
+      axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/commits?per_page=100', {
         headers: ghHeaders,
         timeout: 6000
       })
@@ -61,12 +82,12 @@ export async function GET() {
       }
     }
 
-    // 2. Parse commits and associate commit messages with version tags (e.g. v0.6.4, v0.6.3, v0.6.2)
+    // 2. Parse commits and associate commit messages with version tags
     const commits = commitsSettled.status === 'fulfilled' && Array.isArray(commitsSettled.value.data)
       ? commitsSettled.value.data
       : [];
 
-    let currentBucketTag = 'v0.6.9';
+    let currentBucketTag = currentAppVersion;
     for (const c of commits) {
       const rawMsg: string = c?.commit?.message || '';
       if (!rawMsg) continue;
@@ -128,57 +149,54 @@ export async function GET() {
       });
     }
 
-    // Ensure current versions are always present even if offline/rate-limited
-    if (versionMap.size === 0) {
-      versionMap.set('v0.6.9', {
-        tag: 'v0.6.9',
-        name: 'v0.6.9',
+    // Always ensure current application version is present in versionMap
+    if (!versionMap.has(currentAppVersion)) {
+      versionMap.set(currentAppVersion, {
+        tag: currentAppVersion,
+        name: currentAppVersion,
         publishedAt: new Date().toISOString(),
-        changelog: '• Fix Web UI freeze/crash during 300k+ XMLTV EPG sync & DVR rule scan, optimize 35k IPTV channel aggregation, and add comprehensive Unraid container logging across all playback & UI actions',
+        changelog: `• Release ${currentAppVersion}`,
         prerelease: false
       });
-      versionMap.set('v0.6.8', {
-        tag: 'v0.6.8',
-        name: 'v0.6.8',
-        publishedAt: new Date().toISOString(),
-        changelog: '• Fix Theater tab loading across all libraries, fix Media top bar overlap, and fix Audiobook Studio sub-tab wrapping & item aggregation',
-        prerelease: false
-      });
-      versionMap.set('v0.6.7', {
-        tag: 'v0.6.7',
-        name: 'v0.6.7',
-        publishedAt: new Date().toISOString(),
-        changelog: '• Author canonicalization, real Speech-to-Text & 3-card Storyboard player, Bedside Table & My Reads, Media tab Audiobooks & Live TV manager',
-        prerelease: false
-      });
-      versionMap.set('v0.6.6', {
-        tag: 'v0.6.6',
-        name: 'v0.6.6',
-        publishedAt: new Date().toISOString(),
-        changelog: '• Green API confirmation card with live metrics, backup key pool, load-balancing mode toggle, fix handleDeleteSceneImage brace leak in MusicPlayerContext',
-        prerelease: false
-      });
-      versionMap.set('v0.6.5', {
-        tag: 'v0.6.5',
-        name: 'v0.6.5',
-        publishedAt: new Date().toISOString(),
-        changelog: '• Audiobook Shelf Authors vs Books switcher, Author bookshelves with Listening Time & Year of Publication metrics, alphabetical clean sorting, auto-grouped 3D overlaid Collections with AI matcher & Explode/Create actions, and Uniform Book File Renamer with custom templates & Original/Optimized Audio version tags',
-        prerelease: false
-      });
-      versionMap.set('v0.6.4', {
-        tag: 'v0.6.4',
-        name: 'v0.6.4',
-        publishedAt: new Date().toISOString(),
-        changelog: '• Fix audiobook auto-sync & scene art fallback, mini-player book cover, Smart TV cast LAN IP/transcode, Bookshelf UI with per-book & shelf settings, unified AI key auto-detector & Dynamic Prompt',
-        prerelease: false
-      });
-      versionMap.set('v0.6.3', {
-        tag: 'v0.6.3',
-        name: 'v0.6.3',
-        publishedAt: new Date().toISOString(),
-        changelog: '• Fix vinyl spinner circular aspect ratio on tall screens, fix Plex/untagged audiobook detection & grouping, and surface full Git commit patch notes',
-        prerelease: false
-      });
+    }
+
+    // Ensure versions are always present even if offline/rate-limited
+    if (versionMap.size <= 1) {
+      const fallbackList: Array<{ tag: string; changelog: string }> = [
+        { tag: 'v0.6.37', changelog: '• Fix Task tab Headphones icon exception, format episode percentages without decimals, per-instance automation settings with Sonarr missing vs general search selector, and interactive media detail panels' },
+        { tag: 'v0.6.36', changelog: '• Restore full Scheduler Queue & search triggers into Automation settings, zero horizontal scrollbars, exact two voice engine modes, and authentic neural models' },
+        { tag: 'v0.6.35', changelog: '• Condition-based cleaner automations, zero scrollbars, cinema picture-first audiobook player, and neural model narrators' },
+        { tag: 'v0.6.34', changelog: '• Defensive array guards on audiobook chapters, tasks and db stats to eliminate client-side exceptions' },
+        { tag: 'v0.6.33', changelog: '• Revamp tasks with library subtabs, divide settings cleaners, and expand audiobook narrator voice personas' },
+        { tag: 'v0.6.32', changelog: '• Hexagon radar grading, Google Books covers, voice personas, and cleaner automation schedules' },
+        { tag: 'v0.6.31', changelog: '• Audiobook live storyboard player, enhanced subtitle synchronization, and batch scheduler updates' },
+        { tag: 'v0.6.30', changelog: '• System update stream stability and container self-heal improvements' },
+        { tag: 'v0.6.29', changelog: '• Theater subtitle auto-fetch and multi-indexer search enhancements' },
+        { tag: 'v0.6.28', changelog: '• Multi-instance quality profile alignment and live TV stream hub stability' },
+        { tag: 'v0.6.27', changelog: '• IPTV guide EPG auto-matching and recording stream hub enhancements' },
+        { tag: 'v0.6.26', changelog: '• Audiobook studio chapter deduplication and Plex playback fix' },
+        { tag: 'v0.6.25', changelog: '• Audiobook studio 3-stage pipeline overhaul and live OSD guide fixes' },
+        { tag: 'v0.6.17', changelog: '• Strict 3-Stage Sequential Audiobook Pipeline, Unified Theater/Media Book State, and /tasks Resource Categories' },
+        { tag: 'v0.6.9', changelog: '• Fix Web UI freeze/crash during 300k+ XMLTV EPG sync & DVR rule scan, optimize 35k IPTV channel aggregation, and add comprehensive Unraid container logging' },
+        { tag: 'v0.6.8', changelog: '• Fix Theater tab loading across all libraries, fix Media top bar overlap, and fix Audiobook Studio sub-tab wrapping' },
+        { tag: 'v0.6.7', changelog: '• Author canonicalization, real Speech-to-Text & 3-card Storyboard player, Bedside Table & My Reads' },
+        { tag: 'v0.6.6', changelog: '• Green API confirmation card with live metrics, backup key pool, load-balancing mode toggle' },
+        { tag: 'v0.6.5', changelog: '• Audiobook Shelf Authors vs Books switcher, Author bookshelves with Listening Time & Year of Publication metrics' },
+        { tag: 'v0.6.4', changelog: '• Fix audiobook auto-sync & scene art fallback, mini-player book cover, Smart TV cast LAN IP/transcode' },
+        { tag: 'v0.6.3', changelog: '• Fix vinyl spinner circular aspect ratio on tall screens, fix Plex/untagged audiobook detection' }
+      ];
+
+      for (const f of fallbackList) {
+        if (!versionMap.has(f.tag)) {
+          versionMap.set(f.tag, {
+            tag: f.tag,
+            name: f.tag,
+            publishedAt: new Date().toISOString(),
+            changelog: f.changelog,
+            prerelease: false
+          });
+        }
+      }
     }
 
     const versions = Array.from(versionMap.values()).sort((a, b) => semverCompare(b.tag, a.tag));

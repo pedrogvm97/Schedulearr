@@ -35,7 +35,8 @@ import {
     Layers,
     ChevronDown,
     ChevronRight,
-    Zap
+    Zap,
+    Headphones
 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ConfirmModal';
 

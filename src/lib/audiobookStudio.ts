@@ -138,6 +138,9 @@ export interface AudiobookStudioConfig {
     sttEngine: 'whisper_tiny_local' | 'openai_whisper' | 'gemini_audio' | 'acoustic_cadence';
     cpuThreads: number;
     audioEnhancePreset: 'denoise_clarity' | 'vintage_restore' | 'crystal_voice';
+    voiceNarrationMode?: 'timbre_filter' | 'neural_tts';
+    defaultActivePersonas?: string[];
+    defaultActiveTimbres?: string[];
     defaultVoicePreset: 'original' | 'deep_narrator' | 'warm_storyteller' | 'crisp_clear' | 'soft_velvet';
     artProvider: 'pollinations_flux' | 'openai' | 'gemini' | 'custom';
     detectedProvider?: 'gemini' | 'claude' | 'openai' | 'groq' | 'huggingface' | 'custom' | 'free';
