@@ -145,98 +145,111 @@ export const AUDIOBOOK_VOICE_TONE_PRESETS: CuratedVoiceProfile[] = [
     }
 ];
 
-// ── Column 2: Neural Voice Personas (Authentic Edge Neural Models) ──
+// ── Column 2: Authentic Open-Weights Neural Voice Models (Kokoro-82M & Piper ONNX) ──
 export const AUDIOBOOK_VOICE_TIMBRE_PRESETS: CuratedVoiceProfile[] = [
     {
-        id: 'ava_neural',
-        name: 'Ava Neural',
-        subtitle: 'Studio Intimate Storyteller',
+        id: 'kokoro_af_heart',
+        name: 'Kokoro (af_heart)',
+        subtitle: 'Natural Audiobook Narrator',
         gender: 'female',
         category: 'timbre',
         type: 'timbre',
-        description: 'Authentic neural voice model with velvety bedside intimacy, natural phrasing, and warm acoustic presence.',
-        tags: ['Female', 'US Accent', 'Neural TTS', 'Bedside Velvet'],
+        description: 'Hexgrad Kokoro-82M v0.19 open-weights neural model. Velvety natural phrasing and expressive audiobook cadence.',
+        tags: ['Female', 'US Accent', 'Kokoro-82M', 'Warm Narration'],
         pitchOffset: 0,
         color: 'from-rose-500 to-pink-800',
-        modelName: 'en-US-AvaNeural'
+        modelName: 'af_heart (Kokoro-82M)'
     },
     {
-        id: 'sonia_neural',
-        name: 'Sonia Neural',
-        subtitle: 'Elegant British Narration',
+        id: 'kokoro_bf_emma',
+        name: 'Kokoro (bf_emma)',
+        subtitle: 'Classic British Literature',
         gender: 'female',
         category: 'timbre',
         type: 'timbre',
-        description: 'Sophisticated British neural model with crisp BBC articulation, refined cadence, and aristocratic clarity.',
-        tags: ['Female', 'UK Accent', 'Neural TTS', 'Classic BBC'],
+        description: 'Hexgrad Kokoro-82M British female neural model with refined Austen cadence, articulate consonants, and elegant tone.',
+        tags: ['Female', 'UK Accent', 'Kokoro-82M', 'Classic British'],
         pitchOffset: 0,
         color: 'from-purple-600 to-indigo-800',
-        modelName: 'en-GB-SoniaNeural'
+        modelName: 'bf_emma (Kokoro-82M)'
     },
     {
-        id: 'emma_neural',
-        name: 'Emma Neural',
-        subtitle: 'Clear Storybook & Drama',
+        id: 'kokoro_af_bella',
+        name: 'Kokoro (af_bella)',
+        subtitle: 'Crisp Dynamic Storyteller',
         gender: 'female',
         category: 'timbre',
         type: 'timbre',
-        description: 'Expressive neural actress with melodic warmth, vibrant dialogue inflection, and exceptional character range.',
-        tags: ['Female', 'US Accent', 'Neural TTS', 'Expressive Drama'],
+        description: 'Hexgrad Kokoro-82M dynamic neural voice. Crisp clarity, high intelligibility, and vibrant dialogue contrast.',
+        tags: ['Female', 'US Accent', 'Kokoro-82M', 'Crisp Dynamic'],
         pitchOffset: 0,
         color: 'from-pink-500 to-rose-700',
-        modelName: 'en-US-EmmaNeural'
+        modelName: 'af_bella (Kokoro-82M)'
     },
     {
-        id: 'jenny_neural',
-        name: 'Jenny Neural',
-        subtitle: 'Natural Expressive Voiceover',
+        id: 'kokoro_af_nicole',
+        name: 'Kokoro (af_nicole)',
+        subtitle: 'Bedside Soft Storyteller',
         gender: 'female',
         category: 'timbre',
         type: 'timbre',
-        description: 'Engaging, clear conversational neural delivery suitable for long-form literature and non-fiction.',
-        tags: ['Female', 'US Accent', 'Neural TTS', 'Natural'],
+        description: 'Hexgrad Kokoro-82M intimate neural voice with gentle bedside cadence and zero listener fatigue.',
+        tags: ['Female', 'US Accent', 'Kokoro-82M', 'Bedside Soft'],
         pitchOffset: 0,
         color: 'from-teal-600 to-emerald-800',
-        modelName: 'en-US-JennyNeural'
+        modelName: 'af_nicole (Kokoro-82M)'
     },
     {
-        id: 'christopher_neural',
-        name: 'Christopher Neural',
-        subtitle: 'Cinematic Baritone Depth',
+        id: 'kokoro_am_adam',
+        name: 'Kokoro (am_adam)',
+        subtitle: 'Deep Baritone Narrator',
         gender: 'male',
         category: 'timbre',
         type: 'timbre',
-        description: 'Deep authoritative chest resonance with cinematic gravitas, commanding pacing, and moral weight.',
-        tags: ['Male', 'US Accent', 'Neural TTS', 'Cinematic Depth'],
+        description: 'Hexgrad Kokoro-82M rich male baritone with cinematic gravitas, commanding pacing, and deep chest resonance.',
+        tags: ['Male', 'US Accent', 'Kokoro-82M', 'Cinematic Depth'],
         pitchOffset: 0,
         color: 'from-amber-600 to-yellow-800',
-        modelName: 'en-US-ChristopherNeural'
+        modelName: 'am_adam (Kokoro-82M)'
     },
     {
-        id: 'ryan_neural',
-        name: 'Ryan Neural',
-        subtitle: 'Natural British Storyteller',
+        id: 'kokoro_bm_george',
+        name: 'Kokoro (bm_george)',
+        subtitle: 'BBC Classic Heritage',
         gender: 'male',
         category: 'timbre',
         type: 'timbre',
-        description: 'Naturalist cadence with quiet wonder, articulate British consonants, and engaging documentary flair.',
-        tags: ['Male', 'UK Accent', 'Neural TTS', 'Naturalist'],
+        description: 'Hexgrad Kokoro-82M British male model with distinguished Oxford cadence, measured delivery, and historical presence.',
+        tags: ['Male', 'UK Accent', 'Kokoro-82M', 'BBC Heritage'],
         pitchOffset: 0,
         color: 'from-emerald-600 to-teal-800',
-        modelName: 'en-GB-RyanNeural'
+        modelName: 'bm_george (Kokoro-82M)'
     },
     {
-        id: 'guy_neural',
-        name: 'Guy Neural',
-        subtitle: 'Dynamic Broadcast Energy',
+        id: 'piper_libritts_f',
+        name: 'Piper LibriTTS',
+        subtitle: 'Local VITS Audiobook Model',
+        gender: 'female',
+        category: 'timbre',
+        type: 'timbre',
+        description: 'Rhasspy Piper local high-speed ONNX VITS model trained specifically on LibriTTS audiobooks.',
+        tags: ['Female', 'US Accent', 'Piper ONNX', 'Local VITS'],
+        pitchOffset: 0,
+        color: 'from-blue-600 to-indigo-800',
+        modelName: 'en_US-libritts_r-medium'
+    },
+    {
+        id: 'piper_alan_m',
+        name: 'Piper Alan',
+        subtitle: 'British Documentary ONNX',
         gender: 'male',
         category: 'timbre',
         type: 'timbre',
-        description: 'Charismatic, forward-focused narrative drive with clear broadcast projection and confident articulation.',
-        tags: ['Male', 'US Accent', 'Neural TTS', 'Dynamic Drive'],
+        description: 'Rhasspy Piper local ONNX model with articulate British non-fiction cadence and clear pronunciation.',
+        tags: ['Male', 'UK Accent', 'Piper ONNX', 'Documentary'],
         pitchOffset: 0,
-        color: 'from-blue-600 to-indigo-800',
-        modelName: 'en-US-GuyNeural'
+        color: 'from-cyan-600 to-teal-800',
+        modelName: 'en_GB-alan-medium'
     }
 ];
 
@@ -251,14 +264,14 @@ export const getVoicePresetById = (id?: string): CuratedVoiceProfile => {
     if (!id) return AUDIOBOOK_VOICE_TONE_PRESETS[0];
     const match = ALL_AUDIOBOOK_VOICE_PRESETS.find(p => p.id === id || p.modelName === id);
     if (match) return match;
-    // Map legacy aliases to real neural models
-    if (id === 'scarlett_johansson' || id === 'ava') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[0];
-    if (id === 'ygritte' || id === 'sonia') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[1];
-    if (id === 'ana_de_armas' || id === 'emma') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[2];
-    if (id === 'jenny') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[3];
-    if (id === 'morgan_freeman' || id === 'nelson_mandela' || id === 'barack_obama' || id === 'mlk' || id === 'jon_snow' || id === 'christopher') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[4];
-    if (id === 'attenborough' || id === 'ryan') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[5];
-    if (id === 'tom_cruise' || id === 'robert_downey_jr' || id === 'jack_sparrow' || id === 'snoop_dogg' || id === 'donald_trump' || id === 'guy') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[6];
+    // Map legacy aliases & previous neural models safely
+    if (id === 'ava_neural' || id === 'scarlett_johansson' || id === 'ava') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[0];
+    if (id === 'sonia_neural' || id === 'ygritte' || id === 'sonia') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[1];
+    if (id === 'emma_neural' || id === 'ana_de_armas' || id === 'emma') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[2];
+    if (id === 'jenny_neural' || id === 'jenny') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[3];
+    if (id === 'christopher_neural' || id === 'morgan_freeman' || id === 'nelson_mandela' || id === 'barack_obama' || id === 'mlk' || id === 'jon_snow' || id === 'christopher') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[4];
+    if (id === 'ryan_neural' || id === 'attenborough' || id === 'ryan') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[5];
+    if (id === 'guy_neural' || id === 'tom_cruise' || id === 'robert_downey_jr' || id === 'jack_sparrow' || id === 'snoop_dogg' || id === 'donald_trump' || id === 'guy') return AUDIOBOOK_VOICE_TIMBRE_PRESETS[6];
     if (id === 'denoise_clarity') return AUDIOBOOK_VOICE_TONE_PRESETS[0];
     if (id === 'warm_storyteller') return AUDIOBOOK_VOICE_TONE_PRESETS[1];
     if (id === 'deep_narrator') return AUDIOBOOK_VOICE_TONE_PRESETS[3];

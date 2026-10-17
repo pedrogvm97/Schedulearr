@@ -14,6 +14,7 @@ import { UnifiedCleanerModal } from "@/components/UnifiedCleanerModal";
 import { CleanersSettingsPanel } from "@/components/CleanersSettingsPanel";
 import { VideoAiToolsPanel } from "@/components/VideoAiToolsPanel";
 import { AudiobookVoiceSelector } from "@/components/AudiobookVoiceSelector";
+import { SchedulerQueuePanel } from "@/components/SchedulerQueuePanel";
 import { twColorToHex } from "@/lib/instanceColor";
 
 export default function Settings() {
@@ -1664,60 +1665,8 @@ export default function Settings() {
                ═══════════════════════════════════════════════════════════════════ */}
             {settingsSubtopic === 'automation' && (
                 <div className="space-y-8 animate-in fade-in duration-200">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
-                        <div className="flex items-center gap-3 pb-4 border-b border-zinc-800">
-                            <Sliders size={24} className="text-emerald-400" />
-                            <h2 className="text-2xl font-black text-white tracking-tight">Scheduler Configuration</h2>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Interval (Min)</label>
-                                <input
-                                    type="number" min={1} max={10080} value={schedulerConfig.interval}
-                                    onChange={e => { const v = Math.max(1, Math.min(10080, Number(e.target.value))); const nc = { ...schedulerConfig, interval: v }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
-                                    className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white outline-none"
-                                />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Batch Size</label>
-                                <CustomSelect options={[...Array(50)].map((_, i) => ({ id: i + 1, name: (i + 1).toString() }))} value={schedulerConfig.batchSize}
-                                    onChange={val => { const n = Number(String(val).match(/\d+/)?.[0] || 10); const nc = { ...schedulerConfig, batchSize: n }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }} />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Rotation Mode</label>
-                                <CustomSelect options={[{ id: 'repeat', name: 'Repeat' }, { id: 'rotate', name: 'Rotate' }]} value={schedulerConfig.batchBehavior}
-                                    onChange={val => { const nc = { ...schedulerConfig, batchBehavior: val as string }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }} />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">State</label>
-                                <button
-                                    onClick={() => { const nc = { ...schedulerConfig, enabled: !schedulerConfig.enabled }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
-                                    className={`h-10 px-4 text-xs font-bold uppercase rounded-lg transition-all border ${
-                                        schedulerConfig.enabled
-                                            ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
-                                    }`}
-                                >
-                                    {schedulerConfig.enabled ? 'Enabled' : 'Paused'}
-                                </button>
-                            </div>
-                        </div>
-                        <div className="pt-2">
-                            <button
-                                onClick={async () => { setIsRunningBatch(true); try { await fetch('/api/scheduler/run', { method: 'POST' }); toast.success('Batch search triggered!'); } catch { toast.error('Failed to trigger search.'); } setIsRunningBatch(false); }}
-                                disabled={isRunningBatch || !schedulerConfig.enabled}
-                                className={`w-full h-11 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border ${
-                                    isRunningBatch
-                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                        : !schedulerConfig.enabled
-                                            ? 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed'
-                                            : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500'
-                                }`}
-                            >
-                                {isRunningBatch ? 'Running...' : 'Run Batch Search Now'}
-                            </button>
-                        </div>
-                    </div>
+                    {/* Complete Robust Scheduler: Queues, Batches, Triggers, Filters & Releases */}
+                    <SchedulerQueuePanel />
 
                     {/* Backup & Restore */}
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
@@ -2655,66 +2604,55 @@ export default function Settings() {
                             </div>
 
                             <div className="space-y-6">
-                                {/* Two-Column Voice Selector: Tone vs Timbre */}
                                 <AudiobookVoiceSelector
-                                    selectedPreset={audiobookStudioConfig.defaultVoicePreset || audiobookStudioConfig.audioEnhancePreset || 'clear_voice'}
+                                    engineMode={voiceNarrationMode === 'neural_tts' ? 'neural_tts' : 'timbre_filter'}
+                                    onChangeEngineMode={mode => {
+                                        setVoiceNarrationMode(mode);
+                                        saveAudiobookStudioConfig({ voiceNarrationMode: mode });
+                                    }}
+                                    selectedPreset={audiobookStudioConfig.defaultVoicePreset || 'kokoro_af_heart'}
                                     onSelectPreset={val => {
-                                        saveAudiobookStudioConfig({ defaultVoicePreset: val, audioEnhancePreset: val as any });
-                                        toast.success('Default voice preset updated');
+                                        saveAudiobookStudioConfig({ defaultVoicePreset: val });
+                                        toast.success('Voice model updated');
+                                    }}
+                                    selectedPersonas={audiobookStudioConfig.defaultActivePersonas || ['kokoro_af_heart', 'kokoro_bf_emma']}
+                                    onTogglePersona={id => {
+                                        const cur = new Set(audiobookStudioConfig.defaultActivePersonas || ['kokoro_af_heart', 'kokoro_bf_emma']);
+                                        if (cur.has(id)) cur.delete(id);
+                                        else cur.add(id);
+                                        const next = Array.from(cur);
+                                        saveAudiobookStudioConfig({ defaultActivePersonas: next.length > 0 ? next : [id], defaultVoicePreset: id });
+                                        toast.success('Voice models updated');
+                                    }}
+                                    selectedTimbres={audiobookStudioConfig.defaultActiveTimbres || ['clear_voice', 'warm_bass']}
+                                    onToggleTimbre={id => {
+                                        const cur = new Set(audiobookStudioConfig.defaultActiveTimbres || ['clear_voice', 'warm_bass']);
+                                        if (cur.has(id)) cur.delete(id);
+                                        else cur.add(id);
+                                        const next = Array.from(cur);
+                                        saveAudiobookStudioConfig({ defaultActiveTimbres: next.length > 0 ? next : [id], defaultVoicePreset: id });
+                                        toast.success('Timbre filters updated');
                                     }}
                                 />
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-zinc-800">
-                                    {/* Audio Engine Mode */}
-                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
-                                        <span className="text-xs font-black uppercase text-emerald-400 block">Audio Engine Mode</span>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setVoiceNarrationMode('rvc_filter')}
-                                                className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                                                    voiceNarrationMode === 'rvc_filter'
-                                                        ? 'bg-emerald-500/20 text-white border-emerald-500/50'
-                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                                                }`}
-                                                title="Converts vocal timbre over original audio while preserving acting, pacing & pauses"
-                                            >
-                                                <div className="text-xs font-black uppercase text-emerald-300">Timbre Filter</div>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setVoiceNarrationMode('neural_tts')}
-                                                className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                                                    voiceNarrationMode === 'neural_tts'
-                                                        ? 'bg-emerald-500/20 text-white border-emerald-500/50'
-                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                                                }`}
-                                                title="Rereads transcript with Kokoro-82M / Piper neural TTS from scratch"
-                                            >
-                                                <div className="text-xs font-black uppercase text-emerald-300">Neural TTS</div>
-                                            </button>
-                                        </div>
+                                {/* CPU Processing Threads */}
+                                <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-black uppercase text-zinc-400">Local CPU Threads</span>
+                                        <span className="text-xs font-mono font-bold text-amber-300">
+                                            {audiobookStudioConfig.cpuThreads} {audiobookStudioConfig.cpuThreads === 1 ? 'Core' : 'Cores'}
+                                        </span>
                                     </div>
-
-                                    {/* CPU Processing Threads */}
-                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs font-black uppercase text-zinc-400">Local CPU Threads</span>
-                                            <span className="text-xs font-mono font-bold text-amber-300">
-                                                {audiobookStudioConfig.cpuThreads} {audiobookStudioConfig.cpuThreads === 1 ? 'Core' : 'Cores'}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="1"
-                                            max="8"
-                                            step="1"
-                                            value={audiobookStudioConfig.cpuThreads}
-                                            onChange={e => saveAudiobookStudioConfig({ cpuThreads: Number(e.target.value) })}
-                                            className="w-full accent-amber-500 cursor-pointer"
-                                            title="CPU processing threads for local voice audio generation"
-                                        />
-                                    </div>
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="8"
+                                        step="1"
+                                        value={audiobookStudioConfig.cpuThreads}
+                                        onChange={e => saveAudiobookStudioConfig({ cpuThreads: Number(e.target.value) })}
+                                        className="w-full accent-amber-500 cursor-pointer"
+                                        title="CPU processing threads for local voice audio generation"
+                                    />
                                 </div>
                             </div>
                         </div>

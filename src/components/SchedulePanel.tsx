@@ -70,11 +70,11 @@ function TimelineDateGroup({
     todayRef?: React.RefObject<HTMLDivElement | null>;
 }) {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const safeConsolidated = Array.isArray(group?.consolidated) ? group.consolidated : [];
+    const totalReleases = safeConsolidated.length;
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(false);
-    const [visibleRange, setVisibleRange] = useState({ start: 1, end: Math.min(group.consolidated.length, 2) });
-
-    const totalReleases = group.consolidated.length;
+    const [visibleRange, setVisibleRange] = useState({ start: 1, end: Math.min(totalReleases, 2) });
     const isMultiItem = totalReleases > 2;
 
     // Mouse click-and-drag lateral pan state
@@ -283,7 +283,7 @@ function TimelineDateGroup({
                                 }`
                     }
                 >
-                    {group.consolidated.map((item: any) => {
+                    {safeConsolidated.map((item: any) => {
                     const countdown = getCountdownLabel(item.releaseDate);
                     const poster = item.posterUrl;
 
