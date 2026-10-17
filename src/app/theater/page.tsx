@@ -2350,9 +2350,16 @@ function TheaterPageContent() {
     const handleSaveBookStudioSettings = async (book: any, patch: Record<string, any>) => {
         if (!book) return;
         const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
+        const personasList = patch.activePersonas || patch.active_personas;
+        const normalizedPatch = {
+            ...patch,
+            ...(personasList ? { active_personas: personasList, activePersonas: personasList, active_personas_json: JSON.stringify(personasList) } : {}),
+            ...(patch.voicePersona ? { voice_persona: patch.voicePersona, voicePersona: patch.voicePersona } : {}),
+            ...(patch.voiceEnhancer ? { voice_enhancer: patch.voiceEnhancer, voiceEnhancer: patch.voiceEnhancer } : {})
+        };
         setAudiobooksStudioMap(prev => ({
             ...prev,
-            [bKey]: { ...(prev[bKey] || {}), ...patch }
+            [bKey]: { ...(prev[bKey] || {}), ...normalizedPatch }
         }));
         try {
             const res = await fetch('/api/theater/audiobooks/studio', {
@@ -8165,6 +8172,20 @@ function TheaterPageContent() {
                         0
                     )
                 );
+                const scenedCh = selectedAudiobook.chapters.reduce((acc: number, ch: any, idx: number) => {
+                    const cKey = `${bKey}::ch${idx + 1}`;
+                    const cMeta = audiobookChaptersStudioMap[cKey] || audiobookChaptersStudioMap[(ch as any).chapterKey] || audiobookChaptersStudioMap[ch.id];
+                    const sc = (cMeta?.images || []).filter((im: any) => im.kept !== false);
+                    return acc + (sc.length > 0 ? 1 : 0);
+                }, 0);
+                const scenedPct = totalCh > 0 ? Math.min(100, Math.round((scenedCh / totalCh) * 100)) : 0;
+                const paintedScenes = selectedAudiobook.chapters.reduce((acc: number, ch: any, idx: number) => {
+                    const cKey = `${bKey}::ch${idx + 1}`;
+                    const cMeta = audiobookChaptersStudioMap[cKey] || audiobookChaptersStudioMap[(ch as any).chapterKey] || audiobookChaptersStudioMap[ch.id];
+                    const painted = (cMeta?.images || []).filter((im: any) => im.kept !== false && im.url && !String(im.url).toLowerCase().includes('.svg') && !im.url.startsWith('data:image/svg'));
+                    return acc + painted.length;
+                }, 0);
+                const scenesArtPct = totalBookScenes > 0 ? Math.min(100, Math.round((paintedScenes / totalBookScenes) * 100)) : illPct;
                 const transcribedSec = Number(bMeta?.transcribed_seconds || 0);
                 const totalDurSec = Number(
                     bMeta?.total_duration_sec ||
@@ -8333,9 +8354,9 @@ function TheaterPageContent() {
                                                 }
                                             }}
                                             title="Play this audiobook"
-                                            className="py-3 px-2 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black transition-all flex items-center justify-center shadow-lg cursor-pointer disabled:opacity-40"
+                                            className="h-12 py-2 px-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-black transition-all flex items-center justify-center shadow-lg cursor-pointer disabled:opacity-40"
                                         >
-                                            <Play size={24} className="fill-current ml-0.5" />
+                                            <Play size={22} className="fill-current ml-0.5" />
                                         </button>
 
                                         <button
@@ -8346,13 +8367,13 @@ function TheaterPageContent() {
                                                 })
                                             }
                                             title={isOnBedside ? "Remove from Bedside" : "Add to Bedside"}
-                                            className={`py-3 px-2 rounded-2xl transition-all cursor-pointer border flex items-center justify-center ${
+                                            className={`h-12 py-2 px-2 rounded-xl transition-all cursor-pointer border flex items-center justify-center ${
                                                 isOnBedside
                                                     ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
                                                     : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                             }`}
                                         >
-                                            <Bookmark size={24} className={isOnBedside ? 'fill-current' : ''} />
+                                            <Bookmark size={22} className={isOnBedside ? 'fill-current' : ''} />
                                         </button>
 
                                         <button
@@ -8364,13 +8385,13 @@ function TheaterPageContent() {
                                                 })
                                             }
                                             title={isFinished ? "Mark as Ongoing" : "Mark as Finished"}
-                                            className={`py-3 px-2 rounded-2xl transition-all cursor-pointer border flex items-center justify-center ${
+                                            className={`h-12 py-2 px-2 rounded-xl transition-all cursor-pointer border flex items-center justify-center ${
                                                 isFinished
                                                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                     : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                             }`}
                                         >
-                                            <Check size={24} />
+                                            <Check size={22} />
                                         </button>
 
                                         <button
@@ -8384,13 +8405,13 @@ function TheaterPageContent() {
                                                 });
                                             }}
                                             title={userRatings[bKey] ? `Your Grade: ${userRatings[bKey].overallScore}/100 (Click to adjust)` : "Grade this book (0-100 across 6 categories)"}
-                                            className={`py-3 px-2 rounded-2xl transition-all cursor-pointer border flex items-center justify-center ${
+                                            className={`h-12 py-2 px-2 rounded-xl transition-all cursor-pointer border flex items-center justify-center ${
                                                 userRatings[bKey]
                                                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30'
                                                     : 'bg-zinc-900 hover:bg-zinc-800 text-amber-400 border-zinc-800'
                                             }`}
                                         >
-                                            <Star size={24} className={userRatings[bKey] ? "fill-amber-400 text-amber-400" : "text-amber-400"} />
+                                            <Star size={22} className={userRatings[bKey] ? "fill-amber-400 text-amber-400" : "text-amber-400"} />
                                         </button>
 
                                         <button
@@ -8399,13 +8420,13 @@ function TheaterPageContent() {
                                                 setShowTheaterBookCustomize(prev => !prev);
                                             }}
                                             title={showTheaterBookCustomize ? "Close art & metadata settings" : "Customize cover art, synopsis & metadata"}
-                                            className={`py-3 px-2 rounded-2xl transition-all cursor-pointer border flex items-center justify-center ${
+                                            className={`h-12 py-2 px-2 rounded-xl transition-all cursor-pointer border flex items-center justify-center ${
                                                 showTheaterBookCustomize
                                                     ? 'bg-amber-500 text-black border-amber-400'
                                                     : 'bg-zinc-900 hover:bg-zinc-800 text-amber-300 border-zinc-800'
                                             }`}
                                         >
-                                            <Sliders size={24} />
+                                            <Sliders size={22} />
                                         </button>
                                     </div>
 
@@ -8417,10 +8438,10 @@ function TheaterPageContent() {
                                                 setBookModalAiSubTab('transcription');
                                             }}
                                             title={`${transCh}/${totalCh} chapters transcribed (${transPct}%)`}
-                                            className="py-2.5 px-2 rounded-2xl bg-zinc-900 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center gap-2 text-sm sm:text-base font-black transition-all cursor-pointer shadow"
+                                            className="h-11 py-1.5 px-2 rounded-xl bg-zinc-900 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-black transition-all cursor-pointer shadow whitespace-nowrap overflow-hidden"
                                         >
-                                            <FileText size={20} className="shrink-0" />
-                                            <span>{transPct}%</span>
+                                            <FileText size={17} className="shrink-0" />
+                                            <span className="truncate">{transPct}% · {transCh}/{totalCh} Ch</span>
                                         </button>
 
                                         <button
@@ -8428,11 +8449,11 @@ function TheaterPageContent() {
                                                 setBookModalTab('generate');
                                                 setBookModalAiSubTab('scening');
                                             }}
-                                            title={`${totalBookScenes} scenes detected across book`}
-                                            className="py-2.5 px-2 rounded-2xl bg-zinc-900 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center gap-2 text-sm sm:text-base font-black transition-all cursor-pointer shadow"
+                                            title={`${scenedCh}/${totalCh} chapters scened (${scenedPct}%), ${totalBookScenes} total scenes detected`}
+                                            className="h-11 py-1.5 px-2 rounded-xl bg-zinc-900 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-black transition-all cursor-pointer shadow whitespace-nowrap overflow-hidden"
                                         >
-                                            <Wand2 size={20} className="shrink-0" />
-                                            <span>{totalBookScenes}</span>
+                                            <Wand2 size={17} className="shrink-0" />
+                                            <span className="truncate">{scenedPct}% · {totalBookScenes} Sc</span>
                                         </button>
 
                                         <button
@@ -8440,11 +8461,11 @@ function TheaterPageContent() {
                                                 setBookModalTab('generate');
                                                 setBookModalAiSubTab('illustration');
                                             }}
-                                            title={`${illCh}/${totalCh} chapters illustrated (${illPct}%)`}
-                                            className="py-2.5 px-2 rounded-2xl bg-zinc-900 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center gap-2 text-sm sm:text-base font-black transition-all cursor-pointer shadow"
+                                            title={`${scenesArtPct}% illustrated (${totalBookScenes > 0 ? `${paintedScenes}/${totalBookScenes}` : `${illCh}/${totalCh}`} scenes/chapters)`}
+                                            className="h-11 py-1.5 px-2 rounded-xl bg-zinc-900 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-black transition-all cursor-pointer shadow whitespace-nowrap overflow-hidden"
                                         >
-                                            <Sparkles size={20} className="shrink-0" />
-                                            <span>{illPct}%</span>
+                                            <Sparkles size={17} className="shrink-0" />
+                                            <span className="truncate">{scenesArtPct}% · {totalBookScenes > 0 ? `${paintedScenes}/${totalBookScenes}` : `${illCh}/${totalCh}`} Img</span>
                                         </button>
 
                                         <button
@@ -8453,10 +8474,10 @@ function TheaterPageContent() {
                                                 setBookModalAiSubTab('voice');
                                             }}
                                             title={`${enhCh}/${totalCh} chapters voice-enhanced (${enhPct}%)`}
-                                            className="py-2.5 px-2 rounded-2xl bg-zinc-900 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-2 text-sm sm:text-base font-black transition-all cursor-pointer shadow"
+                                            className="h-11 py-1.5 px-2 rounded-xl bg-zinc-900 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-1.5 text-xs sm:text-sm font-black transition-all cursor-pointer shadow whitespace-nowrap overflow-hidden"
                                         >
-                                            <Headphones size={20} className="shrink-0" />
-                                            <span>{enhPct}%</span>
+                                            <Headphones size={17} className="shrink-0" />
+                                            <span className="truncate">{enhPct}% · {enhCh}/${totalCh} Ch</span>
                                         </button>
                                     </div>
                                 </div>
@@ -9711,7 +9732,7 @@ function TheaterPageContent() {
                                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                                                 {/* Original Actor Card */}
                                                 {(() => {
-                                                    const rawList: string[] = Array.isArray(bMeta?.active_personas) ? bMeta.active_personas : ['original'];
+                                                    const rawList: string[] = Array.isArray(bMeta?.active_personas) ? bMeta.active_personas : (Array.isArray((bMeta as any)?.activePersonas) ? (bMeta as any).activePersonas : ['original']);
                                                     const activeSet = new Set(rawList.length > 0 ? rawList : ['original']);
                                                     const isOrigActive = activeSet.has('original');
 
@@ -9751,7 +9772,7 @@ function TheaterPageContent() {
 
                                                 {/* Celebrity / Fun Narrator Models */}
                                                 {AUDIOBOOK_VOICE_TIMBRE_PRESETS.map(persona => {
-                                                    const rawList: string[] = Array.isArray(bMeta?.active_personas) ? bMeta.active_personas : ['original'];
+                                                    const rawList: string[] = Array.isArray(bMeta?.active_personas) ? bMeta.active_personas : (Array.isArray((bMeta as any)?.activePersonas) ? (bMeta as any).activePersonas : ['original']);
                                                     const activeSet = new Set(rawList.length > 0 ? rawList : ['original']);
                                                     const isActive = activeSet.has(persona.id);
 

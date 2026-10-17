@@ -341,6 +341,8 @@ export async function POST(request: Request) {
                 imagesPerChapter,
                 artFocus,
                 voicePreset,
+                voicePersona,
+                activePersonas,
                 enhancePreset,
                 enhanceAudioEnabled,
                 transcribeEnabled,
@@ -365,6 +367,7 @@ export async function POST(request: Request) {
             }
 
             const nextQueueEnabled = queueEnabled !== undefined ? Boolean(queueEnabled) : (isQueued !== undefined ? Boolean(isQueued) : existing?.queue_enabled);
+            const effectiveVoicePreset = voicePersona || voicePreset || existing?.voice_preset || 'original';
             const updatedBook = upsertAudiobookMeta({
                 book_key: bookKey,
                 title: title ?? existing?.title ?? 'Untitled Book',
@@ -373,7 +376,8 @@ export async function POST(request: Request) {
                 art_style: artStyle !== undefined ? String(artStyle) : existing?.art_style,
                 images_per_chapter: imagesPerChapter !== undefined ? Number(imagesPerChapter) : existing?.images_per_chapter,
                 art_focus: artFocus !== undefined ? String(artFocus) : existing?.art_focus,
-                voice_preset: voicePreset !== undefined ? String(voicePreset) : existing?.voice_preset,
+                voice_preset: effectiveVoicePreset,
+                active_personas: Array.isArray(activePersonas) ? activePersonas : existing?.active_personas,
                 enhance_preset: enhancePreset !== undefined ? String(enhancePreset) : existing?.enhance_preset,
                 enhance_audio_enabled: enhanceAudioEnabled !== undefined ? Boolean(enhanceAudioEnabled) : existing?.enhance_audio_enabled,
                 transcribe_enabled: transcribeEnabled !== undefined ? Boolean(transcribeEnabled) : existing?.transcribe_enabled,

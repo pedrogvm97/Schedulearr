@@ -6068,6 +6068,44 @@ export const runSingleSceningOrImagingStep = async (
     return { didWork: false, blockedByQuotaCount, failedCount, lastError };
 };
 
+/**
+ * Fetches the authentic high-resolution book jacket art using iTunes Search API (primary)
+ * and OpenLibrary (fallback). Ensures authentic square book covers are used instead of author portraits.
+ */
+export const fetchBestAudiobookCoverArt = async (title: string, author?: string): Promise<string | null> => {
+    const cleanT = (title || '').replace(/\s*\([^)]*\)|\s*\[[^\]]*\]/g, '').trim();
+    const cleanA = (author || '').replace(/\s*\(author\)|\s*\(narrator\)/gi, '').trim();
+    if (!cleanT) return null;
+
+    // 1. Apple iTunes Audiobook API (Primary: instant, official 600x600 square cover jackets)
+    try {
+        const queryTerm = encodeURIComponent(`${cleanT} ${cleanA}`.trim());
+        const itunesRes = await axios.get(`https://itunes.apple.com/search?term=${queryTerm}&entity=audiobook&limit=3`, {
+            timeout: 5000,
+            headers: { 'User-Agent': 'Schedulearr/0.6.33' }
+        });
+        if (itunesRes.data?.results?.length > 0) {
+            const first = itunesRes.data.results[0];
+            if (first.artworkUrl100) {
+                return first.artworkUrl100.replace('100x100bb', '600x600bb');
+            }
+        }
+    } catch {}
+
+    // 2. OpenLibrary Covers API (Fallback)
+    try {
+        const olRes = await axios.get(`https://openlibrary.org/search.json?title=${encodeURIComponent(cleanT)}&author=${encodeURIComponent(cleanA)}&limit=3`, {
+            timeout: 5000
+        });
+        const doc = olRes.data?.docs?.[0];
+        if (doc?.cover_i) {
+            return `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+        }
+    } catch {}
+
+    return null;
+};
+
 export const triggerIncrementalSceningAndImaging = (
     forceBookKey?: string,
     forceChapterKey?: string,
@@ -6203,28 +6241,12 @@ export const processAudiobookPriorityQueueStep = async (
                             return true;
                         }
                     }
-
-                    // STAGE 1B: Audio -> Cadence-Matched Voices (Local CPU FFmpeg DSP)
-                    if (book.enhance_audio_enabled && chapter.audio_enhance_status !== 'completed') {
-                        if (chapter.audio_enhance_status === 'failed') {
-                            failedChaptersCount++;
-                            if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
-                        } else {
-                            await enhanceAudiobookChapterAudio(book, chapter, config);
-                            recalculateAudiobookTotals(book.book_key);
-                            if (!g.__audiobookWorkerLoopRunning) {
-                                updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
-                            }
-                            return true;
-                        }
-                    }
                 }
                 recalculateAudiobookTotals(book.book_key);
             }
         }
 
-        // Pass 2: If all candidate books have completed Transcription (or Transcription is turned off),
-        // directly run the next Scening or Imaging step if triggerIncrementalSceningAndImaging isn't already running it.
+        // Pass 2: Advance Stage 2 (LLM Scening) & Stage 3 (Scene Art) on any chapters with transcripts ready
         if (!g.__audiobookSceneArtLock) {
             g.__audiobookSceneArtLock = true;
             try {
@@ -6241,9 +6263,32 @@ export const processAudiobookPriorityQueueStep = async (
             } finally {
                 g.__audiobookSceneArtLock = false;
             }
-        } else {
-            // Background Scening/Imaging worker is actively running
-            return true;
+        }
+
+        // Pass 3: Advance Stage 1B (Voice Master & Timbre DSP) for chapters with enhance_audio_enabled
+        for (const book of candidateBooks) {
+            if (!book.enhance_audio_enabled) continue;
+            const chapters = getAudiobookChaptersMeta(book.book_key);
+            const targetChapters = forceChapterKey
+                ? chapters.filter(c => c.chapter_key === forceChapterKey)
+                : chapters;
+
+            for (const chapter of targetChapters) {
+                if (chapter.audio_enhance_status !== 'completed') {
+                    if (chapter.audio_enhance_status === 'failed') {
+                        failedChaptersCount++;
+                        if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
+                    } else {
+                        await enhanceAudiobookChapterAudio(book, chapter, config);
+                        recalculateAudiobookTotals(book.book_key);
+                        if (!g.__audiobookWorkerLoopRunning) {
+                            updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        }
+                        return true;
+                    }
+                }
+            }
+            recalculateAudiobookTotals(book.book_key);
         }
 
         const freshCfg = getAudiobookStudioConfig();

@@ -312,7 +312,7 @@ export const AudiobookTranscriptViewerModal: React.FC<AudiobookTranscriptViewerM
                                     return (
                                         <div key={ch.chapterIndex} className="space-y-3">
                                             {/* Chapter Banner */}
-                                            <div className="sticky top-0 z-10 px-4 py-2.5 rounded-2xl bg-zinc-900/95 border border-zinc-800 flex items-center justify-between gap-3 backdrop-blur shadow-md">
+                                            <div className="sticky -top-4 sm:-top-6 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-[#0c0c0c] border-b border-zinc-800 flex items-center justify-between gap-3 shadow-lg">
                                                 <div className="flex items-center gap-3">
                                                     <span className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-300 font-mono text-xs font-black flex items-center justify-center">
                                                         {ch.displayNumber}
