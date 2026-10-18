@@ -41,6 +41,8 @@ ENV NODE_ENV=production
 # Uncomment the following line in case you want to disable telemetry during runtime.
 ENV NEXT_TELEMETRY_DISABLED=1
 LABEL net.unraid.docker.icon="https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png"
+LABEL net.unraid.docker.webui="http://[IP]:[PORT:3010]/"
+LABEL net.unraid.docker.shell="sh"
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs

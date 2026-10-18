@@ -10,7 +10,7 @@
   <Project>https://github.com/pedrogvm97/Schedulearr</Project>
   <Overview>Schedulearr is a localized Next.js web application that acts as an intelligent scheduler and orchestrator for Radarr, Sonarr, and Prowlarr.</Overview>
   <Category>MediaApp:Video MediaApp:Music Other:</Category>
-  <WebUI>http://[IP]:[PORT:3010]</WebUI>
+  <WebUI>http://[IP]:[PORT:3010]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/pedrogvm97/schedulearr/main/unraid-template.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png</Icon>
   <ExtraParams/>
@@ -48,7 +48,20 @@
     </Volume>
   </Data>
   <Environment/>
-  <Labels/>
+  <Labels>
+    <Label>
+      <Key>net.unraid.docker.icon</Key>
+      <Value>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png</Value>
+    </Label>
+    <Label>
+      <Key>net.unraid.docker.webui</Key>
+      <Value>http://[IP]:[PORT:3010]/</Value>
+    </Label>
+    <Label>
+      <Key>net.unraid.docker.shell</Key>
+      <Value>sh</Value>
+    </Label>
+  </Labels>
   <Config Name="WebUI" Target="3010" Default="3010" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">3010</Config>
   <Config Name="AppData Config Path" Target="/app/data" Default="/mnt/user/appdata/schedulearr/data" Mode="rw" Description="Path to store SQLite database configuration." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/schedulearr/data</Config>
   <Config Name="Music Media Path" Target="/music" Default="/mnt/user/data/media/music" Mode="rw" Description="Path where downloaded music is saved for your Plex/Lidarr library." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/data/media/music</Config>

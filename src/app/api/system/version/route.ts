@@ -8,6 +8,9 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.43] Fix Unraid Docker Dashboard Left-Click WebUI Option, Bake Unraid Container Metadata Labels & Trailing Slash',
+  '  - Add net.unraid.docker.webui and net.unraid.docker.shell labels directly into Docker runner image to guarantee left-click WebUI menu binding',
+  '  - Expand unraid-template.xml with complete container Labels and normalized WebUI URL with trailing slash for Unraid dashboard discovery',
   '• [v0.6.42] Immich Container Integration, Network Pixel Finder for Unlimited Backup, and Android ADB Bridge Support',
   '  - Add first-class Immich instance support with health verification against /api/server-info/version and step-by-step API key guidance',
   '  - Introduce Network Pixel Finder scanner probing port 5555 over LAN and Tailscale to automatically discover authentic Pixel hardware',
@@ -117,7 +120,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.42';
+    let currentVersion = '0.6.43';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
