@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
     Server, Sliders, Shield, Wrench, Heart, Sparkles, Headphones,
     Image as ImageIcon, Mic, RefreshCw, Check, ArrowUp, ArrowDown,
-    Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2
+    Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2, Subtitles
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
@@ -15,6 +15,7 @@ import { CleanersSettingsPanel } from "@/components/CleanersSettingsPanel";
 import { VideoAiToolsPanel } from "@/components/VideoAiToolsPanel";
 import { AudiobookVoiceSelector } from "@/components/AudiobookVoiceSelector";
 import { SchedulerQueuePanel } from "@/components/SchedulerQueuePanel";
+import { SubtitleSettingsPanel } from "@/components/SubtitleSettingsPanel";
 import { twColorToHex } from "@/lib/instanceColor";
 
 export default function Settings() {
@@ -41,7 +42,7 @@ export default function Settings() {
 
     const [isAuthorModalOpen, setIsAuthorModalOpen] = useState(false);
     const [activeTroubleshootModal, setActiveTroubleshootModal] = useState<'socket' | 'perms' | null>(null);
-    const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'cleaners' | 'ai' | 'system'>('instances');
+    const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'cleaners' | 'ai' | 'subtitles' | 'system'>('instances');
     const [aiMediaCategory, setAiMediaCategory] = useState<'general' | 'audiobooks' | 'video'>('general');
     const [voiceNarrationMode, setVoiceNarrationMode] = useState<'timbre_filter' | 'neural_tts'>('timbre_filter');
     const [selectedVoiceModel, setSelectedVoiceModel] = useState<string>('morgan_freeman');
@@ -162,6 +163,8 @@ export default function Settings() {
                 setSettingsSubtopic('automation');
             } else if (subtopicParam === 'system') {
                 setSettingsSubtopic('system');
+            } else if (subtopicParam === 'subtitles' || subtopicParam === 'subtitle' || subtopicParam === 'captions') {
+                setSettingsSubtopic('subtitles');
             } else if (subtopicParam === 'instances') {
                 setSettingsSubtopic('instances');
             }
@@ -1248,6 +1251,18 @@ export default function Settings() {
                     >
                         <Sparkles size={20} className={settingsSubtopic === 'ai' ? 'text-black' : 'text-amber-400'} />
                         <span>AI Settings</span>
+                    </button>
+                    <button
+                        onClick={() => setSettingsSubtopic('subtitles')}
+                        title="Dedicated Subtitle Appearance: font size, weight, backdrop, color & positioning"
+                        className={`flex-1 min-w-[120px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                            settingsSubtopic === 'subtitles'
+                                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
+                        }`}
+                    >
+                        <Subtitles size={20} className={settingsSubtopic === 'subtitles' ? 'text-white' : 'text-purple-400'} />
+                        <span>Subtitles</span>
                     </button>
                     <button
                         onClick={() => setSettingsSubtopic('system')}
@@ -2752,6 +2767,13 @@ export default function Settings() {
                         </div>
                     )}
                 </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════════════
+               SUBTOPIC: SUBTITLE & KARAOKE APPEARANCE
+               ═══════════════════════════════════════════════════════════════════ */}
+            {settingsSubtopic === 'subtitles' && (
+                <SubtitleSettingsPanel />
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════

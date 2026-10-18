@@ -8,6 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.41] Mobile UI Responsiveness Overhaul, Player Fullscreen Mode, Custom Subtitle Appearance Settings, and Immersive Audiobook Playback',
+  '  - Overhaul mobile layout responsiveness across Schedule tab, bottom navigation bar, and media cards with horizontal scroll strips and squared borders',
+  '  - Eliminate microscopic text in mobile navigation; convert controls to pure large 24px symbols with descriptive tooltips and include Schedule (/), Theater, Media, Tasks, and Transfers',
+  '  - Introduce dedicated Subtitle Appearance settings panel (Font Size, Font Weight, Backdrop Style, Highlight Color, Placement) with real-time preview and dynamic CSS variables',
+  '  - Fullscreen mode support across all players (Expanded Music/Audiobook Player, Theater Video Player, Live TV Player) with 1-click toggles',
+  '  - Immersive audiobook experience: enlarged artwork (Plain Art, Open Book, and Cinema Stage), 3.5s auto-hide for playback commands during playback, and customizable live subtitle overlays with instant toggle',
   '• [v0.6.40] Tasks Dual-Pipeline Execution (Local vs API), Squared UI Geometry, Batch-Prioritized Search Queue, Transfers Watchdog Migration & Plex Companion Subtitles',
   '  - Overhaul Tasks UI with parallel Local Pipeline (Hardware DSP, Whisper CPU) and Cloud/API Pipeline (LLM Scene Detection, Art Painting) and remove persistent bottom bar',
   '  - Enforce crisp squared geometry across queue badges, counters, action buttons, and cards',

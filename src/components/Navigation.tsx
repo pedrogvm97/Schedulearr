@@ -58,31 +58,37 @@ const secondaryNavItems = [
     }
 ];
 
-// Clean 4-tab mobile core navigation
+// Clean mobile core navigation with pure large icons
 const mobileCoreNavItems = [
+    {
+        href: '/',
+        label: 'Schedule',
+        title: 'Release Schedule & Timeline',
+        icon: (active: boolean) => <Calendar size={24} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+    },
     {
         href: '/theater',
         label: 'Theater',
-        title: 'Open Theater Mode',
-        icon: (active: boolean) => <Play size={22} className={active ? 'text-purple-400' : 'text-zinc-400'} />
+        title: 'Theater & Player (Movies, Shows, Audiobooks & Music)',
+        icon: (active: boolean) => <Play size={24} className={active ? 'text-purple-400' : 'text-zinc-400'} />
     },
     {
         href: '/discover',
         label: 'Media',
         title: 'Manage Media Libraries',
-        icon: (active: boolean) => <Film size={22} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+        icon: (active: boolean) => <Film size={24} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
     },
     {
         href: '/tasks',
         label: 'Tasks',
         title: 'Server Tasks & Queues',
-        icon: (active: boolean) => <Activity size={22} className={active ? 'text-amber-400' : 'text-zinc-400'} />
+        icon: (active: boolean) => <Activity size={24} className={active ? 'text-amber-400' : 'text-zinc-400'} />
     },
     {
         href: '/downloads',
         label: 'Transfers',
-        title: 'Active Transfers',
-        icon: (active: boolean) => <Download size={22} className={active ? 'text-sky-400' : 'text-zinc-400'} />
+        title: 'Active Transfers & Torrent Queue',
+        icon: (active: boolean) => <Download size={24} className={active ? 'text-sky-400' : 'text-zinc-400'} />
     }
 ];
 
@@ -212,30 +218,33 @@ export function Navigation() {
 
             {/* ── Modern Floating Glass Bottom Tab Bar (<640px Mobile Only) ── */}
             <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 px-3 pb-3 pointer-events-none" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-                <div className="pointer-events-auto max-w-sm mx-auto bg-zinc-950/85 backdrop-blur-3xl border border-white/10 rounded-[1.75rem] shadow-[0_20px_50px_rgba(0,0,0,0.85)] flex items-center justify-between h-16 px-2 gap-1">
+                <div className="pointer-events-auto max-w-md mx-auto bg-zinc-950/90 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] flex items-center justify-between h-14 px-2 gap-1">
                     {mobileCoreNavItems.map(item => {
                         const active = pathname === item.href;
                         return (
                             <Link
                                 key={item.href}
                                 href={item.href}
-                                className={`relative flex flex-col items-center justify-center flex-1 h-12 rounded-2xl transition-all active:scale-95 select-none ${
+                                title={item.title || item.label}
+                                className={`relative flex items-center justify-center flex-1 h-11 rounded-xl transition-all active:scale-95 select-none ${
                                     active 
-                                        ? 'text-white bg-zinc-900/90 border border-zinc-700/60 shadow-inner' 
+                                        ? 'text-white bg-zinc-900 border border-zinc-700/60 shadow-inner' 
                                         : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                             >
                                 <div className={`transition-transform duration-200 relative ${active ? 'scale-110' : ''}`}>
                                     {item.icon(active)}
                                     {item.href === '/downloads' && activeMusicCount > 0 && (
-                                        <span className="absolute -top-1.5 -right-2 w-3.5 h-3.5 rounded-full bg-amber-500 text-black text-[8px] font-black flex items-center justify-center animate-pulse">
+                                        <span className="absolute -top-1.5 -right-2 w-4 h-4 rounded-full bg-sky-400 text-black text-[10px] font-black flex items-center justify-center animate-pulse">
                                             {activeMusicCount}
                                         </span>
                                     )}
+                                    {item.href === '/tasks' && totalTasksCount > 0 && (
+                                        <span className="absolute -top-1.5 -right-2 w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-black flex items-center justify-center animate-pulse">
+                                            {totalTasksCount}
+                                        </span>
+                                    )}
                                 </div>
-                                <span className={`text-[10px] font-black uppercase tracking-wider mt-0.5 ${active ? 'text-white' : 'text-zinc-500'}`}>
-                                    {item.label}
-                                </span>
                             </Link>
                         );
                     })}
@@ -243,18 +252,16 @@ export function Navigation() {
                     {/* "More" Trigger Tab */}
                     <button
                         onClick={() => setIsMobileMoreOpen(true)}
-                        className={`relative flex flex-col items-center justify-center flex-1 h-12 rounded-2xl transition-all active:scale-95 select-none ${
+                        title="More Options & Settings"
+                        className={`relative flex items-center justify-center flex-1 h-11 rounded-xl transition-all active:scale-95 select-none ${
                             isMoreTabActive
-                                ? 'text-white bg-zinc-900/90 border border-zinc-700/60 shadow-inner' 
+                                ? 'text-white bg-zinc-900 border border-zinc-700/60 shadow-inner' 
                                 : 'text-zinc-400 hover:text-zinc-200'
                         }`}
                     >
                         <div className={`transition-transform duration-200 ${isMoreTabActive ? 'scale-110 text-emerald-400' : ''}`}>
-                            <Menu size={20} />
+                            <Menu size={24} />
                         </div>
-                        <span className={`text-[10px] font-black uppercase tracking-wider mt-0.5 ${isMoreTabActive ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                            More
-                        </span>
                     </button>
                 </div>
             </nav>

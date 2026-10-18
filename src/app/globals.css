@@ -80,3 +80,14 @@ body::-webkit-scrollbar {
 .animate-progress-bar {
   animation: progress-bar 1.5s ease-in-out infinite;
 }
+
+/* Subtitle ::cue styling for video playback */
+video::cue {
+  background-color: var(--sub-bg-color, rgba(0, 0, 0, 0.75));
+  color: var(--sub-text-color, #ffffff);
+  font-size: var(--sub-font-size, 1.25rem);
+  font-weight: var(--sub-font-weight, 700);
+  line-height: 1.4;
+  border-radius: 8px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+}

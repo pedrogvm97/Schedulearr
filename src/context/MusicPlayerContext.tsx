@@ -11,7 +11,7 @@ import {
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
     Star, ListPlus, Heart, Youtube, Wrench, Settings,
     Globe, HardDrive, Server, CheckCircle2, AlertCircle, Folder, FolderOpen,
-    BookOpen, Headphones, Wand2, Compass
+    BookOpen, Headphones, Wand2, Compass, Subtitles
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
@@ -32,6 +32,7 @@ import { AudiobookSettingsModal } from '@/components/AudiobookSettingsModal';
 import { AudiobookExportModal } from '@/components/AudiobookExportModal';
 import { AUDIOBOOK_VOICE_TIMBRE_PRESETS, AUDIOBOOK_VOICE_TONE_PRESETS } from '@/lib/audiobookStudioShared';
 import { logClientEvent } from '@/lib/clientLogger';
+import { SubtitleAppearanceConfig, DEFAULT_SUBTITLE_APPEARANCE, getStoredSubtitleAppearance } from '@/components/SubtitleSettingsPanel';
 
 export interface MediaItem {
     id: string;
@@ -575,6 +576,81 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             toast.info(`${seconds > 0 ? `+${seconds}` : seconds}s`);
         }
     };
+
+    // Fullscreen Mode State & API Integration
+    const playerExpandedContainerRef = useRef<HTMLDivElement>(null);
+    const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
+
+    const togglePlayerFullscreen = () => {
+        if (!document.fullscreenElement) {
+            playerExpandedContainerRef.current?.requestFullscreen().catch(() => {});
+            setIsPlayerFullscreen(true);
+        } else {
+            document.exitFullscreen().catch(() => {});
+            setIsPlayerFullscreen(false);
+        }
+    };
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsPlayerFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
+    // Play Commands Auto-Hide Inactivity Timer (3.5s of no interaction while playing)
+    const [isPlayerControlsVisible, setIsPlayerControlsVisible] = useState(true);
+    const controlsInactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    const resetControlsInactivityTimeout = useCallback(() => {
+        setIsPlayerControlsVisible(true);
+        if (controlsInactivityTimerRef.current) clearTimeout(controlsInactivityTimerRef.current);
+        if (isAudioPlaying) {
+            controlsInactivityTimerRef.current = setTimeout(() => {
+                setIsPlayerControlsVisible(false);
+            }, 3500);
+        }
+    }, [isAudioPlaying]);
+
+    useEffect(() => {
+        if (!isAudioPlaying) {
+            setIsPlayerControlsVisible(true);
+            if (controlsInactivityTimerRef.current) clearTimeout(controlsInactivityTimerRef.current);
+        } else {
+            resetControlsInactivityTimeout();
+        }
+    }, [isAudioPlaying, resetControlsInactivityTimeout]);
+
+    // Subtitle Appearance & Subtitle Toggle State
+    const [subtitleAppearance, setSubtitleAppearance] = useState<SubtitleAppearanceConfig>(DEFAULT_SUBTITLE_APPEARANCE);
+    const [showAudiobookSubtitles, setShowAudiobookSubtitles] = useState<boolean>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const s = localStorage.getItem('schedulearr_audiobook_subtitles_enabled');
+                if (s !== null) return s !== 'false';
+            } catch {}
+        }
+        return true;
+    });
+
+    const toggleAudiobookSubtitles = () => {
+        setShowAudiobookSubtitles(prev => {
+            const next = !prev;
+            try { localStorage.setItem('schedulearr_audiobook_subtitles_enabled', String(next)); } catch {}
+            toast.info(next ? 'Subtitles On' : 'Subtitles Off');
+            return next;
+        });
+    };
+
+    useEffect(() => {
+        setSubtitleAppearance(getStoredSubtitleAppearance());
+        const handleSubChanged = () => {
+            setSubtitleAppearance(getStoredSubtitleAppearance());
+        };
+        window.addEventListener('schedulearr-subtitles-changed', handleSubChanged);
+        return () => window.removeEventListener('schedulearr-subtitles-changed', handleSubChanged);
+    }, []);
 
     // ── Curated Audiobook Listening States (Storyboard, Live Art, Gallery, Whole-Book Generation & Voice Options) ──
     const [audiobookArtMode, setAudiobookArtMode] = useState<'open_book' | 'plain_art'>('open_book');
@@ -4286,7 +4362,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                EXPANDED NOW PLAYING SCREEN WITH BIG ARTWORK & RIGHT PANEL
                ══════════════════════════════════════════════════════════════ */}
             {isExpandedPlayerOpen && playingAudio && (
-                <div className="fixed inset-0 z-[275] bg-black/95 backdrop-blur-3xl flex flex-col p-3 sm:p-5 lg:p-6 max-h-screen overflow-hidden select-none">
+                <div
+                    ref={playerExpandedContainerRef}
+                    onMouseMove={resetControlsInactivityTimeout}
+                    onTouchStart={resetControlsInactivityTimeout}
+                    onClick={resetControlsInactivityTimeout}
+                    className="fixed inset-0 z-[275] bg-black/95 backdrop-blur-3xl flex flex-col p-3 sm:p-5 lg:p-6 max-h-screen overflow-hidden select-none"
+                >
                     {/* Ambient Blurred Background Art */}
                     {playingAudio.posterUrl && (
                         <div
@@ -4295,9 +4377,39 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         />
                     )}
 
-                    {/* Top-Right Window Controls: Small Player (Minimalist), Minimize Player (Collapse), and Close Player */}
-                    <div className="absolute top-3.5 right-3.5 sm:top-4 sm:right-4 z-50 flex items-center gap-1.5 p-1 rounded-2xl bg-zinc-950/80 border border-zinc-800/90 backdrop-blur-xl shadow-2xl">
-                        {/* 1. Small Player (Minimalist Platter View) */}
+                    {/* Top-Right Window Controls: Fullscreen, Subtitles, Small Player (Minimalist), Minimize, Close */}
+                    <div className={`absolute top-3.5 right-3.5 sm:top-4 sm:right-4 z-50 flex items-center gap-1.5 p-1 rounded-2xl bg-zinc-950/80 border border-zinc-800/90 backdrop-blur-xl shadow-2xl transition-opacity duration-500 ${
+                        isAudioPlaying && !isPlayerControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                    }`}>
+                        {/* Subtitles Toggle (Audiobook or with captions) */}
+                        {isAudiobook && (
+                            <button
+                                onClick={toggleAudiobookSubtitles}
+                                className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer shadow-md ${
+                                    showAudiobookSubtitles
+                                        ? 'bg-amber-500 text-black border-amber-400 ring-2 ring-amber-400/40'
+                                        : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                }`}
+                                title={showAudiobookSubtitles ? "Subtitles Active (Click to Hide)" : "Subtitles Off (Click to Show)"}
+                            >
+                                <Subtitles size={16} />
+                            </button>
+                        )}
+
+                        {/* Fullscreen Mode */}
+                        <button
+                            onClick={togglePlayerFullscreen}
+                            className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer shadow-md ${
+                                isPlayerFullscreen
+                                    ? 'bg-amber-500 text-black border-amber-400 ring-2 ring-amber-400/40'
+                                    : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                            }`}
+                            title={isPlayerFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                        >
+                            {isPlayerFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                        </button>
+
+                        {/* Small Player (Minimalist Platter View) */}
                         <button
                             onClick={() => setIsMinimalistVinylMode(prev => !prev)}
                             className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer shadow-md ${
@@ -4310,7 +4422,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             {isMinimalistVinylMode ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
                         </button>
 
-                        {/* 2. Minimize to Bottom Bar */}
+                        {/* Minimize to Bottom Bar */}
                         <button
                             onClick={() => setIsExpandedPlayerOpen(false)}
                             className="p-2 sm:p-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all cursor-pointer shadow-md"
@@ -4319,7 +4431,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             <ChevronDown size={16} />
                         </button>
 
-                        {/* 3. Close Player */}
+                        {/* Close Player */}
                         <button
                             onClick={() => {
                                 setIsExpandedPlayerOpen(false);
@@ -4531,9 +4643,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                             if (isMinimalistVinylMode) {
                                 return (
-                                    <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-between w-full h-full max-w-6xl mx-auto py-2 px-1 select-none overflow-hidden gap-3 animate-in fade-in duration-300">
+                                    <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-between w-full h-full max-w-7xl mx-auto py-2 px-1 select-none overflow-hidden gap-3 animate-in fade-in duration-300">
                                         {/* Top Bar: Book Title + Switch to Extended Studio View */}
-                                        <div className="w-full flex items-center justify-between px-4 py-2 bg-zinc-950/80 backdrop-blur-md rounded-2xl border border-zinc-800/80 shrink-0">
+                                        <div className={`w-full flex items-center justify-between px-4 py-2 bg-zinc-950/80 backdrop-blur-md rounded-2xl border border-zinc-800/80 shrink-0 transition-opacity duration-500 ${
+                                            isAudioPlaying && !isPlayerControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                                        }`}>
                                             <div className="flex items-center gap-3 min-w-0">
                                                 <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0" />
                                                 <div className="min-w-0">
@@ -4550,6 +4664,30 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <span className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-amber-300 hidden sm:inline-block">
                                                     {currentPrimaryArtBadge}
                                                 </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={toggleAudiobookSubtitles}
+                                                    className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer shadow-md ${
+                                                        showAudiobookSubtitles
+                                                            ? 'bg-amber-500 text-black border-amber-400 ring-2 ring-amber-400/40'
+                                                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                                    }`}
+                                                    title={showAudiobookSubtitles ? "Subtitles Active (Click to Hide)" : "Subtitles Off (Click to Show)"}
+                                                >
+                                                    <Subtitles size={16} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={togglePlayerFullscreen}
+                                                    className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer shadow-md ${
+                                                        isPlayerFullscreen
+                                                            ? 'bg-amber-500 text-black border-amber-400 ring-2 ring-amber-400/40'
+                                                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                                    }`}
+                                                    title={isPlayerFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                                                >
+                                                    {isPlayerFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => setIsMinimalistVinylMode(false)}
@@ -4594,7 +4732,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             setBrowsedSceneIdx(Math.max(0, currentBrowsedIdx - 1));
                                                         }}
                                                         disabled={currentBrowsedIdx <= 0}
-                                                        className="absolute left-4 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white border border-white/10 backdrop-blur-md transition-all cursor-pointer disabled:opacity-0 disabled:pointer-events-none shadow-xl hover:scale-110"
+                                                        className={`absolute left-4 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white border border-white/10 backdrop-blur-md transition-all cursor-pointer disabled:opacity-0 disabled:pointer-events-none shadow-xl hover:scale-110 ${
+                                                            isAudioPlaying && !isPlayerControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                                                        }`}
                                                         title="Previous Scene"
                                                     >
                                                         <ChevronLeft size={28} />
@@ -4606,7 +4746,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             setBrowsedSceneIdx(Math.min(totalScenes - 1, currentBrowsedIdx + 1));
                                                         }}
                                                         disabled={currentBrowsedIdx >= totalScenes - 1}
-                                                        className="absolute right-4 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white border border-white/10 backdrop-blur-md transition-all cursor-pointer disabled:opacity-0 disabled:pointer-events-none shadow-xl hover:scale-110"
+                                                        className={`absolute right-4 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white border border-white/10 backdrop-blur-md transition-all cursor-pointer disabled:opacity-0 disabled:pointer-events-none shadow-xl hover:scale-110 ${
+                                                            isAudioPlaying && !isPlayerControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                                                        }`}
                                                         title="Next Scene"
                                                     >
                                                         <ChevronRight size={28} />
@@ -4614,24 +4756,49 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 </>
                                             )}
 
-                                            {/* Overlaid Prominent Subtitles Bar */}
-                                            <div className="absolute inset-x-0 bottom-0 z-20 p-4 sm:p-6 bg-gradient-to-t from-black/95 via-black/80 to-transparent flex flex-col items-center justify-end pointer-events-none">
-                                                <div className="w-full max-w-4xl text-center px-5 py-3.5 bg-black/70 backdrop-blur-xl rounded-2xl border border-white/15 shadow-2xl">
-                                                    {currentActiveLine ? (
-                                                        <p className="text-lg sm:text-2xl md:text-3xl font-black text-amber-300 leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] animate-in fade-in duration-200">
-                                                            {currentActiveLine.text}
-                                                        </p>
-                                                    ) : (
-                                                        <p className="text-sm sm:text-base font-semibold text-zinc-400 italic">
-                                                            {playingAudio.title}
-                                                        </p>
-                                                    )}
+                                            {/* Overlaid Prominent Subtitles Bar with Dynamic Appearance & Toggle */}
+                                            {showAudiobookSubtitles && (
+                                                <div className={`absolute inset-x-0 ${subtitleAppearance.position === 'top' ? 'top-6 sm:top-10' : 'bottom-4 sm:bottom-8'} z-20 p-4 sm:p-6 flex flex-col items-center justify-end pointer-events-none transition-all duration-300`}>
+                                                    <div className={`w-full max-w-4xl text-center px-5 py-3.5 rounded-2xl transition-all ${
+                                                        subtitleAppearance.backdrop === 'shadow'
+                                                            ? 'bg-transparent text-shadow-lg'
+                                                            : subtitleAppearance.backdrop === 'solid'
+                                                            ? 'bg-black/95 border border-zinc-800 shadow-2xl'
+                                                            : 'bg-black/70 backdrop-blur-xl border border-white/15 shadow-2xl'
+                                                    }`}>
+                                                        {currentActiveLine ? (
+                                                            <p className={`leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] animate-in fade-in duration-200 ${
+                                                                subtitleAppearance.fontSize === 'small' ? 'text-sm sm:text-base md:text-lg'
+                                                                : subtitleAppearance.fontSize === 'large' ? 'text-xl sm:text-2xl md:text-3xl'
+                                                                : subtitleAppearance.fontSize === 'xlarge' ? 'text-2xl sm:text-3xl md:text-4xl'
+                                                                : subtitleAppearance.fontSize === 'massive' ? 'text-3xl sm:text-4xl md:text-5xl'
+                                                                : 'text-base sm:text-xl md:text-2xl'
+                                                            } ${
+                                                                subtitleAppearance.fontWeight === 'normal' ? 'font-medium'
+                                                                : subtitleAppearance.fontWeight === 'heavy' ? 'font-black'
+                                                                : 'font-bold'
+                                                            } ${
+                                                                subtitleAppearance.highlightColor === 'emerald' ? 'text-emerald-300'
+                                                                : subtitleAppearance.highlightColor === 'white' ? 'text-white'
+                                                                : subtitleAppearance.highlightColor === 'sky' ? 'text-sky-300'
+                                                                : 'text-amber-300'
+                                                            }`}>
+                                                                {currentActiveLine.text}
+                                                            </p>
+                                                        ) : (
+                                                            <p className="text-xs sm:text-sm font-semibold text-zinc-400 italic">
+                                                                {playingAudio.title}
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
                                         </div>
 
                                         {/* Minimal Playback Controls & Audio Options */}
-                                        <div className="w-full max-w-4xl bg-zinc-950/90 backdrop-blur-xl border border-zinc-800/90 rounded-2xl px-5 py-3 shadow-2xl space-y-2 shrink-0">
+                                        <div className={`w-full max-w-4xl bg-zinc-950/90 backdrop-blur-xl border border-zinc-800/90 rounded-2xl px-5 py-3 shadow-2xl space-y-2 shrink-0 transition-opacity duration-500 ${
+                                            isAudioPlaying && !isPlayerControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                                        }`}>
                                             {/* Seekbar */}
                                             <div className="space-y-1">
                                                 <input
@@ -4650,7 +4817,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                             {/* Controls Row */}
                                             <div className="flex items-center justify-between gap-3 pt-1">
-                                                {/* Audio Options: Speed & Narrator */}
+                                                {/* Audio Options: Speed & Narrator & Subtitles & Fullscreen */}
                                                 <div className="flex items-center gap-2">
                                                     <button
                                                         type="button"
@@ -4675,6 +4842,32 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         <span className="hidden sm:inline text-xs font-bold capitalize">
                                                             {selectedVoicePreset.replace(/_/g, ' ').replace('neural', '')}
                                                         </span>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={toggleAudiobookSubtitles}
+                                                        className={`p-2 sm:px-3 sm:py-1.5 rounded-xl border cursor-pointer transition-all flex items-center gap-1.5 ${
+                                                            showAudiobookSubtitles
+                                                                ? 'bg-amber-500 text-black border-amber-400'
+                                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                                        }`}
+                                                        title={showAudiobookSubtitles ? "Subtitles Active (Click to Hide)" : "Subtitles Off (Click to Show)"}
+                                                    >
+                                                        <Subtitles size={16} />
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={togglePlayerFullscreen}
+                                                        className={`p-2 sm:px-3 sm:py-1.5 rounded-xl border cursor-pointer transition-all flex items-center gap-1.5 ${
+                                                            isPlayerFullscreen
+                                                                ? 'bg-amber-500 text-black border-amber-400'
+                                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                                        }`}
+                                                        title={isPlayerFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                                                    >
+                                                        {isPlayerFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                                                     </button>
                                                 </div>
 
@@ -5035,7 +5228,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <>
                                                 {/* Top View Switcher: Storyboard (3-Card Carousel) | Live Art | Story Gallery */}
                                                 {/* Top View Switcher: Storyboard (3-Card Carousel) | Live Art | Story Gallery + Action Controls */}
-                                                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-900 shrink-0 pr-24">
+                                                <div className={`flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-900 shrink-0 pr-24 transition-opacity duration-500 ${
+                                                    isAudioPlaying && !isPlayerControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                                                }`}>
                                                     <div className="flex items-center gap-1.5 bg-zinc-900 p-1.5 rounded-2xl border border-zinc-800">
                                                         <button
                                                             type="button"
@@ -5075,8 +5270,34 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         </button>
                                                     </div>
 
-                                                    {/* Dedicated Action Controls: Jump to Current Art & Jump to Live Scene + Settings + Export */}
+                                                    {/* Dedicated Action Controls: Subtitles + Fullscreen + Jump to Current Art & Jump to Live Scene + Settings + Export */}
                                                     <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={toggleAudiobookSubtitles}
+                                                            className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95 ${
+                                                                showAudiobookSubtitles
+                                                                    ? 'bg-amber-500 text-black border-amber-400'
+                                                                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                                            }`}
+                                                            title={showAudiobookSubtitles ? "Subtitles Active (Click to Hide)" : "Subtitles Off (Click to Show)"}
+                                                        >
+                                                            <Subtitles size={22} />
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={togglePlayerFullscreen}
+                                                            className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95 ${
+                                                                isPlayerFullscreen
+                                                                    ? 'bg-amber-500 text-black border-amber-400'
+                                                                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                                            }`}
+                                                            title={isPlayerFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                                                        >
+                                                            {isPlayerFullscreen ? <Minimize2 size={22} /> : <Maximize2 size={22} />}
+                                                        </button>
+
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -5187,6 +5408,38 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                     {currentPrimaryArtBadge}
                                                                 </div>
 
+                                                                {/* Overlaid Live Subtitles in Center Card */}
+                                                                {showAudiobookSubtitles && currentActiveLine && (
+                                                                    <div className={`absolute inset-x-0 ${subtitleAppearance.position === 'top' ? 'top-12' : 'bottom-3'} z-20 px-3 flex flex-col items-center justify-end pointer-events-none transition-all duration-300`}>
+                                                                        <div className={`w-full max-w-xl text-center px-3 py-1.5 rounded-xl ${
+                                                                            subtitleAppearance.backdrop === 'shadow'
+                                                                                ? 'bg-transparent text-shadow-lg'
+                                                                                : subtitleAppearance.backdrop === 'solid'
+                                                                                ? 'bg-black/95 border border-zinc-800 shadow-xl'
+                                                                                : 'bg-black/75 backdrop-blur-md border border-white/15 shadow-xl'
+                                                                        }`}>
+                                                                            <p className={`leading-tight drop-shadow truncate ${
+                                                                                subtitleAppearance.fontSize === 'small' ? 'text-xs'
+                                                                                : subtitleAppearance.fontSize === 'large' ? 'text-base'
+                                                                                : subtitleAppearance.fontSize === 'xlarge' ? 'text-lg'
+                                                                                : subtitleAppearance.fontSize === 'massive' ? 'text-xl'
+                                                                                : 'text-sm'
+                                                                            } ${
+                                                                                subtitleAppearance.fontWeight === 'normal' ? 'font-medium'
+                                                                                : subtitleAppearance.fontWeight === 'heavy' ? 'font-black'
+                                                                                : 'font-bold'
+                                                                            } ${
+                                                                                subtitleAppearance.highlightColor === 'emerald' ? 'text-emerald-300'
+                                                                                : subtitleAppearance.highlightColor === 'white' ? 'text-white'
+                                                                                : subtitleAppearance.highlightColor === 'sky' ? 'text-sky-300'
+                                                                                : 'text-amber-300'
+                                                                            }`}>
+                                                                                {currentActiveLine.text}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
                                                                 {/* Arrow overlays for rapid scene browsing without touching audio */}
                                                                 {totalScenes > 1 && (
                                                                     <>
@@ -5243,7 +5496,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         </div>
                                                     ) : audiobookStageMode === 'live_art' ? (
                                                         <div className="w-full h-full flex items-center justify-center p-2 overflow-hidden">
-                                                            <div className="relative h-full flex-1 max-h-[58vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden shadow-2xl group">
+                                                            <div className="relative h-full flex-1 max-h-[74vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden shadow-2xl group">
                                                                 {currentPrimaryArtUrl ? (
                                                                     <img src={currentPrimaryArtUrl} alt={playingAudio.title} className="w-full h-full object-cover" />
                                                                 ) : (
@@ -5254,6 +5507,44 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
                                                                     {currentPrimaryArtBadge}
                                                                 </div>
+
+                                                                {/* Overlaid Live Subtitles in Live Art View */}
+                                                                {showAudiobookSubtitles && (
+                                                                    <div className={`absolute inset-x-0 ${subtitleAppearance.position === 'top' ? 'top-4 sm:top-8' : 'bottom-4 sm:bottom-6'} z-20 px-4 flex flex-col items-center justify-end pointer-events-none transition-all duration-300`}>
+                                                                        <div className={`w-full max-w-3xl text-center px-4 py-2.5 rounded-2xl transition-all ${
+                                                                            subtitleAppearance.backdrop === 'shadow'
+                                                                                ? 'bg-transparent text-shadow-lg'
+                                                                                : subtitleAppearance.backdrop === 'solid'
+                                                                                ? 'bg-black/95 border border-zinc-800 shadow-2xl'
+                                                                                : 'bg-black/75 backdrop-blur-xl border border-white/15 shadow-2xl'
+                                                                        }`}>
+                                                                            {currentActiveLine ? (
+                                                                                <p className={`leading-snug drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] animate-in fade-in duration-200 ${
+                                                                                    subtitleAppearance.fontSize === 'small' ? 'text-sm sm:text-base'
+                                                                                    : subtitleAppearance.fontSize === 'large' ? 'text-lg sm:text-2xl'
+                                                                                    : subtitleAppearance.fontSize === 'xlarge' ? 'text-xl sm:text-3xl'
+                                                                                    : subtitleAppearance.fontSize === 'massive' ? 'text-2xl sm:text-4xl'
+                                                                                    : 'text-base sm:text-xl'
+                                                                                } ${
+                                                                                    subtitleAppearance.fontWeight === 'normal' ? 'font-medium'
+                                                                                    : subtitleAppearance.fontWeight === 'heavy' ? 'font-black'
+                                                                                    : 'font-bold'
+                                                                                } ${
+                                                                                    subtitleAppearance.highlightColor === 'emerald' ? 'text-emerald-300'
+                                                                                    : subtitleAppearance.highlightColor === 'white' ? 'text-white'
+                                                                                    : subtitleAppearance.highlightColor === 'sky' ? 'text-sky-300'
+                                                                                    : 'text-amber-300'
+                                                                                }`}>
+                                                                                    {currentActiveLine.text}
+                                                                                </p>
+                                                                            ) : (
+                                                                                <p className="text-xs sm:text-sm font-semibold text-zinc-400 italic">
+                                                                                    {playingAudio.title}
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ) : (
@@ -6073,7 +6364,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             /* ── Curated Audiobook Wide Open Book UI Element (Click to toggle to Plain Art) ── */
                                             <div
                                                 onClick={() => setAudiobookArtMode('plain_art')}
-                                                className="relative w-full max-w-2xl max-h-[34vh] sm:max-h-[38vh] md:max-h-[42vh] aspect-[16/10] rounded-[1.5rem] bg-gradient-to-b from-[#2a1e17] via-[#1c140f] to-[#120c09] p-2 sm:p-3 shadow-[0_25px_60px_rgba(0,0,0,0.85)] border-2 border-amber-700/40 flex items-stretch justify-center cursor-pointer select-none group transition-transform duration-300 hover:scale-[1.01]"
+                                                className="relative w-full max-w-4xl max-h-[54vh] sm:max-h-[58vh] md:max-h-[62vh] aspect-[16/10] rounded-[1.5rem] bg-gradient-to-b from-[#2a1e17] via-[#1c140f] to-[#120c09] p-2 sm:p-3 shadow-[0_25px_60px_rgba(0,0,0,0.85)] border-2 border-amber-700/40 flex items-stretch justify-center cursor-pointer select-none group transition-transform duration-300 hover:scale-[1.01]"
                                                 title="Click Open Book to switch to Plain Art view"
                                             >
                                                 {/* Stacked Page Fore-Edges (Left & Right) */}
@@ -6178,11 +6469,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <div className="w-2 sm:w-2.5 h-full bg-gradient-to-l from-[#d6cbb5] via-[#ede6d6] to-[#c4b79e] rounded-r-lg border-l border-stone-400/40 shrink-0 shadow-inner" />
                                             </div>
                                         ) : (
-                                            /* ── Curated Audiobook Plain Art View (Click to return to Open Book) ── */
+                                             /* ── Curated Audiobook Plain Art View (Click to return to Open Book) ── */
                                             <div
                                                 onClick={() => setAudiobookArtMode('open_book')}
-                                                style={{ width: 'min(300px, 38vh, 76vw)', height: 'min(300px, 38vh, 76vw)' }}
-                                                className="relative aspect-square shrink-0 rounded-[2rem] bg-zinc-900 border-2 border-amber-500/40 overflow-hidden shadow-2xl flex items-center justify-center cursor-pointer group transition-transform hover:scale-[1.02]"
+                                                style={{
+                                                    width: isPlayerFullscreen ? 'min(90vw, 80vh)' : 'min(540px, 52vh, 85vw)',
+                                                    height: isPlayerFullscreen ? 'min(90vw, 80vh)' : 'min(540px, 52vh, 85vw)'
+                                                }}
+                                                className="relative aspect-square shrink-0 rounded-[2rem] bg-zinc-900 border-2 border-amber-500/40 overflow-hidden shadow-2xl flex items-center justify-center cursor-pointer group transition-all duration-500 hover:scale-[1.01]"
                                                 title="Click Artwork to return to Open Book view"
                                             >
                                                 {activeArtworkUrl && !normalCoverError ? (
@@ -6194,6 +6488,44 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     />
                                                 ) : (
                                                     <BookOpen size={72} className="text-amber-400" />
+                                                )}
+
+                                                {/* Overlaid Live Subtitles in Plain Art */}
+                                                {showAudiobookSubtitles && (
+                                                    <div className={`absolute inset-x-3 ${subtitleAppearance.position === 'top' ? 'top-4' : 'bottom-12'} z-20 flex flex-col items-center justify-end pointer-events-none transition-all duration-300`}>
+                                                        <div className={`w-full max-w-lg text-center px-3.5 py-2 rounded-xl transition-all ${
+                                                            subtitleAppearance.backdrop === 'shadow'
+                                                                ? 'bg-transparent text-shadow-lg'
+                                                                : subtitleAppearance.backdrop === 'solid'
+                                                                ? 'bg-black/95 border border-zinc-800 shadow-xl'
+                                                                : 'bg-black/75 backdrop-blur-md border border-white/15 shadow-xl'
+                                                        }`}>
+                                                            {currentActiveLine ? (
+                                                                <p className={`leading-snug drop-shadow ${
+                                                                    subtitleAppearance.fontSize === 'small' ? 'text-xs sm:text-sm'
+                                                                    : subtitleAppearance.fontSize === 'large' ? 'text-base sm:text-lg'
+                                                                    : subtitleAppearance.fontSize === 'xlarge' ? 'text-lg sm:text-xl'
+                                                                    : subtitleAppearance.fontSize === 'massive' ? 'text-xl sm:text-2xl'
+                                                                    : 'text-sm sm:text-base'
+                                                                } ${
+                                                                    subtitleAppearance.fontWeight === 'normal' ? 'font-medium'
+                                                                    : subtitleAppearance.fontWeight === 'heavy' ? 'font-black'
+                                                                    : 'font-bold'
+                                                                } ${
+                                                                    subtitleAppearance.highlightColor === 'emerald' ? 'text-emerald-300'
+                                                                    : subtitleAppearance.highlightColor === 'white' ? 'text-white'
+                                                                    : subtitleAppearance.highlightColor === 'sky' ? 'text-sky-300'
+                                                                    : 'text-amber-300'
+                                                                }`}>
+                                                                    {currentActiveLine.text}
+                                                                </p>
+                                                            ) : (
+                                                                <p className="text-xs font-semibold text-zinc-400 italic">
+                                                                    {playingAudio.title}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 )}
 
                                                 {/* Custom Cover Swap / Update Badge in Plain Art */}
@@ -6636,6 +6968,32 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 </div>
 
                                 <div className="flex items-center gap-1.5 shrink-0">
+                                    {/* 0. Subtitles Toggle */}
+                                    <button
+                                        onClick={toggleAudiobookSubtitles}
+                                        className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer shadow-sm ${
+                                            showAudiobookSubtitles
+                                                ? 'bg-amber-500 text-black border-amber-400'
+                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                        }`}
+                                        title={showAudiobookSubtitles ? "Subtitles Active (Click to Hide)" : "Subtitles Off (Click to Show)"}
+                                    >
+                                        <Subtitles size={18} />
+                                    </button>
+
+                                    {/* 0b. Fullscreen Mode */}
+                                    <button
+                                        onClick={togglePlayerFullscreen}
+                                        className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer shadow-sm ${
+                                            isPlayerFullscreen
+                                                ? 'bg-amber-500 text-black border-amber-400'
+                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                        }`}
+                                        title={isPlayerFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                                    >
+                                        {isPlayerFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                                    </button>
+
                                     {/* 1. Download icon button */}
                                     <button
                                         onClick={() => handleDownloadTrack(playingAudio)}

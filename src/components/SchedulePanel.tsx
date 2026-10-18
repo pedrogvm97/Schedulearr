@@ -177,9 +177,9 @@ function TimelineDateGroup({
             data-date-key={dateKey}
             data-is-today={group.isToday ? 'true' : undefined}
             ref={group.isToday ? todayRef : null}
-            className={`scroll-mt-24 relative pl-6 sm:pl-10 transition-all ${
+            className={`scroll-mt-24 relative pl-5 sm:pl-10 transition-all ${
                 group.isToday
-                    ? 'p-5 sm:p-7 rounded-[2.5rem] bg-gradient-to-r from-emerald-500/15 via-zinc-950/90 to-zinc-950/60 border-2 border-emerald-500/60 shadow-[0_0_50px_rgba(16,185,129,0.22)] ring-1 ring-emerald-400/30'
+                    ? 'p-4 sm:p-6 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-zinc-950/90 to-zinc-950/60 border-2 border-emerald-500/60 shadow-[0_0_50px_rgba(16,185,129,0.22)] ring-1 ring-emerald-400/30'
                     : ''
             }`}
         >
@@ -250,9 +250,9 @@ function TimelineDateGroup({
 
             {/* Empty releases fallback for Today anchor */}
             {totalReleases === 0 ? (
-                <div className="w-full p-6 sm:p-8 rounded-[2rem] bg-zinc-950/70 border border-dashed border-emerald-500/40 flex items-center justify-between gap-4">
+                <div className="w-full p-6 sm:p-8 rounded-2xl bg-zinc-950/70 border border-dashed border-emerald-500/40 flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-inner">
+                        <div className="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-inner">
                             <CalendarIcon size={24} />
                         </div>
                         <div>
@@ -293,12 +293,12 @@ function TimelineDateGroup({
                             onClick={() => onSelectEvent(item.primaryEvent)}
                             className={`group relative ${
                                 totalReleases === 2 ? 'flex flex-col xl:flex-row' : 'flex flex-col sm:flex-row'
-                            } bg-[#0e0e11] border border-zinc-800/80 hover:border-emerald-500/50 rounded-[2rem] p-5 sm:p-6 gap-5 sm:gap-6 transition-all duration-300 hover:bg-zinc-900/70 shadow-2xl cursor-pointer hover:-translate-y-1 ${
-                                totalReleases > 2 ? 'min-w-[420px] sm:min-w-[500px] md:min-w-[560px] max-w-[620px] shrink-0 snap-start' : 'w-full'
+                            } bg-[#0e0e11] border border-zinc-800/80 hover:border-emerald-500/50 rounded-2xl p-4 sm:p-6 gap-4 sm:gap-6 transition-all duration-300 hover:bg-zinc-900/70 shadow-2xl cursor-pointer hover:-translate-y-1 ${
+                                totalReleases > 2 ? 'w-[84vw] min-w-[260px] max-w-[88vw] sm:w-auto sm:min-w-[480px] sm:max-w-[620px] shrink-0 snap-start' : 'w-full'
                             }`}
                         >
                             {/* Poster Thumbnail (Larger & Detailed) */}
-                            <div className="w-28 sm:w-36 md:w-40 aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-900 shrink-0 border border-white/10 shadow-xl group-hover:scale-[1.02] transition-transform relative">
+                            <div className="w-24 sm:w-36 md:w-40 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 shrink-0 border border-white/10 shadow-xl group-hover:scale-[1.02] transition-transform relative">
                                 {poster ? (
                                     <img
                                         src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster}
@@ -1051,27 +1051,24 @@ export function SchedulePanel() {
     return (
         <div className="space-y-6">
             {/* ── Main Top Command & Time Navigation Bar ── */}
-            <div className="bg-[#09090b]/90 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-7 rounded-[2.5rem] shadow-2xl space-y-5">
+            <div className="bg-[#09090b]/90 border border-zinc-800/80 backdrop-blur-2xl p-4 sm:p-6 rounded-2xl shadow-2xl space-y-4">
                 {/* Title & Time Navigator Header */}
-                <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                         <div className="flex items-center gap-3">
-                            <div className="p-2.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                            <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
                                 <CalendarIcon size={28} />
                             </div>
                             <div>
                                 <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
-                                    Release Schedule
+                                    Schedule
                                 </h1>
-                                <p className="text-sm sm:text-base text-zinc-400 mt-0.5 font-medium">
-                                    Browse upcoming movie releases, TV broadcasts, and digital downloads across time.
-                                </p>
                             </div>
                         </div>
                     </div>
 
-                    {/* Quick Presets */}
-                    <div className="flex flex-wrap items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
+                    {/* Quick Presets: Horizontal Scroll on Mobile, No Awkward Wrapping */}
+                    <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-xl border border-zinc-800/80 shadow-inner overflow-x-auto no-scrollbar scrollbar-none w-full sm:w-auto shrink-0 py-1">
                         {[
                             { id: 'past90', label: 'Past 90d' },
                             { id: 'past30', label: 'Past 30d' },
@@ -1083,7 +1080,7 @@ export function SchedulePanel() {
                             <button
                                 key={p.id}
                                 onClick={() => handleApplyPreset(p.id)}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 whitespace-nowrap cursor-pointer ${
                                     activePreset === p.id
                                         ? 'bg-emerald-500 text-black font-black shadow-md'
                                         : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
@@ -1096,18 +1093,18 @@ export function SchedulePanel() {
                 </div>
 
                 {/* Interactive Time Machine Navigator Bar */}
-                <div className="p-3 sm:p-4 rounded-3xl bg-zinc-950 border border-zinc-800 flex flex-wrap items-center justify-between gap-3 shadow-inner">
-                    <div className="flex items-center gap-1.5">
+                <div className="p-3 sm:p-4 rounded-xl bg-zinc-950 border border-zinc-800 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-inner">
+                    <div className="flex items-center justify-between sm:justify-start gap-1.5 overflow-x-auto no-scrollbar scrollbar-none py-0.5">
                         <button
                             onClick={() => handleShiftTime(-30)}
-                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 transition-all"
+                            className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 transition-all shrink-0 cursor-pointer"
                             title="Shift backwards by 30 days"
                         >
                             <ChevronsLeft size={16} /> -30d
                         </button>
                         <button
                             onClick={() => handleShiftTime(-7)}
-                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 transition-all"
+                            className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 transition-all shrink-0 cursor-pointer"
                             title="Shift backwards by 1 week"
                         >
                             <ChevronLeft size={16} /> -7d
@@ -1115,7 +1112,7 @@ export function SchedulePanel() {
 
                         <button
                             onClick={handleJumpToToday}
-                            className="px-4.5 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-sm font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                            className="px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs sm:text-sm font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer"
                             title="Jump to Today's releases"
                         >
                             <Flame size={17} /> Jump to Today
@@ -1123,94 +1120,96 @@ export function SchedulePanel() {
 
                         <button
                             onClick={() => handleShiftTime(7)}
-                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 transition-all"
+                            className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 transition-all shrink-0 cursor-pointer"
                             title="Shift forward by 1 week"
                         >
                             +7d <ChevronRight size={16} />
                         </button>
                         <button
                             onClick={() => handleShiftTime(30)}
-                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 transition-all"
+                            className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 transition-all shrink-0 cursor-pointer"
                             title="Shift forward by 30 days"
                         >
                             +30d <ChevronsRight size={16} />
                         </button>
                     </div>
 
-                    {/* Active Range Indicator */}
-                    <div className="flex items-center gap-2 text-sm font-bold text-white bg-zinc-900/80 px-4 py-2 rounded-2xl border border-zinc-800">
-                        <Clock size={16} className="text-emerald-400 shrink-0" />
-                        <span className="truncate">
-                            {startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                            {'  ➔  '}
-                            {endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </span>
-                        <span className="ml-2 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-black border border-emerald-500/25">
-                            {filteredEvents.length} {filteredEvents.length === 1 ? 'item' : 'items'}
-                        </span>
-                        <button
-                            type="button"
-                            onClick={() => refreshLiveReleasesInBackground(startDate, endDate)}
-                            disabled={isRefreshing}
-                            title={
-                                isRefreshing
-                                    ? 'Refreshing releases across instances in background...'
-                                    : `Cached releases loaded instantly${lastSyncIso ? ` (Last synced: ${new Date(lastSyncIso).toLocaleTimeString()})` : ''}. Click to refresh now.`
-                            }
-                            className={`ml-1 px-2.5 py-1 rounded-xl text-xs font-black flex items-center gap-1.5 border transition-all cursor-pointer ${
-                                isRefreshing
-                                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                                    : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700'
-                            }`}
-                        >
-                            <RefreshCw size={13} className={isRefreshing ? 'animate-spin text-sky-400' : 'text-emerald-400'} />
-                            <span>{isRefreshing ? 'Syncing' : 'Sync'}</span>
-                        </button>
-                    </div>
+                    <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2">
+                        {/* Active Range Indicator */}
+                        <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-white bg-zinc-900/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-zinc-800 max-w-full overflow-hidden">
+                            <Clock size={16} className="text-emerald-400 shrink-0" />
+                            <span className="truncate">
+                                {startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                {'  ➔  '}
+                                {endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
+                            <span className="ml-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-black border border-emerald-500/25 shrink-0">
+                                {filteredEvents.length}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => refreshLiveReleasesInBackground(startDate, endDate)}
+                                disabled={isRefreshing}
+                                title={
+                                    isRefreshing
+                                        ? 'Refreshing releases across instances in background...'
+                                        : `Cached releases loaded instantly${lastSyncIso ? ` (Last synced: ${new Date(lastSyncIso).toLocaleTimeString()})` : ''}. Click to refresh now.`
+                                }
+                                className={`ml-1 px-2.5 py-1 rounded-lg text-xs font-black flex items-center gap-1 border transition-all cursor-pointer ${
+                                    isRefreshing
+                                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                                        : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700'
+                                }`}
+                            >
+                                <RefreshCw size={13} className={isRefreshing ? 'animate-spin text-sky-400' : 'text-emerald-400'} />
+                                <span>{isRefreshing ? 'Syncing' : 'Sync'}</span>
+                            </button>
+                        </div>
 
-                    {/* View Switcher */}
-                    <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded-2xl border border-zinc-800">
-                        <button
-                            onClick={() => setViewMode('timeline')}
-                            className={`p-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                viewMode === 'timeline' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
-                            }`}
-                            title="Timeline View"
-                        >
-                            <Layers size={15} /> Timeline
-                        </button>
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={`p-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                viewMode === 'grid' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
-                            }`}
-                            title="Calendar Grid View"
-                        >
-                            <LayoutGrid size={15} /> Grid
-                        </button>
-                        <button
-                            onClick={() => setViewMode('compact')}
-                            className={`p-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                viewMode === 'compact' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
-                            }`}
-                            title="Compact List View"
-                        >
-                            <List size={15} /> Compact
-                        </button>
+                        {/* View Switcher */}
+                        <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+                            <button
+                                onClick={() => setViewMode('timeline')}
+                                className={`p-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                    viewMode === 'timeline' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                                title="Timeline View"
+                            >
+                                <Layers size={15} /> Timeline
+                            </button>
+                            <button
+                                onClick={() => setViewMode('grid')}
+                                className={`p-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                    viewMode === 'grid' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                                title="Calendar Grid View"
+                            >
+                                <LayoutGrid size={15} /> Grid
+                            </button>
+                            <button
+                                onClick={() => setViewMode('compact')}
+                                className={`p-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                    viewMode === 'compact' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                                title="Compact List View"
+                            >
+                                <List size={15} /> Compact
+                            </button>
+                        </div>
                     </div>
                 </div>
 
                 {/* Filter and Search Row */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                     {/* Search Input */}
-                    <div className="relative flex-1 min-w-[240px] max-w-md">
+                    <div className="relative w-full sm:flex-1 sm:max-w-md">
                         <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
                         <input
                             type="text"
                             placeholder="Filter by title, series, episode, or genre..."
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 outline-none focus:border-emerald-500 transition-colors"
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 outline-none focus:border-emerald-500 transition-colors"
                         />
                         {searchQuery && (
                             <button onClick={() => setSearchQuery('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white">
@@ -1219,13 +1218,13 @@ export function SchedulePanel() {
                         )}
                     </div>
 
-                    {/* Filter Pills */}
-                    <div className="flex flex-wrap items-center gap-2">
+                    {/* Filter Pills: Horizontal scroll on mobile */}
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scrollbar-none w-full sm:w-auto pb-1">
                         {/* Media Type Filter */}
-                        <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
+                        <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 shrink-0">
                             <button
                                 onClick={() => setTypeFilter('all')}
-                                className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                                     typeFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
@@ -1233,7 +1232,7 @@ export function SchedulePanel() {
                             </button>
                             <button
                                 onClick={() => setTypeFilter('movie')}
-                                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                                     typeFilter === 'movie' ? 'bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
@@ -1241,7 +1240,7 @@ export function SchedulePanel() {
                             </button>
                             <button
                                 onClick={() => setTypeFilter('series')}
-                                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                                     typeFilter === 'series' ? 'bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
@@ -1250,10 +1249,10 @@ export function SchedulePanel() {
                         </div>
 
                         {/* Status Filter */}
-                        <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
+                        <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 shrink-0">
                             <button
                                 onClick={() => setStatusFilter('all')}
-                                className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                                     statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
@@ -1261,7 +1260,7 @@ export function SchedulePanel() {
                             </button>
                             <button
                                 onClick={() => setStatusFilter('hasFile')}
-                                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                                     statusFilter === 'hasFile' ? 'bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
@@ -1269,7 +1268,7 @@ export function SchedulePanel() {
                             </button>
                             <button
                                 onClick={() => setStatusFilter('missing')}
-                                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                                     statusFilter === 'missing' ? 'bg-amber-600/30 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
@@ -1280,14 +1279,14 @@ export function SchedulePanel() {
                 </div>
 
                 {/* Timeline Activity Layer Toggles (Releases, Actual Downloads, Transcriptions & Book AI, Playbacks, Live DVR) */}
-                <div className="pt-3 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
+                <div className="pt-3 border-t border-zinc-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 shrink-0">
                         <span className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                             <Layers size={14} className="text-emerald-400" />
                             Timeline Layers:
                         </span>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scrollbar-none w-full sm:w-auto pb-1">
                         <button
                             type="button"
                             onClick={() => toggleTimelineLayer('release')}
