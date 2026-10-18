@@ -47,6 +47,7 @@ import { getNextSchedulerRun, runBatchSearch } from '@/lib/scheduler';
 import { runAutoCleanup, runSmartCleanup } from '@/lib/autoCleanup';
 import { getCalendarSyncLiveStatus, runPeriodicCalendarSync } from '@/lib/calendarSync';
 import musicDownloadQueue from '@/lib/musicDownloadQueue';
+import { getStreamGuardStatus, updateStreamGuardSettings } from '@/lib/streamGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -352,6 +353,7 @@ export async function GET() {
                 qbitCleanupIntervalMin
             },
             calendarSync: getCalendarSyncLiveStatus(),
+            streamGuard: getStreamGuardStatus(),
             transfers: {
                 active: activeTransfers,
                 recent: recentTransfers
@@ -649,6 +651,15 @@ export async function POST(request: Request) {
             return NextResponse.json({
                 ok: true,
                 message: 'Stopped DVR recording.'
+            });
+        }
+
+        if (action === 'update_stream_guard') {
+            const updated = updateStreamGuardSettings(body.settings || {});
+            return NextResponse.json({
+                ok: true,
+                streamGuard: getStreamGuardStatus(),
+                message: 'Stream Guard settings updated.'
             });
         }
 

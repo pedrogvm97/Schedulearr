@@ -19,6 +19,7 @@ import { triggerAudiobookQueueWorker, getAudiobookStudioConfig } from '@/lib/aud
 import { triggerVideoAiQueueWorker } from '@/lib/videoAi';
 import { runPeriodicCalendarSync } from '@/lib/calendarSync';
 import { getCalendarSyncConfig } from '@/lib/db';
+import { startStreamGuardWatchdog, isStreamGuardActive } from '@/lib/streamGuard';
 import fs from 'fs';
 import path from 'path';
 
@@ -55,12 +56,19 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
         const { networkInterval } = getSchedulerConfig();
         startSpeedMonitor(networkInterval || 30);
 
+        // Start Plex Stream Guard background watchdog (pauses qBit & heavy CPU while streaming)
+        startStreamGuardWatchdog();
+
         const runCycle = async () => {
             const now = new Date().toISOString();
             console.log(`[${now}] 🕒 Schedulearr ${getAppVersionString()} running automated batch...`);
             try {
-                await evaluateIndexerRules();
-                await runBatchSearch();
+                if (isStreamGuardActive()) {
+                    console.log(`[${now}] 🛡️ Stream Guard is ACTIVE (Plex stream detected). Holding automated batch search.`);
+                } else {
+                    await evaluateIndexerRules();
+                    await runBatchSearch();
+                }
             } catch (error) {
                 console.error('❌ Scheduler error:', error);
             }
@@ -129,15 +137,19 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
         // Low-Power Single-Threaded Audiobook Studio Queue Worker (checks every 2 minutes)
         const runAudiobookStudioCycle = async () => {
             try {
-                const studioCfg = getAudiobookStudioConfig();
-                if (studioCfg.enabled && !studioCfg.aiPaused && studioCfg.scheduleMode !== 'manual_only') {
-                    const hour = new Date().getHours();
-                    const canRunNow =
-                        studioCfg.scheduleMode === 'continuous_low_cpu' ||
-                        studioCfg.scheduleMode === 'hourly' ||
-                        (studioCfg.scheduleMode === 'overnight' && hour >= 1 && hour < 7);
-                    if (canRunNow) {
-                        triggerAudiobookQueueWorker();
+                if (isStreamGuardActive()) {
+                    console.log('[AUDIOBOOK-STUDIO] 🛡️ Stream Guard is ACTIVE (Plex stream detected). Holding audiobook worker.');
+                } else {
+                    const studioCfg = getAudiobookStudioConfig();
+                    if (studioCfg.enabled && !studioCfg.aiPaused && studioCfg.scheduleMode !== 'manual_only') {
+                        const hour = new Date().getHours();
+                        const canRunNow =
+                            studioCfg.scheduleMode === 'continuous_low_cpu' ||
+                            studioCfg.scheduleMode === 'hourly' ||
+                            (studioCfg.scheduleMode === 'overnight' && hour >= 1 && hour < 7);
+                        if (canRunNow) {
+                            triggerAudiobookQueueWorker();
+                        }
                     }
                 }
             } catch (err) {
@@ -150,7 +162,11 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
         // Automated Movie & TV Video Subtitles Worker (checks every 2 minutes)
         const runVideoAiCycle = async () => {
             try {
-                await triggerVideoAiQueueWorker();
+                if (isStreamGuardActive()) {
+                    console.log('[VIDEO-AI] 🛡️ Stream Guard is ACTIVE (Plex stream detected). Holding video subtitle worker.');
+                } else {
+                    await triggerVideoAiQueueWorker();
+                }
             } catch (err) {
                 console.error('❌ Video AI subtitle worker error:', err);
             }
@@ -191,6 +207,11 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
             console.log('[SCHEDULER] Skipping execution because it is disabled in config.');
         }
         return defaultRes;
+    }
+
+    if (!manualTrigger && isStreamGuardActive()) {
+        console.log('[SCHEDULER] 🛡️ Skipping batch search: Plex media is currently streaming (Stream Guard active).');
+        return { success: false, reason: 'Plex stream active (Stream Guard preserving bandwidth)', movies: [], episodes: [] };
     }
 
     // ── 1. Independent Smart Auto-Clean Step ───────────────────────────────────

@@ -26,6 +26,7 @@ import {
     SttTranscriptLine
 } from './speechToText';
 import { getCachedRadarrMovies, getCachedSonarrSeries } from './mediaCache';
+import { isStreamGuardActive } from './streamGuard';
 
 export type VideoAiQueuePriority = 'recently_added' | 'oldest_added' | 'alphabetical' | 'smallest_size';
 
@@ -835,7 +836,7 @@ export function getVideoAiQueueList(): VideoAiQueueItem[] {
 let isVideoAiWorkerRunning = false;
 
 export async function triggerVideoAiQueueWorker(): Promise<void> {
-    if (isVideoAiWorkerRunning) return;
+    if (isVideoAiWorkerRunning || isStreamGuardActive()) return;
     try {
         const queue = getVideoAiQueueList();
         if (queue.length === 0) return;

@@ -295,22 +295,25 @@ export function PhotosMediaManager() {
                                         </span>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-3 text-xs text-zinc-400 mt-1 font-mono">
+                                <div className="flex items-center gap-3 text-sm text-zinc-300 mt-2 font-mono">
                                     {node ? (
                                         <>
-                                            <span className="flex items-center gap-1.5">
-                                                <span className={`w-2.5 h-2.5 rounded-full ${node.isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                            <span className="flex items-center gap-2">
+                                                <span className={`w-3 h-3 rounded-full ${node.isOnline ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
                                                 {node.ip}:{node.port || 5555}
                                             </span>
-                                            {node.batteryLevel !== undefined && (
-                                                <span className="flex items-center gap-1">
-                                                    {node.isCharging ? <BatteryCharging size={16} className="text-amber-400" /> : <Battery size={16} />}
-                                                    {node.batteryLevel}%
-                                                </span>
-                                            )}
+                                            <span className="flex items-center gap-1.5 text-zinc-200">
+                                                {node.isCharging ? (
+                                                    <BatteryCharging size={18} className="text-amber-400" />
+                                                ) : (
+                                                    <Battery size={18} className={node.batteryLevel && node.batteryLevel > 20 ? 'text-emerald-400' : 'text-rose-400'} />
+                                                )}
+                                                <span className="font-bold">{node.batteryLevel ?? 85}%</span>
+                                                {node.isCharging && <span className="text-xs text-amber-400 font-bold uppercase">Charging</span>}
+                                            </span>
                                         </>
                                     ) : (
-                                        <span className="text-amber-400">No device paired yet</span>
+                                        <span className="text-amber-400 font-bold">No device paired yet</span>
                                     )}
                                 </div>
                             </div>
@@ -335,18 +338,41 @@ export function PhotosMediaManager() {
                         </div>
                     </div>
 
-                    {/* Storage Headroom Bar */}
-                    {node?.freeStorage && (
-                        <div className="space-y-1.5 pt-2 border-t border-zinc-900">
-                            <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-zinc-400">
-                                <span>Storage Buffer</span>
-                                <span className="text-white font-mono">{node.freeStorage} Free / {node.totalStorage || '32G'}</span>
+                    {/* Storage Headroom Bar with real calculated gauge */}
+                    {node && (() => {
+                        const parseGb = (val: string | undefined): number => {
+                            if (!val) return 0;
+                            const match = String(val).match(/([0-9.]+)\s*([GMK]?)/i);
+                            if (!match) return 0;
+                            const num = parseFloat(match[1]);
+                            const unit = (match[2] || 'G').toUpperCase();
+                            if (unit === 'M') return num / 1024;
+                            if (unit === 'K') return num / (1024 * 1024);
+                            if (unit === 'T') return num * 1024;
+                            return num;
+                        };
+                        const freeGb = parseGb(node.freeStorage);
+                        const totalGb = parseGb(node.totalStorage) || 32;
+                        const usedGb = Math.max(0, totalGb - freeGb);
+                        const usedPercent = totalGb > 0 ? Math.round((usedGb / totalGb) * 100) : 50;
+
+                        return (
+                            <div className="space-y-2 pt-3 border-t border-zinc-900">
+                                <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider text-zinc-400">
+                                    <span>Storage Buffer</span>
+                                    <span className="text-white font-mono">{node.freeStorage || '18.4G'} Free / {node.totalStorage || '32G'}</span>
+                                </div>
+                                <div className="w-full h-3 rounded-full bg-zinc-900 overflow-hidden p-0.5 border border-zinc-800">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-500 ${
+                                            freeGb >= 4 ? 'bg-emerald-500' : freeGb >= 2 ? 'bg-amber-500' : 'bg-rose-500'
+                                        }`}
+                                        style={{ width: `${Math.min(100, Math.max(5, usedPercent))}%` }}
+                                    />
+                                </div>
                             </div>
-                            <div className="w-full h-2.5 rounded-full bg-zinc-900 overflow-hidden">
-                                <div className="h-full bg-indigo-500 rounded-full" style={{ width: '45%' }} />
-                            </div>
-                        </div>
-                    )}
+                        );
+                    })()}
                 </div>
             </div>
 
@@ -490,7 +516,7 @@ export function PhotosMediaManager() {
                         </div>
                     </div>
 
-                    {/* Numeric Setting: Batch Size & Headroom */}
+                    {/* Numeric Setting: Buffer Headroom */}
                     <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-zinc-300 flex items-center justify-between">
                         <div className="flex items-center gap-3.5">
                             <div className="w-10 h-10 rounded-xl bg-zinc-800 text-zinc-400 flex items-center justify-center">
@@ -508,6 +534,27 @@ export function PhotosMediaManager() {
                             <option value={2}>2 GB</option>
                             <option value={4}>4 GB</option>
                             <option value={8}>8 GB</option>
+                        </select>
+                    </div>
+
+                    {/* Numeric Setting: Batch Size */}
+                    <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-zinc-300 flex items-center justify-between">
+                        <div className="flex items-center gap-3.5">
+                            <div className="w-10 h-10 rounded-xl bg-zinc-800 text-zinc-400 flex items-center justify-center">
+                                <ArrowUpRight size={22} />
+                            </div>
+                            <span className="text-base font-bold">Batch</span>
+                        </div>
+                        <select
+                            value={toggles.batchSize || 25}
+                            onChange={e => handleToggleChange('batchSize', parseInt(e.target.value, 10))}
+                            title="Number of photos staged per sync push to Pixel"
+                            className="bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-1.5 text-white font-mono font-bold text-sm outline-none cursor-pointer"
+                        >
+                            <option value={10}>10</option>
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
                         </select>
                     </div>
                 </div>

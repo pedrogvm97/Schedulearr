@@ -28,6 +28,7 @@ import {
 } from './db';
 
 export { parseAndCanonicalizeAuthor } from './db';
+import { isStreamGuardActive } from './streamGuard';
 
 export interface ApiKeyProbeResult {
     provider: 'gemini' | 'claude' | 'openai' | 'groq' | 'huggingface' | 'custom' | 'free';
@@ -6393,14 +6394,14 @@ export const triggerAudiobookQueueWorker = (
             }
         }
 
-        if (g.__audiobookWorkerLoopRunning || isAiGloballyPaused()) {
+        if (g.__audiobookWorkerLoopRunning || isAiGloballyPaused() || isStreamGuardActive()) {
             return;
         }
         g.__audiobookWorkerLoopRunning = true;
         try {
             // Process up to 35 steps sequentially with a 1.2s breather between steps for low-power Intel CPU
             for (let step = 0; step < 35; step++) {
-                if (isAiGloballyPaused()) break;
+                if (isAiGloballyPaused() || isStreamGuardActive()) break;
                 const cfg = getAudiobookStudioConfig();
                 if (!cfg.enabled && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) break;
                 const didWork = await processAudiobookPriorityQueueStep(forceBookKey, forceChapterKey, forceIgnoreQuota);

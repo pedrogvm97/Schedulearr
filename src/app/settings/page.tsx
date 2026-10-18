@@ -16,6 +16,7 @@ import { CleanersSettingsPanel } from "@/components/CleanersSettingsPanel";
 import { VideoAiToolsPanel } from "@/components/VideoAiToolsPanel";
 import { AudiobookVoiceSelector } from "@/components/AudiobookVoiceSelector";
 import { SchedulerQueuePanel } from "@/components/SchedulerQueuePanel";
+import { StreamGuardSettingsPanel } from "@/components/StreamGuardSettingsPanel";
 import { SubtitleSettingsPanel } from "@/components/SubtitleSettingsPanel";
 import { twColorToHex } from "@/lib/instanceColor";
 
@@ -2060,6 +2061,9 @@ export default function Settings() {
                 <div className="space-y-8 animate-in fade-in duration-200">
                     {/* Complete Robust Scheduler: Queues, Batches, Triggers, Filters & Releases */}
                     <SchedulerQueuePanel />
+
+                    {/* Stream Guard Watchdog: Plex Playback Bandwidth & CPU Throttling */}
+                    <StreamGuardSettingsPanel />
 
                     {/* Backup & Restore */}
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">

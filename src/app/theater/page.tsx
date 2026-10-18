@@ -18,7 +18,8 @@ import {
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
     Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, RotateCcw, CheckCheck, Zap,
     UploadCloud, Clapperboard, AlertCircle, GripVertical,
-    BookOpen, BookMarked, BookText, Wand2, FolderSync
+    BookOpen, BookMarked, BookText, Wand2, FolderSync,
+    MapPin, Users, ArrowLeft
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -320,7 +321,110 @@ function TheaterPageContent() {
     };
 
 
-    // Library management is handled centrally in Media tab (/discover?manage=libraries)
+    // Photos Studio Sub-tabs & Immich Collections
+    const [photoSubTab, setPhotoSubTab] = useState<'photos' | 'albums' | 'people' | 'places'>('photos');
+    const [immichStudioData, setImmichStudioData] = useState<{
+        albums: any[];
+        people: any[];
+        places: any[];
+        totalGeotaggedCount: number;
+        albumsCount: number;
+        peopleCount: number;
+        placesCount: number;
+    } | null>(null);
+    const [loadingStudioData, setLoadingStudioData] = useState(false);
+    const [selectedPhotoCollection, setSelectedPhotoCollection] = useState<{
+        type: 'album' | 'person' | 'place';
+        id: string;
+        name: string;
+        count?: number;
+        coverUrl?: string | null;
+    } | null>(null);
+    const [photoCollectionItems, setPhotoCollectionItems] = useState<MediaItem[]>([]);
+    const [loadingCollectionItems, setLoadingCollectionItems] = useState(false);
+
+    const fetchImmichStudio = useCallback(async (force = false) => {
+        setLoadingStudioData(true);
+        try {
+            const res = await fetch(`/api/theater/photos/immich/studio?action=overview${force ? '&force=true' : ''}`);
+            if (res.ok) {
+                const data = await res.json();
+                setImmichStudioData(data);
+            }
+        } catch {}
+        finally {
+            setLoadingStudioData(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeContentTab === 'photos' && !immichStudioData) {
+            fetchImmichStudio();
+        }
+    }, [activeContentTab, immichStudioData, fetchImmichStudio]);
+
+    const openPhotoAlbum = async (album: any) => {
+        setSelectedPhotoCollection({
+            type: 'album',
+            id: album.id,
+            name: album.name,
+            count: album.assetCount,
+            coverUrl: album.coverUrl
+        });
+        setLoadingCollectionItems(true);
+        try {
+            const res = await fetch(`/api/theater/photos/immich/studio?action=album_assets&albumId=${album.id}`);
+            if (res.ok) {
+                const data = await res.json();
+                setPhotoCollectionItems(data.items || []);
+            }
+        } catch {}
+        finally {
+            setLoadingCollectionItems(false);
+        }
+    };
+
+    const openPhotoPerson = async (person: any) => {
+        setSelectedPhotoCollection({
+            type: 'person',
+            id: person.id,
+            name: person.name || 'Person',
+            coverUrl: person.avatarUrl
+        });
+        setLoadingCollectionItems(true);
+        try {
+            const res = await fetch(`/api/theater/photos/immich/studio?action=person_assets&personId=${person.id}`);
+            if (res.ok) {
+                const data = await res.json();
+                setPhotoCollectionItems(data.items || []);
+            }
+        } catch {}
+        finally {
+            setLoadingCollectionItems(false);
+        }
+    };
+
+    const openPhotoPlace = async (place: any) => {
+        setSelectedPhotoCollection({
+            type: 'place',
+            id: place.name,
+            name: `${place.name}${place.country ? `, ${place.country}` : ''}`,
+            count: place.count,
+            coverUrl: place.coverUrl
+        });
+        setLoadingCollectionItems(true);
+        try {
+            const res = await fetch(`/api/theater/photos/immich/studio?action=place_assets&city=${encodeURIComponent(place.name)}`);
+            if (res.ok) {
+                const data = await res.json();
+                setPhotoCollectionItems(data.items || []);
+            }
+        } catch {}
+        finally {
+            setLoadingCollectionItems(false);
+        }
+    };
+
 
     // IPTV / Live TV States
     const liveTvCacheRef = useRef<Record<string, { channels: any[]; groups: any[]; shortlists: any[] }>>({});
@@ -4835,8 +4939,11 @@ function TheaterPageContent() {
     }, [filteredShortlistChannels, shortlistPage, shortlistPageSize]);
 
     const photoItems = useMemo(() => {
+        if (activeContentTab === 'photos' && selectedPhotoCollection && photoCollectionItems.length > 0) {
+            return photoCollectionItems;
+        }
         return filteredItems.filter(i => i.category === 'photo');
-    }, [filteredItems]);
+    }, [filteredItems, activeContentTab, selectedPhotoCollection, photoCollectionItems]);
 
     const handlePlayItem = (item: MediaItem) => {
         if (item.category === 'video') {
@@ -5966,12 +6073,23 @@ function TheaterPageContent() {
                                 </p>
                             </div>
                             <div className="pt-2 flex justify-center">
-                                <Link
-                                    href="/discover?manage=libraries"
-                                    className="px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg cursor-pointer"
-                                >
-                                    <FolderPlus size={15} /> Manage Libraries in Media Tab
-                                </Link>
+                                {activeContentTab === 'photos' ? (
+                                    <Link
+                                        href="/settings?subtopic=instances&addType=immich"
+                                        title="Connect Immich Instance in Settings"
+                                        className="p-4 rounded-2xl bg-sky-500 hover:bg-sky-400 text-black shadow-lg transition-transform hover:scale-105 flex items-center justify-center cursor-pointer"
+                                    >
+                                        <Plus size={26} />
+                                    </Link>
+                                ) : (
+                                    <Link
+                                        href="/discover?manage=libraries"
+                                        title="Manage Libraries in Media Tab"
+                                        className="p-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg transition-transform hover:scale-105 flex items-center justify-center cursor-pointer"
+                                    >
+                                        <FolderPlus size={26} />
+                                    </Link>
+                                )}
                             </div>
                         </div>
                     )
@@ -6831,6 +6949,264 @@ function TheaterPageContent() {
                                 </div>
                             );
                         })()}
+                    </div>
+                ) : activeContentTab === 'photos' ? (
+                    <div className="space-y-7 animate-in fade-in duration-200">
+                        {/* ── PHOTOS STUDIO TOP BAR: SUB-TABS (Photos, Albums, People, Places) + METRICS ── */}
+                        <div className="p-5 sm:p-7 rounded-3xl bg-zinc-950/80 border-2 border-sky-500/30 shadow-2xl space-y-5">
+                            <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-16 h-16 p-3.5 rounded-2xl bg-sky-500/15 border-2 border-sky-500/40 flex items-center justify-center text-sky-400 shrink-0 shadow-inner">
+                                        <ImageIcon size={32} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="flex items-center gap-3 flex-wrap">
+                                            <h3 className="text-2xl font-black text-white tracking-tight">
+                                                Photos
+                                            </h3>
+                                            <span className="px-3.5 py-1 rounded-xl bg-black/60 text-sky-300 border border-sky-800/50 text-sm font-mono font-black">
+                                                {immichStudioData?.totalGeotaggedCount ? `${immichStudioData.totalGeotaggedCount.toLocaleString()} Geotagged` : `${filteredItems.length} Photos`}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-zinc-400 font-mono">
+                                            {immichStudioData?.albumsCount || 0} Albums • {immichStudioData?.peopleCount || 0} People • {immichStudioData?.placesCount || 0} Places
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Controls: Subtabs + Refresh */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1.5 rounded-2xl border border-zinc-800">
+                                        {([
+                                            { id: 'photos', icon: <ImageIcon size={22} />, title: 'Photos' },
+                                            { id: 'albums', icon: <Layers size={22} />, title: 'Albums' },
+                                            { id: 'people', icon: <Users size={22} />, title: 'People' },
+                                            { id: 'places', icon: <MapPin size={22} />, title: 'Places' },
+                                        ] as const).map(tab => {
+                                            const isActive = photoSubTab === tab.id && !selectedPhotoCollection;
+                                            return (
+                                                <button
+                                                    key={tab.id}
+                                                    onClick={() => {
+                                                        setSelectedPhotoCollection(null);
+                                                        setPhotoSubTab(tab.id);
+                                                    }}
+                                                    title={tab.title}
+                                                    className={`p-3.5 rounded-xl transition-all cursor-pointer ${
+                                                        isActive
+                                                            ? 'bg-sky-500 text-black shadow-md scale-105'
+                                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                                                    }`}
+                                                >
+                                                    {tab.icon}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <button
+                                        onClick={() => fetchImmichStudio(true)}
+                                        title="Refresh"
+                                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer"
+                                    >
+                                        <RefreshCw size={22} className={loadingStudioData ? 'animate-spin' : ''} />
+                                    </button>
+
+                                    <Link
+                                        href="/settings?subtopic=instances&addType=immich"
+                                        title="Settings"
+                                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer"
+                                    >
+                                        <Settings size={22} />
+                                    </Link>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ── VIEW A: DRILL-DOWN COLLECTION (ALBUM, PERSON, OR PLACE) ── */}
+                        {selectedPhotoCollection ? (
+                            <div className="space-y-6 animate-in fade-in">
+                                <div className="flex items-center justify-between p-5 rounded-3xl bg-zinc-950/70 border border-zinc-800">
+                                    <div className="flex items-center gap-4">
+                                        <button
+                                            onClick={() => setSelectedPhotoCollection(null)}
+                                            title="Back"
+                                            className="p-3.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-700 transition-all cursor-pointer hover:scale-105"
+                                        >
+                                            <ArrowLeft size={24} />
+                                        </button>
+                                        <div>
+                                            <h3 className="text-2xl font-black text-white">{selectedPhotoCollection.name}</h3>
+                                            <p className="text-xs text-zinc-400 font-mono mt-0.5">
+                                                {photoCollectionItems.length} Items
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {loadingCollectionItems ? (
+                                    <div className="p-20 text-center flex flex-col items-center justify-center space-y-3">
+                                        <RefreshCw size={36} className="text-sky-400 animate-spin" />
+                                    </div>
+                                ) : photoCollectionItems.length === 0 ? (
+                                    <div className="p-16 text-center text-zinc-500 font-bold">No items</div>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                        {photoCollectionItems.map(item => (
+                                            <div
+                                                key={item.id}
+                                                onClick={() => handlePlayItem(item)}
+                                                className="group relative aspect-square rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 hover:border-sky-500/50 transition-all cursor-pointer shadow-lg hover:-translate-y-1"
+                                            >
+                                                <img
+                                                    src={item.posterUrl || item.streamUrl}
+                                                    alt={item.title}
+                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                    loading="lazy"
+                                                />
+                                                {item.category === 'video' && (
+                                                    <div className="absolute top-2.5 right-2.5 p-1.5 rounded-xl bg-black/60 backdrop-blur-md text-white border border-white/20 shadow-md">
+                                                        <FileVideo size={16} />
+                                                    </div>
+                                                )}
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                                                    <p className="text-xs font-bold text-white truncate">{item.title}</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ) : photoSubTab === 'albums' ? (
+                            /* ── VIEW B: ALBUMS GRID ── */
+                            <div className="space-y-6">
+                                {(!immichStudioData?.albums || immichStudioData.albums.length === 0) ? (
+                                    <div className="p-16 text-center text-zinc-500 font-bold">No albums</div>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                                        {immichStudioData.albums.map(album => (
+                                            <div
+                                                key={album.id}
+                                                onClick={() => openPhotoAlbum(album)}
+                                                className="group relative aspect-square rounded-3xl overflow-hidden bg-zinc-950 border border-zinc-800 hover:border-sky-500/50 transition-all cursor-pointer shadow-xl hover:-translate-y-1"
+                                            >
+                                                {album.coverUrl ? (
+                                                    <img
+                                                        src={album.coverUrl}
+                                                        alt={album.name}
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                        loading="lazy"
+                                                    />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-600">
+                                                        <Layers size={48} />
+                                                    </div>
+                                                )}
+                                                <div className="absolute top-3 right-3 px-2.5 py-1 rounded-xl bg-black/70 backdrop-blur-md text-white border border-white/20 text-xs font-mono font-black shadow-md">
+                                                    {album.assetCount}
+                                                </div>
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex flex-col justify-end p-4">
+                                                    <h4 className="text-lg font-black text-white group-hover:text-sky-300 transition-colors truncate">
+                                                        {album.name}
+                                                    </h4>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ) : photoSubTab === 'people' ? (
+                            /* ── VIEW C: PEOPLE & FACES GRID ── */
+                            <div className="space-y-6">
+                                {(!immichStudioData?.people || immichStudioData.people.length === 0) ? (
+                                    <div className="p-16 text-center text-zinc-500 font-bold">No faces detected</div>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                                        {immichStudioData.people.map(person => (
+                                            <div
+                                                key={person.id}
+                                                onClick={() => openPhotoPerson(person)}
+                                                className="p-5 rounded-3xl bg-zinc-950/80 border border-zinc-900 hover:border-sky-500/50 hover:bg-zinc-900/50 transition-all cursor-pointer shadow-xl text-center flex flex-col items-center justify-center space-y-3 group hover:-translate-y-1"
+                                            >
+                                                <img
+                                                    src={person.avatarUrl}
+                                                    alt={person.name}
+                                                    className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-2 border-zinc-700 group-hover:border-sky-400 group-hover:scale-105 transition-all shadow-lg"
+                                                    loading="lazy"
+                                                />
+                                                <div className="w-full">
+                                                    <h4 className="text-base font-bold text-white group-hover:text-sky-300 transition-colors truncate">
+                                                        {person.name || 'Face'}
+                                                    </h4>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ) : photoSubTab === 'places' ? (
+                            /* ── VIEW D: PLACES & GEOTAGS GRID ── */
+                            <div className="space-y-6">
+                                {(!immichStudioData?.places || immichStudioData.places.length === 0) ? (
+                                    <div className="p-16 text-center text-zinc-500 font-bold">No geotagged places</div>
+                                ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                        {immichStudioData.places.map(place => (
+                                            <div
+                                                key={place.name}
+                                                onClick={() => openPhotoPlace(place)}
+                                                className="group relative aspect-[16/10] rounded-3xl overflow-hidden bg-zinc-950 border border-zinc-800 hover:border-sky-500/50 transition-all cursor-pointer shadow-xl hover:-translate-y-1"
+                                            >
+                                                <img
+                                                    src={place.coverUrl}
+                                                    alt={place.name}
+                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                    loading="lazy"
+                                                />
+                                                <div className="absolute top-3 right-3 px-2.5 py-1 rounded-xl bg-black/70 backdrop-blur-md text-white border border-white/20 text-xs font-mono font-black shadow-md">
+                                                    {place.count.toLocaleString()}
+                                                </div>
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex flex-col justify-end p-4">
+                                                    <div className="flex items-center gap-1.5 text-sky-400 mb-0.5">
+                                                        <MapPin size={16} />
+                                                        <span className="text-xs font-black uppercase tracking-wider text-sky-300">{place.country || 'Location'}</span>
+                                                    </div>
+                                                    <h4 className="text-xl font-black text-white group-hover:text-sky-300 transition-colors truncate">
+                                                        {place.name}
+                                                    </h4>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            /* ── VIEW E: PHOTOS TIMELINE STREAM ── */
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                {filteredItems.map(item => (
+                                    <div
+                                        key={item.id}
+                                        onClick={() => handlePlayItem(item)}
+                                        className="group relative aspect-square rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 hover:border-sky-500/50 transition-all cursor-pointer shadow-lg hover:-translate-y-1"
+                                    >
+                                        <img
+                                            src={item.posterUrl || item.streamUrl}
+                                            alt={item.title}
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                            loading="lazy"
+                                        />
+                                        {item.category === 'video' && (
+                                            <div className="absolute top-2.5 right-2.5 p-1.5 rounded-xl bg-black/60 backdrop-blur-md text-white border border-white/20 shadow-md">
+                                                <FileVideo size={16} />
+                                            </div>
+                                        )}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                                            <p className="text-xs font-bold text-white truncate">{item.title}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 ) : activeContentTab === 'show' ? (
                     tvShows.length === 0 ? (

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSetting, setSetting } from '@/lib/db';
 import { exec } from 'child_process';
 import util from 'util';
+import { isStreamGuardActive } from '@/lib/streamGuard';
 
 const execAsync = util.promisify(exec);
 
@@ -84,11 +85,34 @@ export async function GET() {
             liveStats.isOnline = false;
         }
 
+        const cachedBattery = parseInt(getSetting('pixel_cached_battery') || '85', 10);
+        const cachedCharging = getSetting('pixel_cached_is_charging') === 'true';
+        const cachedTotal = getSetting('pixel_cached_total_storage') || '32G';
+        const cachedFree = getSetting('pixel_cached_free_storage') || '18.4G';
+
+        if (liveStats.batteryLevel !== undefined) {
+            setSetting('pixel_cached_battery', String(liveStats.batteryLevel));
+            setSetting('pixel_cached_is_charging', liveStats.isCharging ? 'true' : 'false');
+        }
+        if (liveStats.totalStorage) {
+            setSetting('pixel_cached_total_storage', liveStats.totalStorage);
+            setSetting('pixel_cached_free_storage', liveStats.freeStorage);
+        }
+
+        const resolvedBattery = liveStats.batteryLevel !== undefined ? liveStats.batteryLevel : cachedBattery;
+        const resolvedCharging = liveStats.isCharging !== undefined ? liveStats.isCharging : cachedCharging;
+        const resolvedTotal = liveStats.totalStorage || cachedTotal;
+        const resolvedFree = liveStats.freeStorage || cachedFree;
+
         return NextResponse.json({
             paired: true,
             node: {
                 ...node,
-                ...liveStats
+                isOnline: liveStats.isOnline,
+                batteryLevel: resolvedBattery,
+                isCharging: resolvedCharging,
+                totalStorage: resolvedTotal,
+                freeStorage: resolvedFree
             },
             toggles,
             stats
@@ -117,6 +141,12 @@ export async function POST(req: Request) {
         }
 
         if (action === 'sync_batch') {
+            if (isStreamGuardActive()) {
+                return NextResponse.json({
+                    error: 'Stream Guard Active: Plex streaming detected. File transfers are paused to preserve server bandwidth.'
+                }, { status: 429 });
+            }
+
             const rawNode = getSetting('pixel_bridge_node');
             const node = rawNode ? JSON.parse(rawNode) : null;
             if (!node || !node.ip) {

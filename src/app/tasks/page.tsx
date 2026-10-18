@@ -40,7 +40,9 @@ import {
     Headphones,
     BarChart3,
     Timer,
-    CheckCircle2
+    CheckCircle2,
+    Shield,
+    ShieldAlert
 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ConfirmModal';
 
@@ -509,6 +511,47 @@ export default function TasksPage() {
                     </div>
                 )}
             </section>
+
+            {/* ── Stream Guard Live Playback Throttling Banner ── */}
+            {data?.streamGuard?.isThrottled && (
+                <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-950/60 via-zinc-950/80 to-amber-950/60 border-2 border-amber-500/40 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in">
+                    <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 animate-pulse">
+                            <ShieldAlert size={28} />
+                        </div>
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-xl font-black text-white">Stream Guard Active</h3>
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    Plex Streaming
+                                </span>
+                            </div>
+                            <div className="text-sm text-zinc-300 flex flex-wrap items-center gap-3 font-mono">
+                                {data.streamGuard.activeStreams?.map((s: any) => (
+                                    <span key={s.id} className="text-white font-bold">
+                                        "{s.title}" • {s.user} ({s.device}) • {s.bandwidthMbps} Mbps
+                                    </span>
+                                ))}
+                                {data.streamGuard.pausedTorrentHashes?.length > 0 && (
+                                    <span className="text-amber-400">
+                                        • {data.streamGuard.pausedTorrentHashes.length} torrent(s) paused
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => runAction('update_stream_guard', { settings: { enabled: false } })}
+                            title="Temporarily Override & Resume All Background Tasks"
+                            className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-all cursor-pointer"
+                        >
+                            <Play size={20} />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* ── Library Subtabs Navigation ── */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-white/10">
