@@ -4,6 +4,7 @@ import { getAudiobookStudioStatus } from '@/lib/audiobookStudio';
 import { getDvrRecordings, getAllAudiobooksMeta } from '@/lib/db';
 import { getActiveStreamHubsSummary } from '@/lib/iptvStreamHub';
 import musicDownloadQueue from '@/lib/musicDownloadQueue';
+import { getPhoneBackupTasksSummary } from '@/lib/pixelBackupSuite';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,6 +88,19 @@ export async function GET() {
                 title: `Downloading: ${tr.title}`,
                 detail: `${tr.artist || ''} (${tr.progress || 0}%)`,
                 progress: tr.progress || 50
+            });
+        }
+
+        // 5. Active Phone Backup Transfer / Staging
+        const phoneBackup = await getPhoneBackupTasksSummary();
+        if (phoneBackup.activeTransfer) {
+            const tr = phoneBackup.activeTransfer;
+            items.push({
+                id: `pb-${tr.id}`,
+                category: 'download',
+                title: `Phone Backup: ${tr.filename}`,
+                detail: `Staging to ${phoneBackup.node?.cleanModel || 'Pixel'} (${Math.round((tr.sizeBytes || 0) / 1024 / 1024 * 10) / 10} MB)`,
+                progress: 65
             });
         }
 

@@ -19,7 +19,8 @@ import {
     Zap,
     Check,
     Radio,
-    Cpu
+    Cpu,
+    Activity
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -281,62 +282,83 @@ export function PhotosMediaManager() {
 
                 {/* 2. Pixel Bridge Hardware Node Status Card */}
                 <div className="p-6 bg-zinc-950/80 rounded-3xl border border-indigo-500/30 shadow-xl flex flex-col justify-between space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="w-16 h-16 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0">
-                                <Smartphone size={32} />
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-2.5">
-                                    <h3 className="text-2xl font-black text-white">{node?.model || 'Pixel Bridge'}</h3>
-                                    {node && (
-                                        <span className="px-2.5 py-1 rounded-xl text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                                            {node.unlimitedTier === 'original_quality' ? 'Unlimited Original' : 'Storage Saver'}
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-3 text-sm text-zinc-300 mt-2 font-mono">
-                                    {node ? (
-                                        <>
-                                            <span className="flex items-center gap-2">
-                                                <span className={`w-3 h-3 rounded-full ${node.isOnline ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-                                                {node.ip}:{node.port || 5555}
-                                            </span>
-                                            <span className="flex items-center gap-1.5 text-zinc-200">
-                                                {node.isCharging ? (
-                                                    <BatteryCharging size={18} className="text-amber-400" />
-                                                ) : (
-                                                    <Battery size={18} className={node.batteryLevel && node.batteryLevel > 20 ? 'text-emerald-400' : 'text-rose-400'} />
-                                                )}
-                                                <span className="font-bold">{node.batteryLevel ?? 85}%</span>
-                                                {node.isCharging && <span className="text-xs text-amber-400 font-bold uppercase">Charging</span>}
-                                            </span>
-                                        </>
-                                    ) : (
-                                        <span className="text-amber-400 font-bold">No device paired yet</span>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
+                    {(() => {
+                        const cleanNodeModel = (node?.model || 'Pixel Bridge')
+                            .replace(/\s*\((Original Quality|Storage Saver|Unlimited Original|Unlimited Saver)\)/gi, '')
+                            .trim();
 
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={handleAutoSolve}
-                                disabled={solving || !node}
-                                title="Auto-Solve / Heal Stalled Pixel Sync"
-                                className="p-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black shadow-lg transition-transform hover:scale-105 cursor-pointer"
-                            >
-                                <Wrench size={22} className={solving ? 'animate-spin' : ''} />
-                            </button>
-                            <Link
-                                href="/settings?subtopic=instances"
-                                title="Pair Device in Settings"
-                                className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
-                            >
-                                <Plus size={22} />
-                            </Link>
-                        </div>
-                    </div>
+                        return (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <div className="w-16 h-16 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0 shadow-inner">
+                                        <Smartphone size={32} />
+                                    </div>
+                                    <div className="min-w-0 space-y-2">
+                                        <div className="flex flex-wrap items-center gap-2.5">
+                                            <h3 className="text-2xl font-black text-white tracking-tight truncate">{cleanNodeModel}</h3>
+                                            {node && (
+                                                <span className="px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider whitespace-nowrap bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                                                    {node.unlimitedTier === 'original_quality' ? 'Unlimited Original' : 'Storage Saver'}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                                            {node ? (
+                                                <>
+                                                    <span
+                                                        className="inline-flex items-center gap-2 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300"
+                                                        title={node.isOnline ? "Online via ADB" : "Offline / Standby"}
+                                                    >
+                                                        <span className={`w-2.5 h-2.5 rounded-full ${node.isOnline ? 'bg-emerald-400 ring-2 ring-emerald-500/30 animate-pulse' : 'bg-zinc-600'}`} />
+                                                        <span>{node.ip}:{node.port || 5555}</span>
+                                                    </span>
+
+                                                    <span
+                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300"
+                                                        title={node.isCharging ? "Charging" : "Battery"}
+                                                    >
+                                                        {node.isCharging ? (
+                                                            <BatteryCharging size={16} className="text-amber-400 shrink-0" />
+                                                        ) : (
+                                                            <Battery size={16} className={node.batteryLevel && node.batteryLevel > 20 ? 'text-emerald-400 shrink-0' : 'text-rose-400 shrink-0'} />
+                                                        )}
+                                                        <span className="font-bold text-white">{node.batteryLevel ?? 85}%</span>
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <span className="text-amber-400 font-bold">No device paired yet</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <Link
+                                        href="/tasks?tab=photos"
+                                        title="View Phone Backup Suite Tasks"
+                                        className="p-3.5 rounded-2xl bg-indigo-500/20 hover:bg-indigo-500 border border-indigo-500/40 text-indigo-300 hover:text-black shadow-lg transition-transform hover:scale-105 cursor-pointer"
+                                    >
+                                        <Activity size={22} />
+                                    </Link>
+                                    <button
+                                        onClick={handleAutoSolve}
+                                        disabled={solving || !node}
+                                        title="Auto-Solve / Heal Stalled Pixel Sync"
+                                        className="p-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black shadow-lg transition-transform hover:scale-105 cursor-pointer"
+                                    >
+                                        <Wrench size={22} className={solving ? 'animate-spin' : ''} />
+                                    </button>
+                                    <Link
+                                        href="/settings?subtopic=instances"
+                                        title="Pair Device in Settings"
+                                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                                    >
+                                        <Plus size={22} />
+                                    </Link>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* Storage Headroom Bar with real calculated gauge */}
                     {node && (() => {
@@ -425,7 +447,7 @@ export function PhotosMediaManager() {
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toggles.syncEnabled ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-500'}`}>
                                 <Zap size={22} />
                             </div>
-                            <span className="text-base font-bold">Sync to Pixel</span>
+                            <span className="text-base font-bold">Sync</span>
                         </div>
                         <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${toggles.syncEnabled ? 'bg-indigo-500 text-white' : 'bg-zinc-800'}`}>
                             {toggles.syncEnabled && <Check size={16} />}
@@ -446,7 +468,7 @@ export function PhotosMediaManager() {
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toggles.autoClean ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-500'}`}>
                                 <Trash2 size={22} />
                             </div>
-                            <span className="text-base font-bold">Auto Clean Space</span>
+                            <span className="text-base font-bold">Clean</span>
                         </div>
                         <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${toggles.autoClean ? 'bg-emerald-500 text-black' : 'bg-zinc-800'}`}>
                             {toggles.autoClean && <Check size={16} />}
@@ -467,7 +489,7 @@ export function PhotosMediaManager() {
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toggles.autoStage ? 'bg-sky-500 text-black' : 'bg-zinc-800 text-zinc-500'}`}>
                                 <ArrowUpRight size={22} />
                             </div>
-                            <span className="text-base font-bold">Auto Stage</span>
+                            <span className="text-base font-bold">Stage</span>
                         </div>
                         <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${toggles.autoStage ? 'bg-sky-500 text-black' : 'bg-zinc-800'}`}>
                             {toggles.autoStage && <Check size={16} />}
@@ -488,7 +510,7 @@ export function PhotosMediaManager() {
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toggles.autoHeal ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-500'}`}>
                                 <Wrench size={22} />
                             </div>
-                            <span className="text-base font-bold">Auto Solver</span>
+                            <span className="text-base font-bold">Heal</span>
                         </div>
                         <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${toggles.autoHeal ? 'bg-amber-500 text-black' : 'bg-zinc-800'}`}>
                             {toggles.autoHeal && <Check size={16} />}
@@ -509,7 +531,7 @@ export function PhotosMediaManager() {
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${toggles.chargingOnly ? 'bg-orange-500 text-black' : 'bg-zinc-800 text-zinc-500'}`}>
                                 <BatteryCharging size={22} />
                             </div>
-                            <span className="text-base font-bold">Charging Only</span>
+                            <span className="text-base font-bold">Charging</span>
                         </div>
                         <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${toggles.chargingOnly ? 'bg-orange-500 text-black' : 'bg-zinc-800'}`}>
                             {toggles.chargingOnly && <Check size={16} />}

@@ -1711,10 +1711,12 @@ export default function Settings() {
                                             <Smartphone size={26} />
                                         </div>
                                         <div>
-                                            <div className="flex items-center gap-2.5">
-                                                <span className="text-lg font-black text-white">{pairedPixelNode.model || 'Google Pixel'}</span>
-                                                <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                                                    {pairedPixelNode.unlimitedTier === 'original_quality' ? 'Unlimited Original Quality' : 'Unlimited Storage Saver'}
+                                            <div className="flex flex-wrap items-center gap-2.5">
+                                                <span className="text-lg font-black text-white">
+                                                    {(pairedPixelNode.model || 'Google Pixel').replace(/\s*\((Original Quality|Storage Saver|Unlimited Original|Unlimited Saver)\)/gi, '').trim()}
+                                                </span>
+                                                <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase whitespace-nowrap bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                                                    {pairedPixelNode.unlimitedTier === 'original_quality' ? 'Unlimited Original' : 'Storage Saver'}
                                                 </span>
                                                 <span className={`w-2.5 h-2.5 rounded-full ${pairedPixelNode.isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
                                             </div>

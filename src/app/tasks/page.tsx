@@ -42,11 +42,17 @@ import {
     Timer,
     CheckCircle2,
     Shield,
-    ShieldAlert
+    ShieldAlert,
+    Smartphone,
+    Film,
+    Cloud,
+    ArrowUpRight,
+    Battery,
+    BatteryCharging
 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ConfirmModal';
 
-export type TaskLibraryTab = 'audiobooks' | 'tv_movies' | 'music' | 'system';
+export type TaskLibraryTab = 'audiobooks' | 'tv_movies' | 'music' | 'photos' | 'system';
 
 export default function TasksPage() {
     const [data, setData] = useState<any>(null);
@@ -55,7 +61,17 @@ export default function TasksPage() {
     const [toast, setToast] = useState<string | null>(null);
     const [selectedBookToAdd, setSelectedBookToAdd] = useState<string>('');
     const [nowMs, setNowMs] = useState<number>(Date.now());
-    const [activeLibraryTab, setActiveLibraryTab] = useState<TaskLibraryTab>('audiobooks');
+    const [activeLibraryTab, setActiveLibraryTab] = useState<TaskLibraryTab>(() => {
+        if (typeof window !== 'undefined') {
+            const p = new URLSearchParams(window.location.search).get('tab');
+            if (p === 'photos' || p === 'audiobooks' || p === 'tv_movies' || p === 'music' || p === 'system') {
+                return p as TaskLibraryTab;
+            }
+        }
+        return 'audiobooks';
+    });
+    const [phoneFilter, setPhoneFilter] = useState<'all' | 'queued' | 'transferred' | 'uploaded' | 'cleaned'>('all');
+    const [phoneSearch, setPhoneSearch] = useState<string>('');
     const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
     const [chartMetricMode, setChartMetricMode] = useState<'duration' | 'units'>('duration');
     const [isSttBreakdownExpanded, setIsSttBreakdownExpanded] = useState<boolean>(true);
@@ -142,6 +158,20 @@ export default function TasksPage() {
     const dvrScheduled: any[] = Array.isArray(data?.dvr?.scheduled) ? data.dvr.scheduled : [];
     const transfersActive: any[] = Array.isArray(data?.transfers?.active) ? data.transfers.active : [];
     const recentLogs: any[] = Array.isArray(data?.recentSystemLogs) ? data.recentSystemLogs : [];
+
+    const phoneBackup = data?.phoneBackupSuite;
+    const phoneCounts = phoneBackup?.counts || {
+        queued: 0,
+        staging: 0,
+        transferred: 0,
+        uploaded: 0,
+        cleaned: 0,
+        total: 0,
+        totalBytesTransferred: 0,
+        totalBytesCleaned: 0
+    };
+    const phoneNode = phoneBackup?.node;
+    const phoneItems: any[] = Array.isArray(phoneBackup?.items) ? phoneBackup.items : [];
 
     const quotaReached = (studioCfg.imagesGeneratedToday ?? 0) >= (studioCfg.dailyImageQuota ?? 20);
     const totalFailedChapters =
@@ -592,6 +622,19 @@ export default function TasksPage() {
                 >
                     <Radio size={18} />
                     <span>Music</span>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setActiveLibraryTab('photos')}
+                    className={`px-5 py-3 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
+                        activeLibraryTab === 'photos'
+                            ? 'bg-indigo-500 text-black shadow-lg shadow-indigo-500/20'
+                            : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/10'
+                    }`}
+                >
+                    <Smartphone size={18} />
+                    <span>Photos</span>
                 </button>
 
                 <button
@@ -1520,6 +1563,415 @@ export default function TasksPage() {
                     </section>
                 </div>
             )}
+
+            {/* ═══════════════════════════════════════════════════════════════════
+                TAB 5: PHOTOS (Phone Backup Suite, Pixel Bridge, Google Photos)
+               ═══════════════════════════════════════════════════════════════════ */}
+            {activeLibraryTab === 'photos' && (() => {
+                const formatTimeAgo = (ts?: string) => {
+                    if (!ts) return '';
+                    const diffMs = Date.now() - new Date(ts).getTime();
+                    if (isNaN(diffMs)) return '';
+                    const sec = Math.floor(diffMs / 1000);
+                    if (sec < 60) return `${sec}s ago`;
+                    const min = Math.floor(sec / 60);
+                    if (min < 60) return `${min}m ago`;
+                    const hrs = Math.floor(min / 60);
+                    if (hrs < 24) return `${hrs}h ago`;
+                    return `${Math.floor(hrs / 24)}d ago`;
+                };
+
+                const formatBytes = (bytes?: number) => {
+                    if (!bytes || bytes <= 0) return '0 B';
+                    const mb = bytes / (1024 * 1024);
+                    if (mb < 1000) return `${mb.toFixed(1)} MB`;
+                    return `${(mb / 1024).toFixed(2)} GB`;
+                };
+
+                const filteredPhoneItems = phoneItems.filter((item: any) => {
+                    if (phoneFilter === 'queued' && item.status !== 'queued' && item.status !== 'staging') return false;
+                    if (phoneFilter === 'transferred' && item.status !== 'transferred') return false;
+                    if (phoneFilter === 'uploaded' && item.status !== 'uploaded') return false;
+                    if (phoneFilter === 'cleaned' && item.status !== 'cleaned') return false;
+                    if (phoneSearch && !item.filename.toLowerCase().includes(phoneSearch.toLowerCase())) return false;
+                    return true;
+                });
+
+                const parseGb = (val: string | undefined): number => {
+                    if (!val) return 0;
+                    const match = String(val).match(/([0-9.]+)\s*([GMK]?)/i);
+                    if (!match) return 0;
+                    const num = parseFloat(match[1]);
+                    const unit = (match[2] || 'G').toUpperCase();
+                    if (unit === 'M') return num / 1024;
+                    if (unit === 'K') return num / (1024 * 1024);
+                    if (unit === 'T') return num * 1024;
+                    return num;
+                };
+
+                const freeGb = parseGb(phoneNode?.freeStorage);
+                const totalGb = parseGb(phoneNode?.totalStorage) || 32;
+                const usedGb = Math.max(0, totalGb - freeGb);
+                const usedPercent = totalGb > 0 ? Math.round((usedGb / totalGb) * 100) : 45;
+
+                return (
+                    <div className="space-y-6 animate-in fade-in">
+                        {/* ── 1. HARDWARE NODE & LIVE PIPELINE STATUS ── */}
+                        <section className="rounded-3xl bg-[#0d111a] border border-indigo-500/30 p-6 sm:p-8 space-y-6 shadow-2xl">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <div className="w-16 h-16 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center shrink-0 shadow-inner">
+                                        <Smartphone size={32} />
+                                    </div>
+                                    <div className="min-w-0 space-y-2">
+                                        <div className="flex flex-wrap items-center gap-2.5">
+                                            <h3 className="text-2xl font-black text-white tracking-tight truncate">
+                                                {phoneNode?.cleanModel || phoneNode?.model || 'Pixel Bridge'}
+                                            </h3>
+                                            <span className="px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider whitespace-nowrap bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                                                {phoneNode?.unlimitedTier === 'original_quality' ? 'Unlimited Original' : 'Storage Saver'}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono">
+                                            {phoneNode ? (
+                                                <>
+                                                    <span
+                                                        className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300"
+                                                        title={phoneNode.isOnline ? "Device Online via ADB" : "Device Offline / Standby"}
+                                                    >
+                                                        <span className={`w-2.5 h-2.5 rounded-full ${phoneNode.isOnline ? 'bg-emerald-400 ring-4 ring-emerald-500/20 animate-pulse' : 'bg-zinc-600'}`} />
+                                                        <span>{phoneNode.ip}:{phoneNode.port || 5555}</span>
+                                                    </span>
+
+                                                    <span
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300"
+                                                        title={phoneNode.isCharging ? "Charging" : "Battery"}
+                                                    >
+                                                        {phoneNode.isCharging ? (
+                                                            <BatteryCharging size={16} className="text-amber-400 shrink-0" />
+                                                        ) : (
+                                                            <Battery size={16} className={phoneNode.batteryLevel && phoneNode.batteryLevel > 20 ? 'text-emerald-400 shrink-0' : 'text-rose-400 shrink-0'} />
+                                                        )}
+                                                        <span className="font-bold text-white">{phoneNode.batteryLevel ?? 85}%</span>
+                                                    </span>
+
+                                                    <span
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300"
+                                                        title="Phone Free Storage Buffer"
+                                                    >
+                                                        <HardDrive size={16} className="text-indigo-400 shrink-0" />
+                                                        <span className="font-bold text-white">{phoneNode.freeStorage || '18.4G'} Free</span>
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <span className="text-amber-400 font-bold">No device paired yet</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => runAction('phone_batch', { action: 'trigger_phone_backup_batch' })}
+                                        disabled={busyKey === 'phone_batch'}
+                                        title="Push Next Batch to Pixel"
+                                        className="p-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black shadow-lg shadow-emerald-500/20 transition-transform hover:scale-105 cursor-pointer"
+                                    >
+                                        <Play size={22} className={busyKey === 'phone_batch' ? 'animate-spin' : ''} />
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => runAction('phone_clean', { action: 'trigger_phone_backup_clean' })}
+                                        disabled={busyKey === 'phone_clean'}
+                                        title="Clean Space (Google Photos Free Up Space)"
+                                        className="p-3.5 rounded-2xl bg-rose-500 hover:bg-rose-400 disabled:opacity-40 text-white shadow-lg shadow-rose-500/20 transition-transform hover:scale-105 cursor-pointer"
+                                    >
+                                        <Trash2 size={22} className={busyKey === 'phone_clean' ? 'animate-pulse' : ''} />
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={fetchTasks}
+                                        title="Refresh Telemetry"
+                                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                                    >
+                                        <RotateCcw size={22} />
+                                    </button>
+
+                                    <Link
+                                        href="/settings?subtopic=instances"
+                                        title="Configure Instances & Devices"
+                                        className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                                    >
+                                        <Sliders size={22} />
+                                    </Link>
+                                </div>
+                            </div>
+
+                            {/* Storage Headroom Bar */}
+                            <div className="space-y-2 pt-3 border-t border-zinc-900">
+                                <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider text-zinc-400">
+                                    <span>Storage Buffer</span>
+                                    <span className="text-white font-mono">{phoneNode?.freeStorage || '18.4G'} Free / {phoneNode?.totalStorage || '32G'}</span>
+                                </div>
+                                <div className="w-full h-3 rounded-full bg-zinc-900 overflow-hidden p-0.5 border border-zinc-800">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-500 ${
+                                            freeGb >= 4 ? 'bg-emerald-500' : freeGb >= 2 ? 'bg-amber-500' : 'bg-rose-500'
+                                        }`}
+                                        style={{ width: `${Math.min(100, Math.max(5, usedPercent))}%` }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Active In-Flight Task / Stream Guard Banner */}
+                            {phoneBackup?.activeTaskName === 'paused' ? (
+                                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <ShieldAlert size={22} className="text-amber-400 shrink-0 animate-pulse" />
+                                        <span className="text-sm font-bold text-amber-200">
+                                            Stream Guard Active: Plex streaming detected. Transfers paused to preserve server bandwidth.
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => runAction('phone_batch', { action: 'trigger_phone_backup_batch' })}
+                                        title="Resume Batch Now"
+                                        className="p-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black shadow-md cursor-pointer"
+                                    >
+                                        <Play size={18} />
+                                    </button>
+                                </div>
+                            ) : phoneBackup?.activeTransfer ? (
+                                <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-3">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                                                {phoneBackup.activeTransfer.mediaType === 'video' ? <Film size={20} /> : <ImageIcon size={20} />}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="text-sm font-black text-white truncate">
+                                                    {phoneBackup.activeTransfer.filename}
+                                                </div>
+                                                <div className="text-xs font-mono text-zinc-400">
+                                                    {formatBytes(phoneBackup.activeTransfer.sizeBytes)} • {phoneBackup.activeTransfer.targetPath}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold uppercase bg-sky-500/20 text-sky-300 border border-sky-500/40 shrink-0 animate-pulse">
+                                            Staging via ADB
+                                        </span>
+                                    </div>
+                                    <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden">
+                                        <div className="h-full bg-indigo-500 rounded-full animate-pulse" style={{ width: '65%' }} />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-zinc-400">
+                                    <span className="text-zinc-300 font-bold">{phoneBackup?.statusMessage || 'Idle • Ready for next batch'}</span>
+                                    <div className="flex items-center gap-4">
+                                        {phoneBackup?.lastSyncTime && (
+                                            <span>Last Sync: <strong className="text-white">{formatTimeAgo(phoneBackup.lastSyncTime)}</strong></span>
+                                        )}
+                                        {phoneBackup?.lastCleanTime && (
+                                            <span>Last Clean: <strong className="text-white">{formatTimeAgo(phoneBackup.lastCleanTime)}</strong></span>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </section>
+
+                        {/* ── 2. PIPELINE BREAKDOWN COUNTERS ── */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-sky-500/30 space-y-2 shadow-xl">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black uppercase tracking-wider text-sky-400">Staged</span>
+                                    <ArrowUp size={22} className="text-sky-400" />
+                                </div>
+                                <div className="text-3xl font-black text-white font-mono">
+                                    {phoneCounts.queued + phoneCounts.staging}
+                                </div>
+                                <div className="text-xs text-zinc-400 font-mono">Queued in buffer</div>
+                            </div>
+
+                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-amber-500/30 space-y-2 shadow-xl">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black uppercase tracking-wider text-amber-400">Transferred</span>
+                                    <Smartphone size={22} className="text-amber-400" />
+                                </div>
+                                <div className="text-3xl font-black text-white font-mono">
+                                    {phoneCounts.transferred}
+                                </div>
+                                <div className="text-xs text-zinc-400 font-mono">On phone awaiting cloud</div>
+                            </div>
+
+                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-emerald-500/30 space-y-2 shadow-xl">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black uppercase tracking-wider text-emerald-400">Uploaded</span>
+                                    <CheckCircle2 size={22} className="text-emerald-400" />
+                                </div>
+                                <div className="text-3xl font-black text-white font-mono">
+                                    {phoneCounts.uploaded}
+                                </div>
+                                <div className="text-xs text-zinc-400 font-mono">Unlimited cloud verified</div>
+                            </div>
+
+                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-purple-500/30 space-y-2 shadow-xl">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black uppercase tracking-wider text-purple-400">Cleaned</span>
+                                    <Trash2 size={22} className="text-purple-400" />
+                                </div>
+                                <div className="text-3xl font-black text-white font-mono">
+                                    {phoneCounts.cleaned}
+                                </div>
+                                <div className="text-xs text-zinc-400 font-mono">
+                                    {formatBytes(phoneCounts.totalBytesCleaned)} reclaimed
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ── 3. MEDIA LEDGER & PROCESSING DETAILS ── */}
+                        <section className="rounded-3xl bg-[#0d111a] border border-white/10 p-6 sm:p-8 space-y-6 shadow-2xl">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/10">
+                                <div className="flex items-center gap-3">
+                                    <h3 className="text-2xl font-black text-white">Ledger</h3>
+                                    <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold bg-white/10 text-white">
+                                        {filteredPhoneItems.length}
+                                    </span>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-3">
+                                    {/* Search Input */}
+                                    <div className="relative">
+                                        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                        <input
+                                            type="text"
+                                            value={phoneSearch}
+                                            onChange={e => setPhoneSearch(e.target.value)}
+                                            placeholder="Search media..."
+                                            className="pl-10 pr-4 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+                                        />
+                                    </div>
+
+                                    {/* Filter Tabs */}
+                                    <div className="flex items-center gap-1.5 p-1 bg-zinc-900 rounded-xl border border-zinc-800 text-xs font-bold uppercase">
+                                        {(['all', 'queued', 'transferred', 'uploaded', 'cleaned'] as const).map(tab => (
+                                            <button
+                                                key={tab}
+                                                type="button"
+                                                onClick={() => setPhoneFilter(tab)}
+                                                className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                                                    phoneFilter === tab
+                                                        ? 'bg-indigo-500 text-black'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                            >
+                                                {tab === 'all' ? 'All' : tab === 'queued' ? 'Staged' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Clear Cleaned Items History */}
+                                    <button
+                                        type="button"
+                                        onClick={() => runAction('phone_clear_cleaned', { action: 'clear_cleaned_phone_backup' })}
+                                        title="Purge Cleaned Items from History"
+                                        className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-rose-400 hover:bg-zinc-800 transition-all cursor-pointer"
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Media Items List */}
+                            <div className="space-y-3">
+                                {filteredPhoneItems.length === 0 ? (
+                                    <div className="p-8 text-center text-zinc-500 text-sm font-mono">
+                                        No media items found matching current filter
+                                    </div>
+                                ) : (
+                                    filteredPhoneItems.map((item: any) => {
+                                        const isVideo = item.mediaType === 'video';
+                                        const statusBadge =
+                                            item.status === 'staging'
+                                                ? { label: 'Staging', cls: 'bg-sky-500/20 text-sky-300 border-sky-500/40 animate-pulse' }
+                                                : item.status === 'transferred'
+                                                ? { label: 'Transferred', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' }
+                                                : item.status === 'uploaded'
+                                                ? { label: 'Uploaded', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' }
+                                                : item.status === 'cleaned'
+                                                ? { label: 'Cleaned', cls: 'bg-purple-500/20 text-purple-300 border-purple-500/40' }
+                                                : { label: 'Queued', cls: 'bg-zinc-800 text-zinc-400 border-zinc-700' };
+
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-zinc-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                                            >
+                                                <div className="flex items-center gap-4 min-w-0">
+                                                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                                                        isVideo
+                                                            ? 'bg-purple-500/15 border border-purple-500/30 text-purple-400'
+                                                            : 'bg-sky-500/15 border border-sky-500/30 text-sky-400'
+                                                    }`}>
+                                                        {isVideo ? <Film size={22} /> : <ImageIcon size={22} />}
+                                                    </div>
+
+                                                    <div className="min-w-0 space-y-1">
+                                                        <div className="text-base font-bold text-white truncate">
+                                                            {item.filename}
+                                                        </div>
+                                                        <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400 font-mono">
+                                                            <span>{isVideo ? 'VIDEO' : 'PHOTO'}</span>
+                                                            <span>•</span>
+                                                            <span>{formatBytes(item.sizeBytes)}</span>
+                                                            <span>•</span>
+                                                            <span className="truncate max-w-[240px] text-zinc-500">{item.targetPath}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+                                                    <div className="text-right font-mono text-xs text-zinc-400">
+                                                        {item.uploadedAt ? (
+                                                            <div>Uploaded {formatTimeAgo(item.uploadedAt)}</div>
+                                                        ) : item.transferredAt ? (
+                                                            <div>Transferred {formatTimeAgo(item.transferredAt)}</div>
+                                                        ) : (
+                                                            <div>Staged {formatTimeAgo(item.stagedAt)}</div>
+                                                        )}
+                                                        {item.speedBps && item.speedBps > 0 && (
+                                                            <div className="text-zinc-500">{Math.round(item.speedBps / 1024 / 1024)} MB/s</div>
+                                                        )}
+                                                    </div>
+
+                                                    <span className={`px-3 py-1 rounded-xl text-xs font-mono font-bold uppercase border whitespace-nowrap ${statusBadge.cls}`}>
+                                                        {statusBadge.label}
+                                                    </span>
+
+                                                    {(item.status === 'cleaned' || item.status === 'failed') && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => runAction(`phone_retry_${item.id}`, { action: 'retry_phone_backup_item', itemId: item.id })}
+                                                            title="Re-queue Item"
+                                                            className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer"
+                                                        >
+                                                            <RotateCcw size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </section>
+                    </div>
+                );
+            })()}
 
             {/* Custom Confirm Modal */}
             {confirmModal && (

@@ -48,6 +48,13 @@ import { runAutoCleanup, runSmartCleanup } from '@/lib/autoCleanup';
 import { getCalendarSyncLiveStatus, runPeriodicCalendarSync } from '@/lib/calendarSync';
 import musicDownloadQueue from '@/lib/musicDownloadQueue';
 import { getStreamGuardStatus, updateStreamGuardSettings } from '@/lib/streamGuard';
+import {
+    getPhoneBackupTasksSummary,
+    triggerPhoneBackupBatch,
+    triggerGooglePhotosCleanup,
+    retryPhoneBackupItem,
+    clearCleanedPhoneBackup
+} from '@/lib/pixelBackupSuite';
 
 export const dynamic = 'force-dynamic';
 
@@ -255,16 +262,21 @@ export async function GET() {
         const recentAudiobookChapters = getRecentAudiobookActivity(12);
         const recentSystemLogs = getSystemLogs(15);
 
+        // 7. Phone Backup Suite (Immich -> Pixel Bridge -> Google Photos)
+        const phoneBackupSuite = await getPhoneBackupTasksSummary();
+
         const activeCount =
             activeStreamHubs.length +
             activeEpgSyncs.length +
             activeDvrRecordings.length +
             (studioStatus.isRunning ? 1 : 0) +
-            activeTransfers.length;
+            activeTransfers.length +
+            (phoneBackupSuite.activeTransfer ? 1 : 0);
 
         const queuedCount =
             scheduledDvrRecordings.length +
-            queuedBooks.length;
+            queuedBooks.length +
+            phoneBackupSuite.counts.queued;
 
         const libraryProcessingSummary = getUnifiedLibraryProcessingMetrics();
 
@@ -354,6 +366,7 @@ export async function GET() {
             },
             calendarSync: getCalendarSyncLiveStatus(),
             streamGuard: getStreamGuardStatus(),
+            phoneBackupSuite,
             transfers: {
                 active: activeTransfers,
                 recent: recentTransfers
@@ -661,6 +674,26 @@ export async function POST(request: Request) {
                 streamGuard: getStreamGuardStatus(),
                 message: 'Stream Guard settings updated.'
             });
+        }
+
+        if (action === 'trigger_phone_backup_batch') {
+            const res = await triggerPhoneBackupBatch(body.batchSize);
+            return NextResponse.json({ ok: true, ...res });
+        }
+
+        if (action === 'trigger_phone_backup_clean') {
+            const res = await triggerGooglePhotosCleanup();
+            return NextResponse.json({ ok: true, ...res });
+        }
+
+        if (action === 'retry_phone_backup_item' && body.itemId) {
+            const item = retryPhoneBackupItem(body.itemId);
+            return NextResponse.json({ ok: true, item });
+        }
+
+        if (action === 'clear_cleaned_phone_backup') {
+            clearCleanedPhoneBackup();
+            return NextResponse.json({ ok: true, message: 'Purged cleaned items from history.' });
         }
 
         return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });
