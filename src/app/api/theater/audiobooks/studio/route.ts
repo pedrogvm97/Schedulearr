@@ -343,6 +343,8 @@ export async function POST(request: Request) {
                 voicePreset,
                 voicePersona,
                 activePersonas,
+                activeTimbres,
+                voiceEngineMode,
                 enhancePreset,
                 enhanceAudioEnabled,
                 transcribeEnabled,
@@ -378,6 +380,8 @@ export async function POST(request: Request) {
                 art_focus: artFocus !== undefined ? String(artFocus) : existing?.art_focus,
                 voice_preset: effectiveVoicePreset,
                 active_personas: Array.isArray(activePersonas) ? activePersonas : existing?.active_personas,
+                active_timbres: Array.isArray(activeTimbres) ? activeTimbres : existing?.active_timbres,
+                voice_engine_mode: voiceEngineMode || existing?.voice_engine_mode,
                 enhance_preset: enhancePreset !== undefined ? String(enhancePreset) : existing?.enhance_preset,
                 enhance_audio_enabled: enhanceAudioEnabled !== undefined ? Boolean(enhanceAudioEnabled) : existing?.enhance_audio_enabled,
                 transcribe_enabled: transcribeEnabled !== undefined ? Boolean(transcribeEnabled) : existing?.transcribe_enabled,
@@ -409,6 +413,70 @@ export async function POST(request: Request) {
                 book: updatedBook,
                 chapters: getAudiobookChaptersMeta(bookKey),
                 books: getAllAudiobooksMeta(),
+                status: getAudiobookStudioStatus()
+            });
+        }
+
+        if (action === 'set_active_voice') {
+            const { chapterKey, bookKey, voicePreset, filePath } = body;
+            if (!chapterKey || !filePath) {
+                return NextResponse.json({ success: false, error: 'Missing chapterKey or filePath' }, { status: 400 });
+            }
+            const ch = getAudiobookChapterMeta(chapterKey, bookKey);
+            if (!ch) {
+                return NextResponse.json({ success: false, error: 'Chapter not found' }, { status: 404 });
+            }
+            const updatedChapter = upsertAudiobookChapterMeta({
+                chapter_key: ch.chapter_key,
+                book_key: ch.book_key,
+                voice_preset: voicePreset || ch.voice_preset,
+                enhanced_audio_path: filePath,
+                audio_enhance_status: 'completed'
+            });
+            return NextResponse.json({
+                success: true,
+                chapter: updatedChapter,
+                chapters: getAudiobookChaptersMeta(ch.book_key),
+                book: getAudiobookMeta(ch.book_key),
+                status: getAudiobookStudioStatus()
+            });
+        }
+
+        if (action === 'delete_voice_alternative') {
+            const { chapterKey, bookKey, presetKey } = body;
+            if (!chapterKey || !presetKey) {
+                return NextResponse.json({ success: false, error: 'Missing chapterKey or presetKey' }, { status: 400 });
+            }
+            const ch = getAudiobookChapterMeta(chapterKey, bookKey);
+            if (!ch) {
+                return NextResponse.json({ success: false, error: 'Chapter not found' }, { status: 404 });
+            }
+            const voices = { ...(ch.processed_voices || {}) };
+            const targetPath = voices[presetKey];
+            delete voices[presetKey];
+            if (targetPath) {
+                try {
+                    const fullPath = targetPath.startsWith('/') ? targetPath : path.join(getAudiobookEnhancedDir(), path.basename(targetPath));
+                    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+                } catch {}
+            }
+            const isTargetActive = ch.voice_preset === presetKey || ch.enhanced_audio_path === targetPath;
+            const remainingVoices = Object.entries(voices);
+            const nextActivePath = isTargetActive ? (remainingVoices[0]?.[1] || '') : ch.enhanced_audio_path;
+            const nextActivePreset = isTargetActive ? (remainingVoices[0]?.[0] || 'original') : ch.voice_preset;
+            const updatedChapter = upsertAudiobookChapterMeta({
+                chapter_key: ch.chapter_key,
+                book_key: ch.book_key,
+                processed_voices: voices,
+                enhanced_audio_path: nextActivePath,
+                voice_preset: nextActivePreset,
+                audio_enhance_status: nextActivePath ? 'completed' : 'idle'
+            });
+            return NextResponse.json({
+                success: true,
+                chapter: updatedChapter,
+                chapters: getAudiobookChaptersMeta(ch.book_key),
+                book: getAudiobookMeta(ch.book_key),
                 status: getAudiobookStudioStatus()
             });
         }

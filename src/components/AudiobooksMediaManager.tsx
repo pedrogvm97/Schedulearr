@@ -395,6 +395,12 @@ export function AudiobooksMediaManager() {
 
     // Voice Gen Options
     const [editVoicePreset, setEditVoicePreset] = useState('clear_voice');
+    const [editVoiceEngineMode, setEditVoiceEngineMode] = useState<'timbre_filter' | 'neural_tts'>('neural_tts');
+    const [editActivePersonas, setEditActivePersonas] = useState<string[]>(['kokoro_af_heart', 'kokoro_bf_emma']);
+    const [editActiveTimbres, setEditActiveTimbres] = useState<string[]>(['clear_voice', 'warm_bass']);
+    const [voiceSavedNotice, setVoiceSavedNotice] = useState<string | null>(null);
+    const [activePreviewKey, setActivePreviewKey] = useState<string | null>(null);
+    const previewAudioRef = useRef<HTMLAudioElement | null>(null);
     const [editEnhancePreset, setEditEnhancePreset] = useState('denoise_clarity');
     const [voiceCategoryFilter, setVoiceCategoryFilter] = useState<'all' | 'iconic' | 'classic' | 'intimate' | 'broadcast'>('all');
 
@@ -1159,6 +1165,17 @@ export function AudiobooksMediaManager() {
         setEditAuthorBio(enrich.authorBio || book.savedAuthorBio || '');
         setEditArtStyle(meta.art_style || studioConfig?.artStyle || 'Cinematic Concept Art');
         setEditVoicePreset(meta.voice_preset || studioConfig?.defaultVoicePreset || 'clear_voice');
+        const initialEngineMode = (meta.voice_engine_mode === 'timbre_filter' ? 'timbre_filter' : 'neural_tts');
+        setEditVoiceEngineMode(initialEngineMode);
+        const initialPersonas = Array.isArray(meta.active_personas) && meta.active_personas.length > 0
+            ? meta.active_personas
+            : [meta.voice_preset || 'kokoro_af_heart'];
+        setEditActivePersonas(initialPersonas);
+        const initialTimbres = Array.isArray(meta.active_timbres) && meta.active_timbres.length > 0
+            ? meta.active_timbres
+            : ['clear_voice', 'warm_bass'];
+        setEditActiveTimbres(initialTimbres);
+        setVoiceSavedNotice(null);
         setEditEnhancePreset(meta.enhance_preset || studioConfig?.audioEnhancePreset || 'denoise_clarity');
         setEditScenesPerChapter(Number(meta.images_per_chapter || studioConfig?.imagesPerChapter || 3));
         setEditNumAlternatives(2);
@@ -1366,6 +1383,9 @@ export function AudiobooksMediaManager() {
                     author: currentModalBook.author,
                     artStyle: editArtStyle,
                     voicePreset: editVoicePreset,
+                    voiceEngineMode: editVoiceEngineMode,
+                    activePersonas: editActivePersonas,
+                    activeTimbres: editActiveTimbres,
                     enhancePreset: editEnhancePreset,
                     imagesPerChapter: editScenesPerChapter,
                     artFocus: editSceneFocus,
@@ -1384,6 +1404,140 @@ export function AudiobooksMediaManager() {
         } finally {
             if (!silent) setRunningStudioAction(null);
         }
+    };
+
+    const handleSaveVoiceProfile = async (
+        newEngineMode = editVoiceEngineMode,
+        newPersonas = editActivePersonas,
+        newTimbres = editActiveTimbres,
+        primaryPreset = editVoicePreset,
+        showToast = true
+    ) => {
+        if (!currentModalBook) return;
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'update_book_settings',
+                    bookKey: currentModalBook.bookKey,
+                    voicePreset: primaryPreset,
+                    voiceEngineMode: newEngineMode,
+                    activePersonas: newPersonas,
+                    activeTimbres: newTimbres
+                })
+            });
+            if (res.ok) {
+                const count = newEngineMode === 'neural_tts' ? newPersonas.length : newTimbres.length;
+                const label = newEngineMode === 'neural_tts' ? 'neural voices' : 'timbre filters';
+                setVoiceSavedNotice(`Saved ${count} ${label}`);
+                setTimeout(() => setVoiceSavedNotice(null), 3500);
+                if (showToast) toast.success(`Saved voice profile (${count} active)`);
+            }
+        } catch {
+            if (showToast) toast.error('Failed to save voice profile');
+        }
+    };
+
+    const handleTogglePersona = (id: string) => {
+        const next = editActivePersonas.includes(id)
+            ? editActivePersonas.filter(p => p !== id)
+            : [...editActivePersonas, id];
+        const safe = next.length > 0 ? next : [id];
+        setEditActivePersonas(safe);
+        setEditVoicePreset(id);
+        handleSaveVoiceProfile(editVoiceEngineMode, safe, editActiveTimbres, id, false);
+        toast.success(`Voice selected: ${id.replace(/_/g, ' ')}`);
+    };
+
+    const handleToggleTimbre = (id: string) => {
+        const next = editActiveTimbres.includes(id)
+            ? editActiveTimbres.filter(t => t !== id)
+            : [...editActiveTimbres, id];
+        const safe = next.length > 0 ? next : [id];
+        setEditActiveTimbres(safe);
+        setEditVoicePreset(id);
+        handleSaveVoiceProfile(editVoiceEngineMode, editActivePersonas, safe, id, false);
+        toast.success(`Filter selected: ${id.replace(/_/g, ' ')}`);
+    };
+
+    const handleSwitchEngineMode = (mode: 'timbre_filter' | 'neural_tts') => {
+        setEditVoiceEngineMode(mode);
+        handleSaveVoiceProfile(mode, editActivePersonas, editActiveTimbres, editVoicePreset, true);
+    };
+
+    const handleSetActiveVoice = async (chapterKey: string, voicePreset: string, filePath: string) => {
+        if (!currentModalBook) return;
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'set_active_voice',
+                    chapterKey,
+                    bookKey: currentModalBook.bookKey,
+                    voicePreset,
+                    filePath
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.chapter) {
+                    setStudioChaptersMap(prev => ({
+                        ...prev,
+                        [data.chapter.chapter_key]: data.chapter,
+                        [`${data.chapter.book_key}::ch${data.chapter.chapter_index}`]: data.chapter
+                    }));
+                }
+                toast.success(`Active voice: ${voicePreset.replace(/_/g, ' ')}`);
+            }
+        } catch {
+            toast.error('Failed to set active voice');
+        }
+    };
+
+    const handleDeleteVoiceAlternative = async (chapterKey: string, presetKey: string) => {
+        if (!currentModalBook) return;
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'delete_voice_alternative',
+                    chapterKey,
+                    bookKey: currentModalBook.bookKey,
+                    presetKey
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.chapter) {
+                    setStudioChaptersMap(prev => ({
+                        ...prev,
+                        [data.chapter.chapter_key]: data.chapter,
+                        [`${data.chapter.book_key}::ch${data.chapter.chapter_index}`]: data.chapter
+                    }));
+                }
+                toast.success(`Removed voice: ${presetKey.replace(/_/g, ' ')}`);
+            }
+        } catch {
+            toast.error('Failed to remove voice alternative');
+        }
+    };
+
+    const handleTogglePreviewAudio = (audioPath: string, key: string) => {
+        if (activePreviewKey === key && previewAudioRef.current) {
+            previewAudioRef.current.pause();
+            setActivePreviewKey(null);
+            return;
+        }
+        if (!previewAudioRef.current) {
+            previewAudioRef.current = new Audio();
+            previewAudioRef.current.onended = () => setActivePreviewKey(null);
+        }
+        previewAudioRef.current.src = `/api/theater/stream?path=${encodeURIComponent(audioPath)}`;
+        previewAudioRef.current.play().catch(() => {});
+        setActivePreviewKey(key);
     };
 
     // Priority Queue Reordering (Drag & Drop or Up/Down/Top Arrow Buttons)
@@ -5854,8 +6008,19 @@ export function AudiobooksMediaManager() {
                                                     <h4 className="text-xl font-black text-white uppercase tracking-wider">Voice Profile</h4>
                                                 </div>
                                                 <AudiobookVoiceSelector
+                                                    engineMode={editVoiceEngineMode}
+                                                    onChangeEngineMode={handleSwitchEngineMode}
                                                     selectedPreset={editVoicePreset}
-                                                    onSelectPreset={(pId) => setEditVoicePreset(pId)}
+                                                    onSelectPreset={(pId) => {
+                                                        setEditVoicePreset(pId);
+                                                        handleSaveVoiceProfile(editVoiceEngineMode, editActivePersonas, editActiveTimbres, pId, true);
+                                                    }}
+                                                    selectedPersonas={editActivePersonas}
+                                                    onTogglePersona={handleTogglePersona}
+                                                    selectedTimbres={editActiveTimbres}
+                                                    onToggleTimbre={handleToggleTimbre}
+                                                    onSave={() => handleSaveVoiceProfile(editVoiceEngineMode, editActivePersonas, editActiveTimbres, editVoicePreset, true)}
+                                                    saveConfirmationMessage={voiceSavedNotice || undefined}
                                                 />
                                             </div>
 
@@ -5875,7 +6040,10 @@ export function AudiobooksMediaManager() {
                                                             </label>
                                                             <select
                                                                 value={editVoicePreset}
-                                                                onChange={e => setEditVoicePreset(e.target.value)}
+                                                                onChange={e => {
+                                                                    setEditVoicePreset(e.target.value);
+                                                                    handleSaveVoiceProfile(editVoiceEngineMode, editActivePersonas, editActiveTimbres, e.target.value, false);
+                                                                }}
                                                                 className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-base font-bold text-white cursor-pointer"
                                                             >
                                                                 <option value="clear_voice">Clear Voice (Vocal Presence)</option>
@@ -5970,13 +6138,37 @@ export function AudiobooksMediaManager() {
                                                                                     {isEnhDone ? `Enhanced (${chMeta.voice_preset || editVoicePreset})` : 'Original Audio'}
                                                                                 </span>
                                                                             </div>
-                                                                            <div className="pt-2 w-full max-w-md" onClick={e => e.stopPropagation()}>
+                                                                            <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-3 w-full" onClick={e => e.stopPropagation()}>
                                                                                 <audio
                                                                                     controls
                                                                                     preload="none"
                                                                                     src={`/api/theater/stream?path=${encodeURIComponent(chMeta.enhanced_audio_path || chTrack.path || '')}`}
-                                                                                    className="w-full h-8 rounded-lg"
+                                                                                    className="w-full max-w-sm h-8 rounded-lg"
                                                                                 />
+                                                                                {voiceEntries.length > 0 && (
+                                                                                    <div className="flex items-center gap-1.5 shrink-0">
+                                                                                        <span className="text-[11px] font-black uppercase text-zinc-400">Voice:</span>
+                                                                                        <select
+                                                                                            value={chMeta.enhanced_audio_path ? (voiceEntries.find(([, p]) => p === chMeta.enhanced_audio_path)?.[0] || chMeta.voice_preset || 'original') : 'original'}
+                                                                                            onChange={e => {
+                                                                                                const sel = e.target.value;
+                                                                                                if (sel === 'original') {
+                                                                                                    handleSetActiveVoice(chapterKey, 'original', chTrack.path || '');
+                                                                                                } else if (processedVoices[sel]) {
+                                                                                                    handleSetActiveVoice(chapterKey, sel, processedVoices[sel]);
+                                                                                                }
+                                                                                            }}
+                                                                                            className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-emerald-500/40 text-xs font-black text-emerald-300 cursor-pointer"
+                                                                                        >
+                                                                                            <option value="original">Original Audio</option>
+                                                                                            {voiceEntries.map(([vKey]) => (
+                                                                                                <option key={vKey} value={vKey}>
+                                                                                                    {vKey.replace(/_/g, ' ')}
+                                                                                                </option>
+                                                                                            ))}
+                                                                                        </select>
+                                                                                    </div>
+                                                                                )}
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -6030,37 +6222,81 @@ export function AudiobooksMediaManager() {
 
                                                                         {voiceEntries.length > 0 ? (
                                                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                                                {voiceEntries.map(([presetKey, filePath]) => (
-                                                                                    <div
-                                                                                        key={presetKey}
-                                                                                        className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3"
-                                                                                    >
-                                                                                        <div className="min-w-0">
-                                                                                            <p className="text-sm font-black text-emerald-300 uppercase">
-                                                                                                {presetKey.replace('_', ' ')}
-                                                                                            </p>
-                                                                                            <p className="text-xs font-mono text-zinc-500 truncate">
-                                                                                                {filePath}
-                                                                                            </p>
+                                                                                {voiceEntries.map(([presetKey, filePath]) => {
+                                                                                    const isCurrentActiveVoice = chMeta.enhanced_audio_path === filePath || (isEnhDone && chMeta.voice_preset === presetKey);
+                                                                                    const isPlayingThisPreview = activePreviewKey === `${chapterKey}::${presetKey}`;
+                                                                                    const fileBaseName = filePath.split(/[\/\\]/).pop() || filePath;
+
+                                                                                    return (
+                                                                                        <div
+                                                                                            key={presetKey}
+                                                                                            className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
+                                                                                                isCurrentActiveVoice
+                                                                                                    ? 'bg-emerald-950/30 border-emerald-500/60 shadow-lg'
+                                                                                                    : 'bg-zinc-950 border-zinc-800'
+                                                                                            }`}
+                                                                                        >
+                                                                                            <div className="min-w-0 flex-1">
+                                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                                    <p className="text-sm font-black text-emerald-300 uppercase">
+                                                                                                        {presetKey.replace(/_/g, ' ')}
+                                                                                                    </p>
+                                                                                                    {isCurrentActiveVoice && (
+                                                                                                        <span className="px-2 py-0.5 rounded-md bg-emerald-500 text-black text-[10px] font-black uppercase flex items-center gap-1">
+                                                                                                            <Check size={11} className="stroke-[3]" /> Active
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                                <p className="text-xs font-mono text-zinc-500 truncate" title={filePath}>
+                                                                                                    {fileBaseName}
+                                                                                                </p>
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => handleTogglePreviewAudio(filePath, `${chapterKey}::${presetKey}`)}
+                                                                                                    title={isPlayingThisPreview ? "Stop preview" : "Play preview"}
+                                                                                                    className={`p-2 rounded-xl transition-all cursor-pointer ${
+                                                                                                        isPlayingThisPreview
+                                                                                                            ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/30'
+                                                                                                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+                                                                                                    }`}
+                                                                                                >
+                                                                                                    {isPlayingThisPreview ? <Pause size={15} /> : <Play size={15} />}
+                                                                                                </button>
+
+                                                                                                {!isCurrentActiveVoice && (
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        onClick={() => handleSetActiveVoice(chapterKey, presetKey, filePath)}
+                                                                                                        title="Set as active voice"
+                                                                                                        className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-black uppercase flex items-center gap-1 cursor-pointer"
+                                                                                                    >
+                                                                                                        <Check size={13} />
+                                                                                                        <span>Use</span>
+                                                                                                    </button>
+                                                                                                )}
+
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance', presetKey)}
+                                                                                                    title="Regenerate this voice alternative"
+                                                                                                    className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 cursor-pointer"
+                                                                                                >
+                                                                                                    <RefreshCw size={15} />
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => handleDeleteVoiceAlternative(chapterKey, presetKey)}
+                                                                                                    title="Delete enhanced voice"
+                                                                                                    className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 cursor-pointer"
+                                                                                                >
+                                                                                                    <Trash2 size={15} />
+                                                                                                </button>
+                                                                                            </div>
                                                                                         </div>
-                                                                                        <div className="flex items-center gap-1.5 shrink-0">
-                                                                                            <button
-                                                                                                onClick={() => handleRunChapterTask(chTrack, chIdx, 'enhance', presetKey)}
-                                                                                                title="Regenerate this voice alternative"
-                                                                                                className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 cursor-pointer"
-                                                                                            >
-                                                                                                <RefreshCw size={15} />
-                                                                                            </button>
-                                                                                            <button
-                                                                                                onClick={() => handleResetAssets('voices', chapterKey, false)}
-                                                                                                title="Delete enhanced voice"
-                                                                                                className="p-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 cursor-pointer"
-                                                                                            >
-                                                                                                <Trash2 size={15} />
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                ))}
+                                                                                    );
+                                                                                })}
                                                                             </div>
                                                                         ) : (
                                                                             <div className="py-6 text-center">

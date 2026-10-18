@@ -565,6 +565,8 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN total_scenes INTEGER DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN summary TEXT DEFAULT '';"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN active_personas_json TEXT DEFAULT '[\"original\"]';"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN active_timbres_json TEXT DEFAULT '[\"clear_voice\",\"warm_bass\"]';"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN voice_engine_mode TEXT DEFAULT 'neural_tts';"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN duration_sec INTEGER DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN transcribed_seconds REAL DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN synced_lyrics TEXT;"); } catch (e) { }
@@ -575,6 +577,44 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN enhanced_audio_path TEXT;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN processed_voices_json TEXT DEFAULT '{}';"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN error_message TEXT;"); } catch (e) { }
+    // Clean up duplicate entries in processed_voices_json where a single file was cloned across all presets
+    try {
+        const chRows = d.prepare("SELECT chapter_key, processed_voices_json FROM audiobook_chapters_meta WHERE processed_voices_json LIKE '%m4a%'").all() as any[];
+        for (const row of chRows) {
+            try {
+                const voices = JSON.parse(row.processed_voices_json || '{}');
+                const entries = Object.entries(voices) as [string, string][];
+                if (entries.length > 1) {
+                    const pathCounts: Record<string, string[]> = {};
+                    for (const [k, v] of entries) {
+                        if (!pathCounts[v]) pathCounts[v] = [];
+                        pathCounts[v].push(k);
+                    }
+                    let changed = false;
+                    const cleanedVoices: Record<string, string> = {};
+                    for (const [vPath, keys] of Object.entries(pathCounts)) {
+                        if (keys.length === 1) {
+                            cleanedVoices[keys[0]] = vPath;
+                        } else {
+                            changed = true;
+                            const normPath = vPath.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                            const matchedKey = keys.find(k => {
+                                const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                                return normPath.includes(normK);
+                            }) || keys[0];
+                            cleanedVoices[matchedKey] = vPath;
+                        }
+                    }
+                    if (changed) {
+                        d.prepare("UPDATE audiobook_chapters_meta SET processed_voices_json = ? WHERE chapter_key = ?").run(
+                            JSON.stringify(cleanedVoices),
+                            row.chapter_key
+                        );
+                    }
+                }
+            } catch {}
+        }
+    } catch (e) { }
     // Purge any polluted music_lyrics entries that belong to audiobook files
     try { d.exec("DELETE FROM music_lyrics WHERE file_path IN (SELECT file_path FROM audiobook_chapters_meta WHERE file_path IS NOT NULL);"); } catch (e) { }
     // Purge Plex author portrait thumbnails erroneously saved into audiobook_books_meta.thumb
@@ -2584,6 +2624,9 @@ export interface AudiobookBookMeta {
     voice_preset: string;
     active_personas?: string[];
     active_personas_json?: string;
+    active_timbres?: string[];
+    active_timbres_json?: string;
+    voice_engine_mode?: 'timbre_filter' | 'neural_tts';
     enhance_preset?: string;
     art_style?: string;
     images_per_chapter?: number;
@@ -2650,6 +2693,33 @@ export interface AudiobookChapterMeta {
     updated_at: string;
 }
 
+export const deduplicateProcessedVoices = (voices: Record<string, string>): Record<string, string> => {
+    if (!voices || typeof voices !== 'object') return {};
+    const entries = Object.entries(voices).filter(([k, v]) => Boolean(k && v && typeof v === 'string'));
+    if (entries.length <= 1) return Object.fromEntries(entries);
+
+    const pathCounts: Record<string, string[]> = {};
+    for (const [k, v] of entries) {
+        if (!pathCounts[v]) pathCounts[v] = [];
+        pathCounts[v].push(k);
+    }
+
+    const cleaned: Record<string, string> = {};
+    for (const [vPath, keys] of Object.entries(pathCounts)) {
+        if (keys.length === 1) {
+            cleaned[keys[0]] = vPath;
+        } else {
+            const normPath = vPath.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            const matchedKey = keys.find(k => {
+                const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                return normPath.includes(normK);
+            }) || keys[0];
+            cleaned[matchedKey] = vPath;
+        }
+    }
+    return cleaned;
+};
+
 const mapBookRow = (r: any): AudiobookBookMeta => {
     const thumbVal = r.thumb || r.poster_url || undefined;
     const queueEnabled = Boolean(r.queue_enabled ?? r.is_queued);
@@ -2710,6 +2780,16 @@ const mapBookRow = (r: any): AudiobookBookMeta => {
             }
         })(),
         active_personas_json: r.active_personas_json || '["original"]',
+        active_timbres: (() => {
+            try {
+                const parsed = JSON.parse(r.active_timbres_json || '["clear_voice","warm_bass"]');
+                return Array.isArray(parsed) && parsed.length > 0 ? parsed : ['clear_voice', 'warm_bass'];
+            } catch {
+                return ['clear_voice', 'warm_bass'];
+            }
+        })(),
+        active_timbres_json: r.active_timbres_json || '["clear_voice","warm_bass"]',
+        voice_engine_mode: r.voice_engine_mode === 'timbre_filter' ? 'timbre_filter' : 'neural_tts',
         enhance_preset: r.enhance_preset || '',
         art_style: r.art_style || '',
         images_per_chapter: Number(r.images_per_chapter ?? 0),
@@ -2745,14 +2825,18 @@ const mapChapterRow = (r: any): AudiobookChapterMeta => {
     }
     let parsedVoices: Record<string, string> = {};
     try {
-        parsedVoices = JSON.parse(r.processed_voices_json || '{}') || {};
+        parsedVoices = deduplicateProcessedVoices(JSON.parse(r.processed_voices_json || '{}') || {});
     } catch {
         parsedVoices = {};
     }
     const enhancedPath = r.enhanced_audio_path || r.enhanced_file_path || undefined;
     const vPreset = r.voice_preset || 'original';
     if (enhancedPath && vPreset && vPreset !== 'original' && !parsedVoices[vPreset]) {
-        parsedVoices[vPreset] = enhancedPath;
+        const normPath = enhancedPath.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const normPreset = vPreset.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        if (normPath.includes(normPreset) || Object.keys(parsedVoices).length === 0) {
+            parsedVoices[vPreset] = enhancedPath;
+        }
     }
     const durationSec = Number(r.duration_sec ?? (r.duration_ms ? Math.round(Number(r.duration_ms) / 1000) : 0));
     const status = r.transcription_status || 'idle';
@@ -3053,6 +3137,22 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
             if (meta.active_personas_json) return meta.active_personas_json;
             return JSON.stringify(existing?.active_personas || ['original']);
         })(),
+        active_timbres: (() => {
+            if (Array.isArray(meta.active_timbres) && meta.active_timbres.length > 0) return meta.active_timbres;
+            if (meta.active_timbres_json) {
+                try {
+                    const parsed = JSON.parse(meta.active_timbres_json);
+                    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                } catch {}
+            }
+            return existing?.active_timbres || ['clear_voice', 'warm_bass'];
+        })(),
+        active_timbres_json: (() => {
+            if (Array.isArray(meta.active_timbres) && meta.active_timbres.length > 0) return JSON.stringify(meta.active_timbres);
+            if (meta.active_timbres_json) return meta.active_timbres_json;
+            return JSON.stringify(existing?.active_timbres || ['clear_voice', 'warm_bass']);
+        })(),
+        voice_engine_mode: meta.voice_engine_mode || existing?.voice_engine_mode || 'neural_tts',
         enhance_preset: meta.enhance_preset !== undefined ? meta.enhance_preset : (existing?.enhance_preset ?? ''),
         art_style: meta.art_style !== undefined ? meta.art_style : (existing?.art_style ?? ''),
         images_per_chapter: meta.images_per_chapter !== undefined ? meta.images_per_chapter : (existing?.images_per_chapter ?? 0),
@@ -3083,12 +3183,13 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
             thumb, custom_cover_url, use_custom_cover, real_structure_json,
             library_id, queue_priority, queue_enabled,
             transcribe_enabled, scening_enabled, illustrate_enabled, enhance_audio_enabled, voice_preset, active_personas_json,
+            active_timbres_json, voice_engine_mode,
             enhance_preset, art_style, images_per_chapter, art_focus, dynamic_prompt_enabled, custom_prompt,
             total_chapters, transcribed_chapters, scened_chapters, total_scenes, illustrated_chapters, enhanced_chapters,
             transcribed_seconds, total_duration_sec, illustrated_scenes, summary,
             reading_status, on_bedside_table, progress_percent, last_played_at,
             status, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(book_key) DO UPDATE SET
             title = excluded.title,
             author = excluded.author,
@@ -3110,6 +3211,8 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
             enhance_audio_enabled = excluded.enhance_audio_enabled,
             voice_preset = excluded.voice_preset,
             active_personas_json = excluded.active_personas_json,
+            active_timbres_json = excluded.active_timbres_json,
+            voice_engine_mode = excluded.voice_engine_mode,
             enhance_preset = excluded.enhance_preset,
             art_style = excluded.art_style,
             images_per_chapter = excluded.images_per_chapter,
@@ -3154,6 +3257,8 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
         merged.enhance_audio_enabled ? 1 : 0,
         merged.voice_preset,
         merged.active_personas_json || '["original"]',
+        merged.active_timbres_json || '["clear_voice","warm_bass"]',
+        merged.voice_engine_mode || 'neural_tts',
         merged.enhance_preset || '',
         merged.art_style || '',
         merged.images_per_chapter || 0,
@@ -3423,14 +3528,15 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
     const existing = getAudiobookChapterMeta(meta.chapter_key, effectiveBookKey, meta.chapter_index);
     const effectiveChapterKey = existing?.chapter_key || meta.chapter_key;
 
-    const mergedVoices: Record<string, string> = {
+    const mergedVoices: Record<string, string> = deduplicateProcessedVoices({
         ...(existing?.processed_voices || {}),
         ...(meta.processed_voices || {})
-    };
+    });
     const mergedVoicePreset = meta.voice_preset ?? existing?.voice_preset ?? 'original';
     const mergedEnhancedPath = meta.enhanced_audio_path !== undefined ? meta.enhanced_audio_path : existing?.enhanced_audio_path;
-    if (mergedEnhancedPath && mergedVoicePreset && mergedVoicePreset !== 'original') {
-        mergedVoices[mergedVoicePreset] = mergedEnhancedPath;
+    // CRITICAL: Only record in mergedVoices if meta explicitly provided enhanced_audio_path with voice_preset
+    if (meta.enhanced_audio_path && meta.voice_preset && meta.voice_preset !== 'original') {
+        mergedVoices[meta.voice_preset] = meta.enhanced_audio_path;
     }
 
     const incomingDur = meta.duration_sec ?? 0;

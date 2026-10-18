@@ -757,13 +757,26 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         if (!track || !Array.isArray(chapters) || chapters.length === 0) return null;
         const rawKey = String(track.chapterKey || track.id || '');
         const rawSuffix = rawKey.includes('::') ? rawKey.split('::').pop() : rawKey.replace(/^plex_track_[^:]+::/, '');
+        const trackBase = track.path ? track.path.split(/[\/\\]/).pop()?.toLowerCase().trim() : '';
+        const trackPlexNum = rawKey.match(/(\d+)$/)?.[1];
+        const trackTitle = (track.title || track.name || '').toLowerCase().trim();
+
         return chapters.find((m: any) => {
             if (!m) return false;
             if (m.chapter_key === rawKey || m.chapter_key === track.id || m.chapter_key === track.chapterKey) return true;
             const mSuffix = String(m.chapter_key || '').includes('::') ? String(m.chapter_key).split('::').pop() : String(m.chapter_key || '');
             if (rawSuffix && mSuffix && rawSuffix === mSuffix) return true;
             if (track.path && m.file_path && m.file_path === track.path) return true;
+            if (trackBase && m.file_path) {
+                const mBase = m.file_path.split(/[\/\\]/).pop()?.toLowerCase().trim();
+                if (mBase && trackBase === mBase) return true;
+            }
+            if (trackPlexNum) {
+                const mPlexNum = String(m.chapter_key || '').match(/(\d+)$/)?.[1];
+                if (mPlexNum && trackPlexNum === mPlexNum) return true;
+            }
             if (typeof idx === 'number' && Number(m.chapter_index) === idx + 1) return true;
+            if (trackTitle && m.title && trackTitle === m.title.toLowerCase().trim()) return true;
             return false;
         }) || null;
     }, []);
@@ -1373,20 +1386,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             audiobookChapterMeta?.processed_voices?.[presetKey] ||
             (presetKey === audiobookChapterMeta?.voice_preset ? audiobookChapterMeta?.enhanced_audio_path : null);
 
-        if (enhancedPath && mode === 'file') {
+        if (enhancedPath) {
             setSelectedVoicePreset(presetKey);
             handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
             applyLiveWebAudioDspPreset('original', true);
-            audioRef.current.src = `/api/theater/audiobooks/art?audio=${encodeURIComponent(enhancedPath)}`;
+            audioRef.current.src = `/api/theater/stream?path=${encodeURIComponent(enhancedPath)}`;
             setUseEnhancedAudioStream(true);
             audioRef.current.currentTime = curTime;
             if (wasPlaying) audioRef.current.play().catch(() => {});
-            toast.success(`Playing saved .m4a file: ${presetKey.replace(/_/g, ' ')}`);
+            toast.success(`Playing voice track: ${presetKey.replace(/_/g, ' ')}`);
             return;
         }
 
         // Apply instant 0ms real-time WebAudio DSP filter + pitch on current audio stream
-        if (audioRef.current.src.includes('/api/theater/audiobooks/art?audio=')) {
+        if (audioRef.current.src.includes('/api/theater/stream?path=') && audioRef.current.src !== origStreamUrl) {
             audioRef.current.src = origStreamUrl;
             audioRef.current.currentTime = curTime;
             if (wasPlaying) audioRef.current.play().catch(() => {});
@@ -1395,7 +1408,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
         applyLiveWebAudioDspPreset(presetKey, false);
         setUseEnhancedAudioStream(true);
-        toast.success(`Applied Live Audio Filter: ${presetKey.replace(/_/g, ' ')}`);
+        toast.success(`Applied live voice filter: ${presetKey.replace(/_/g, ' ')}`);
     };
 
     // In-Player Playlist States & Handlers

@@ -18,6 +18,9 @@ export interface AudiobookVoiceSelectorProps {
     selectedTimbres?: string[];
     onToggleTimbre?: (timbreId: string) => void;
     disabled?: boolean;
+    onSave?: () => void;
+    saveConfirmationMessage?: string;
+    isSaving?: boolean;
 }
 
 export const AudiobookVoiceSelector: React.FC<AudiobookVoiceSelectorProps> = ({
@@ -29,7 +32,10 @@ export const AudiobookVoiceSelector: React.FC<AudiobookVoiceSelectorProps> = ({
     onTogglePersona,
     selectedTimbres,
     onToggleTimbre,
-    disabled = false
+    disabled = false,
+    onSave,
+    saveConfirmationMessage,
+    isSaving = false
 }) => {
     const [localEngineMode, setLocalEngineMode] = useState<'timbre_filter' | 'neural_tts'>('neural_tts');
     const [localSelectedPersonas, setLocalSelectedPersonas] = useState<string[]>(
@@ -77,40 +83,63 @@ export const AudiobookVoiceSelector: React.FC<AudiobookVoiceSelectorProps> = ({
     return (
         <div className="space-y-6">
             {/* ══════════════════════════════════════════════════════════
-                AUDIO ENGINE MODE SWITCH (EXACTLY TWO OPTIONS)
+                AUDIO ENGINE MODE SWITCH & SAVE STATUS BAR
                ══════════════════════════════════════════════════════════ */}
             <div className="p-4 sm:p-5 rounded-3xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
-                <span className="text-sm font-black uppercase tracking-wider text-emerald-400">
-                    Audio Engine Mode
-                </span>
+                <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-sm font-black uppercase tracking-wider text-emerald-400">
+                        Audio Engine Mode
+                    </span>
+                    {saveConfirmationMessage && (
+                        <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black flex items-center gap-1.5 animate-pulse">
+                            <Check size={14} className="stroke-[3]" />
+                            <span>{saveConfirmationMessage}</span>
+                        </span>
+                    )}
+                </div>
 
-                <div className="flex items-center gap-2 p-1.5 bg-zinc-900/90 rounded-2xl border border-zinc-800">
-                    <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => handleSwitchMode('timbre_filter')}
-                        className={`px-5 py-3 rounded-xl text-sm font-black uppercase tracking-wider cursor-pointer transition-all ${
-                            activeEngineMode === 'timbre_filter'
-                                ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/30'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                        }`}
-                        title="Timbre Filter: Multi-band acoustic resonance, analog curves & intelligibility mastering"
-                    >
-                        Timbre Filter
-                    </button>
-                    <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => handleSwitchMode('neural_tts')}
-                        className={`px-5 py-3 rounded-xl text-sm font-black uppercase tracking-wider cursor-pointer transition-all ${
-                            activeEngineMode === 'neural_tts'
-                                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                        }`}
-                        title="Neural TTS: Open-source neural speech synthesis models (Kokoro-82M, Piper ONNX)"
-                    >
-                        Neural TTS
-                    </button>
+                <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 p-1.5 bg-zinc-900/90 rounded-2xl border border-zinc-800">
+                        <button
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => handleSwitchMode('timbre_filter')}
+                            className={`px-5 py-3 rounded-xl text-sm font-black uppercase tracking-wider cursor-pointer transition-all ${
+                                activeEngineMode === 'timbre_filter'
+                                    ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/30'
+                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                            }`}
+                            title="Timbre Filter: Multi-band acoustic resonance, analog curves & intelligibility mastering"
+                        >
+                            Timbre Filter
+                        </button>
+                        <button
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => handleSwitchMode('neural_tts')}
+                            className={`px-5 py-3 rounded-xl text-sm font-black uppercase tracking-wider cursor-pointer transition-all ${
+                                activeEngineMode === 'neural_tts'
+                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30'
+                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                            }`}
+                            title="Neural TTS: Open-source neural speech synthesis models (Kokoro-82M, Piper ONNX)"
+                        >
+                            Neural TTS
+                        </button>
+                    </div>
+
+                    {onSave && (
+                        <button
+                            type="button"
+                            disabled={disabled || isSaving}
+                            onClick={onSave}
+                            className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer disabled:opacity-50 transition-all"
+                            title="Save selected voice profile to book"
+                        >
+                            <Check size={18} className="stroke-[3]" />
+                            <span>{isSaving ? 'Saving...' : 'Save Voices'}</span>
+                        </button>
+                    )}
                 </div>
             </div>
 
