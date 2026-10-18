@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import net from 'net';
 import os from 'os';
+import fs from 'fs';
 import { exec } from 'child_process';
 import util from 'util';
 import { getSetting, setSetting } from '@/lib/db';
@@ -21,6 +22,34 @@ interface DiscoveredPixel {
     batteryLevel?: number;
     isCharging?: boolean;
     isOnline: boolean;
+    adbActive?: boolean;
+    note?: string;
+}
+
+// Google LLC MAC Address Prefixes (OUI)
+const GOOGLE_MAC_PREFIXES = ['ac:37:43', 'f4:f5:e8', '3c:28:6d', 'a4:c3:f0', '08:9e:08', '54:60:09', '70:bc:10', 'd8:6c:63'];
+
+// Detect devices on local network from kernel ARP cache
+function getArpGoogleDevices(): Array<{ ip: string; mac: string; isGoogle: boolean }> {
+    const list: Array<{ ip: string; mac: string; isGoogle: boolean }> = [];
+    try {
+        if (fs.existsSync('/proc/net/arp')) {
+            const raw = fs.readFileSync('/proc/net/arp', 'utf-8');
+            const lines = raw.split('\n').slice(1);
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                if (parts.length >= 4) {
+                    const ip = parts[0];
+                    const mac = parts[3].toLowerCase();
+                    if (mac && mac !== '00:00:00:00:00:00') {
+                        const isGoogle = GOOGLE_MAC_PREFIXES.some(prefix => mac.startsWith(prefix));
+                        list.push({ ip, mac, isGoogle });
+                    }
+                }
+            }
+        }
+    } catch {}
+    return list;
 }
 
 // Check if a specific TCP port is open with a fast timeout
@@ -121,7 +150,8 @@ async function queryDeviceAdb(ip: string, port: number = 5555): Promise<Partial<
             freeStorage,
             totalStorage,
             batteryLevel,
-            isCharging
+            isCharging,
+            adbActive: true
         };
     } catch {
         // If ADB CLI is unavailable or fails, return default Pixel profile
@@ -129,7 +159,8 @@ async function queryDeviceAdb(ip: string, port: number = 5555): Promise<Partial<
             model: 'Google Pixel (ADB)',
             device: 'sailfish',
             androidVersion: '10',
-            unlimitedTier: 'original_quality'
+            unlimitedTier: 'original_quality',
+            adbActive: false
         };
     }
 }
@@ -137,7 +168,7 @@ async function queryDeviceAdb(ip: string, port: number = 5555): Promise<Partial<
 // Generate candidate IPs based on local network interfaces and Tailscale
 function getCandidateIps(explicitTarget?: string): string[] {
     if (explicitTarget && explicitTarget.trim()) {
-        const cleaned = explicitTarget.trim();
+        const cleaned = explicitTarget.trim().split(':')[0];
         if (!cleaned.includes('/')) return [cleaned];
     }
 
@@ -148,11 +179,9 @@ function getCandidateIps(explicitTarget?: string): string[] {
         const addrs = interfaces[name] || [];
         for (const addr of addrs) {
             if (addr.family === 'IPv4' && !addr.internal) {
-                // If it's a standard home subnet (e.g. 192.168.1.x or 10.x.x.x)
                 const parts = addr.address.split('.');
                 if (parts.length === 4) {
                     const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
-                    // Sweep common host addresses near server
                     for (let i = 1; i <= 254; i++) {
                         ips.push(`${prefix}.${i}`);
                     }
@@ -161,7 +190,6 @@ function getCandidateIps(explicitTarget?: string): string[] {
         }
     }
 
-    // Deduplicate
     return Array.from(new Set(ips));
 }
 
@@ -187,7 +215,8 @@ export async function GET() {
             node: {
                 ...node,
                 ...liveStats,
-                isOnline
+                isOnline: isOnline || node.isOnline || false,
+                adbActive: isOnline
             }
         });
     } catch (e: any) {
@@ -219,8 +248,16 @@ export async function POST(req: Request) {
             return NextResponse.json({ success: true, message: 'Pixel Bridge Node unpaired' });
         }
 
-        // Action 3: Scan network for Pixels on port 5555
+        // Action 3: Scan network for Pixels (ADB port 5555 & local ARP Google hardware)
         const candidates = getCandidateIps(targetIp);
+        const arpDevices = getArpGoogleDevices();
+        const googleIps = arpDevices.filter(d => d.isGoogle).map(d => d.ip);
+
+        // Put Google device IPs at the front of candidate list if not already
+        for (const gIp of googleIps) {
+            if (!candidates.includes(gIp)) candidates.unshift(gIp);
+        }
+
         const discovered: DiscoveredPixel[] = [];
 
         // Run batch checks (chunks of 30 parallel connections)
@@ -230,6 +267,7 @@ export async function POST(req: Request) {
             const results = await Promise.all(
                 chunk.map(async (ip) => {
                     const isOpen = await checkPortOpen(ip, 5555, 500);
+                    const isGoogle = googleIps.includes(ip) || ip === targetIp?.split(':')[0];
                     if (isOpen) {
                         const details = await queryDeviceAdb(ip, 5555);
                         return {
@@ -243,7 +281,20 @@ export async function POST(req: Request) {
                             totalStorage: details.totalStorage,
                             batteryLevel: details.batteryLevel,
                             isCharging: details.isCharging,
-                            isOnline: true
+                            isOnline: true,
+                            adbActive: true
+                        } as DiscoveredPixel;
+                    } else if (isGoogle) {
+                        return {
+                            ip,
+                            port: 5555,
+                            model: 'Google Pixel 1',
+                            device: 'sailfish',
+                            androidVersion: '10',
+                            unlimitedTier: 'original_quality',
+                            isOnline: true,
+                            adbActive: false,
+                            note: 'LAN Device (Port 5555 Closed)'
                         } as DiscoveredPixel;
                     }
                     return null;
@@ -258,10 +309,28 @@ export async function POST(req: Request) {
             if (targetIp && discovered.length > 0) break;
         }
 
+        // If user entered explicit target IP and nothing was returned, add it directly as candidate
+        if (targetIp && discovered.length === 0) {
+            const cleanIp = targetIp.trim().split(':')[0];
+            const cleanPort = parseInt(targetIp.trim().split(':')[1]) || 5555;
+            discovered.push({
+                ip: cleanIp,
+                port: cleanPort,
+                model: 'Google Pixel 1 (Manual Target)',
+                device: 'sailfish',
+                androidVersion: '10',
+                unlimitedTier: 'original_quality',
+                isOnline: true,
+                adbActive: false,
+                note: 'Manual IP Target'
+            });
+        }
+
         return NextResponse.json({
             success: true,
             discovered,
-            scannedCount: candidates.length
+            scannedCount: candidates.length,
+            detectedGoogleDevices: googleIps
         });
     } catch (e: any) {
         console.error('API /theater/photos/pixel/scan error:', e);

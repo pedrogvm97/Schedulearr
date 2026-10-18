@@ -1668,22 +1668,41 @@ export default function Settings() {
                             <div className="flex items-center gap-2">
                                 <input
                                     type="text"
-                                    placeholder="Target IP / Subnet (e.g. 100.x.y.z)"
+                                    placeholder="Target IP (e.g. 192.168.1.141)"
                                     value={targetPixelIp}
                                     onChange={e => setTargetPixelIp(e.target.value)}
-                                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:ring-2 focus:ring-indigo-500 w-48 font-mono"
-                                    title="Leave empty to auto-sweep all local subnets & Tailscale, or enter a specific IP"
+                                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:ring-2 focus:ring-indigo-500 w-52 font-mono"
+                                    title="Enter local IP (e.g. 192.168.1.141) or leave empty to auto-sweep LAN"
                                 />
                                 <button
                                     type="button"
                                     onClick={handleScanPixels}
                                     disabled={scanningPixels}
-                                    title="Scan local network and Tailscale for Pixel devices on port 5555"
+                                    title="Scan local network for Pixel devices"
                                     className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer shrink-0"
                                 >
                                     <RefreshCw size={16} className={scanningPixels ? 'animate-spin' : ''} />
                                     <span>{scanningPixels ? 'Scanning...' : 'Scan'}</span>
                                 </button>
+                                {targetPixelIp.trim() && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePairPixelNode({
+                                            ip: targetPixelIp.trim().split(':')[0],
+                                            port: parseInt(targetPixelIp.trim().split(':')[1]) || 5555,
+                                            model: 'Google Pixel 1',
+                                            device: 'sailfish',
+                                            androidVersion: '10',
+                                            unlimitedTier: 'original_quality',
+                                            isOnline: true
+                                        })}
+                                        title={`Pair ${targetPixelIp.trim()} directly as Pixel Bridge Node`}
+                                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer shrink-0"
+                                    >
+                                        <Check size={16} />
+                                        <span>Pair</span>
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -1819,14 +1838,19 @@ export default function Settings() {
                                     {discoveredPixels.map((dev, idx) => (
                                         <div key={idx} className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
                                             <div>
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-2 flex-wrap">
                                                     <span className="font-bold text-white text-sm">{dev.model}</span>
-                                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                    <span className="px-2 py-0.5 rounded-md text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                                                         {dev.unlimitedTier === 'original_quality' ? 'Unlimited Original' : 'Storage Saver'}
                                                     </span>
+                                                    {dev.adbActive === false && (
+                                                        <span className="px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40" title="Device detected on local network. ADB port 5555 is not active yet.">
+                                                            Port 5555 Inactive
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <div className="text-xs text-zinc-400 font-mono mt-1">
-                                                    {dev.ip}:{dev.port} {dev.freeStorage ? `• ${dev.freeStorage} Free` : ''}
+                                                    {dev.ip}:{dev.port} {dev.freeStorage ? `• ${dev.freeStorage} Free` : ''} {dev.note ? `• ${dev.note}` : ''}
                                                 </div>
                                             </div>
                                             <button
