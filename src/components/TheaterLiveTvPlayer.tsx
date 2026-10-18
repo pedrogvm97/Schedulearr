@@ -1066,18 +1066,47 @@ export default function TheaterLiveTvPlayer({
                         }}
                         className="flex-1 bg-black flex items-center justify-center relative overflow-hidden"
                     >
-                        <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            muted={isMuted}
-                            className="w-full h-full object-contain"
-                            onVolumeChange={(e) => {
-                                const vid = e.currentTarget;
-                                setIsMuted(vid.muted);
-                                if (!vid.muted) setVolume(vid.volume);
-                            }}
-                        />
+                        {!currentChannel ? (
+                            <div className="w-full h-full bg-gradient-to-br from-zinc-950 via-[#0d0d10] to-black flex flex-col items-center justify-center p-6 sm:p-10 text-center space-y-6">
+                                <div className="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-2xl shadow-amber-500/10">
+                                    <Tv2 size={40} className="animate-pulse" />
+                                </div>
+                                <div className="max-w-md space-y-2">
+                                    <h3 className="text-2xl font-black text-white tracking-tight">Select Channel</h3>
+                                    <p className="text-sm text-zinc-400">
+                                        Choose a channel from the Zapping Guide or click below to start live playback.
+                                    </p>
+                                </div>
+                                {channels.length > 0 && (
+                                    <div className="flex flex-wrap items-center justify-center gap-2 max-w-xl pt-2">
+                                        {channels.slice(0, 8).map(ch => (
+                                            <button
+                                                key={ch.id}
+                                                type="button"
+                                                onClick={() => setCurrentChannel(ch)}
+                                                className="px-3.5 py-2 rounded-xl bg-zinc-900/90 hover:bg-amber-500 hover:text-black border border-zinc-800 text-zinc-200 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md hover:scale-105 active:scale-95"
+                                            >
+                                                <Play size={12} className="fill-current shrink-0" />
+                                                <span className="truncate max-w-[130px]">{ch.cleanName || ch.name}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <>
+                                <video
+                                    ref={videoRef}
+                                    autoPlay
+                                    playsInline
+                                    muted={isMuted}
+                                    className="w-full h-full object-contain"
+                                    onVolumeChange={(e) => {
+                                        const vid = e.currentTarget;
+                                        setIsMuted(vid.muted);
+                                        if (!vid.muted) setVolume(vid.volume);
+                                    }}
+                                />
 
                         {/* Top OSD Bar: Quality, Multi-Stream Switcher, Guide Toggle, Fullscreen */}
                         <div
@@ -1260,6 +1289,8 @@ export default function TheaterLiveTvPlayer({
                                 </div>
                             </>
                         )}
+                        </>
+                    )}
                     </div>
 
                     {/* Bottom OSD Bar: Channel Info & Currently Airing Program Timeline */}

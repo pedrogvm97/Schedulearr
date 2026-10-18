@@ -152,6 +152,16 @@ export async function GET() {
         let voiceFailed = 0;
 
         let lastErrorMsg = '';
+        const failedItems: Array<{
+            id: string;
+            category: 'stt' | 'art' | 'voice' | 'video' | 'general';
+            title: string;
+            item: string;
+            stage: string;
+            error: string;
+            bookKey?: string;
+            chapterKey?: string;
+        }> = [];
 
         const queuedBooks = queuedBooksRaw.map(book => {
             const chapters = getAudiobookChaptersMeta(book.book_key);
@@ -170,7 +180,18 @@ export async function GET() {
                     else if (ch.transcription_status === 'failed') {
                         sttFailed++;
                         bookFailedCount++;
-                        if (ch.error_message && !bookLastError) bookLastError = ch.error_message;
+                        const err = ch.error_message || 'Speech-to-Text transcription timed out or failed';
+                        if (!bookLastError) bookLastError = err;
+                        failedItems.push({
+                            id: `stt_${ch.chapter_key}`,
+                            category: 'stt',
+                            title: book.title,
+                            item: ch.title || `Chapter ${ch.chapter_index != null ? ch.chapter_index + 1 : ''}`,
+                            stage: 'Speech-to-Text',
+                            error: err,
+                            bookKey: book.book_key,
+                            chapterKey: ch.chapter_key
+                        });
                     } else sttPending++;
                 }
                 const validScenes = (ch.images || []).filter(i => i.kept !== false && !String(i.url || '').toLowerCase().includes('.svg'));
@@ -191,7 +212,18 @@ export async function GET() {
                     else if (ch.illustration_status === 'failed') {
                         artFailedChapters++;
                         bookFailedCount++;
-                        if (ch.error_message && !bookLastError) bookLastError = ch.error_message;
+                        const err = ch.error_message || 'Scene artwork painting failed';
+                        if (!bookLastError) bookLastError = err;
+                        failedItems.push({
+                            id: `art_${ch.chapter_key}`,
+                            category: 'art',
+                            title: book.title,
+                            item: ch.title || `Chapter ${ch.chapter_index != null ? ch.chapter_index + 1 : ''}`,
+                            stage: 'Scene Artwork',
+                            error: err,
+                            bookKey: book.book_key,
+                            chapterKey: ch.chapter_key
+                        });
                     } else artPendingChapters++;
                 }
                 if (book.enhance_audio_enabled) {
@@ -199,7 +231,18 @@ export async function GET() {
                     else if (ch.audio_enhance_status === 'failed') {
                         voiceFailed++;
                         bookFailedCount++;
-                        if (ch.error_message && !bookLastError) bookLastError = ch.error_message;
+                        const err = ch.error_message || 'Voice DSP enhancement failed';
+                        if (!bookLastError) bookLastError = err;
+                        failedItems.push({
+                            id: `voice_${ch.chapter_key}`,
+                            category: 'voice',
+                            title: book.title,
+                            item: ch.title || `Chapter ${ch.chapter_index != null ? ch.chapter_index + 1 : ''}`,
+                            stage: 'Voice DSP',
+                            error: err,
+                            bookKey: book.book_key,
+                            chapterKey: ch.chapter_key
+                        });
                     } else voicePending++;
                 }
             }
@@ -261,7 +304,7 @@ export async function GET() {
         const recentTransfers = transferJobs.filter((t: any) => t.status === 'completed' || t.status === 'failed').slice(0, 10);
 
         const recentAudiobookChapters = getRecentAudiobookActivity(12);
-        const recentSystemLogs = getSystemLogs(15);
+        const recentSystemLogs = getSystemLogs(250);
 
         // 7. Phone Backup Suite (Immich -> Pixel Bridge -> Google Photos)
         const phoneBackupSuite = await getPhoneBackupTasksSummary();
@@ -285,6 +328,8 @@ export async function GET() {
             ok: true,
             activeCount,
             queuedCount,
+            failedItems,
+            totalFailedCount: failedItems.length,
             libraryProcessingSummary,
             liveStreams: activeStreamHubs,
             epgSyncs: activeEpgSyncs,
@@ -571,6 +616,79 @@ export async function POST(request: Request) {
                 const target = subAction === 'redo_art' ? 'art' : subAction === 'redo_transcriptions' ? 'transcriptions' : 'all';
                 await resetAndRedoAudiobookAssets({ bookKey, target, redoNow: true });
                 return NextResponse.json({ ok: true, message: `Reset ${target} for "${existing.title}" and queued regeneration.` });
+            }
+        if (action === 'retry_all_failed_tasks') {
+            const queuedBooksRaw = getAudiobooksMeta().filter(b => b.is_queued === 1);
+            let retriedCount = 0;
+            for (const book of queuedBooksRaw) {
+                const chapters = getAudiobookChaptersMeta(book.book_key);
+                let bookHadFailed = false;
+                for (const ch of chapters) {
+                    if (ch.transcription_status === 'failed' || ch.illustration_status === 'failed' || ch.audio_enhance_status === 'failed') {
+                        bookHadFailed = true;
+                        retriedCount++;
+                        upsertAudiobookChapterMeta({
+                            chapter_key: ch.chapter_key,
+                            book_key: book.book_key,
+                            transcription_status: ch.transcription_status === 'failed' ? 'queued' : ch.transcription_status,
+                            illustration_status: ch.illustration_status === 'failed' ? 'queued' : ch.illustration_status,
+                            audio_enhance_status: ch.audio_enhance_status === 'failed' ? 'queued' : ch.audio_enhance_status,
+                            error_message: ''
+                        });
+                    }
+                }
+                if (bookHadFailed) {
+                    recalculateAudiobookTotals(book.book_key);
+                    triggerAudiobookQueueWorker(book.book_key, undefined, true);
+                }
+            }
+            logSystemEvent('STT', `Retried ${retriedCount} failed tasks across audiobooks`, 'info');
+            return NextResponse.json({ ok: true, message: `Retrying ${retriedCount} failed task(s) now.` });
+        }
+
+        if (action === 'clear_failed_tasks') {
+            const queuedBooksRaw = getAudiobooksMeta().filter(b => b.is_queued === 1);
+            let clearedCount = 0;
+            for (const book of queuedBooksRaw) {
+                const chapters = getAudiobookChaptersMeta(book.book_key);
+                for (const ch of chapters) {
+                    if (ch.transcription_status === 'failed' || ch.illustration_status === 'failed' || ch.audio_enhance_status === 'failed') {
+                        clearedCount++;
+                        upsertAudiobookChapterMeta({
+                            chapter_key: ch.chapter_key,
+                            book_key: book.book_key,
+                            transcription_status: ch.transcription_status === 'failed' ? 'idle' : ch.transcription_status,
+                            illustration_status: ch.illustration_status === 'failed' ? 'idle' : ch.illustration_status,
+                            audio_enhance_status: ch.audio_enhance_status === 'failed' ? 'idle' : ch.audio_enhance_status,
+                            error_message: ''
+                        });
+                    }
+                }
+                recalculateAudiobookTotals(book.book_key);
+            }
+            logSystemEvent('STT', `Cleared error flags on ${clearedCount} tasks`, 'info');
+            return NextResponse.json({ ok: true, message: `Cleared ${clearedCount} error(s).` });
+        }
+
+        if (action === 'retry_task_item') {
+            const { bookKey, chapterKey } = body;
+            if (bookKey && chapterKey) {
+                const chapters = getAudiobookChaptersMeta(bookKey);
+                const targetCh = chapters.find(c => c.chapter_key === chapterKey);
+                if (targetCh) {
+                    upsertAudiobookChapterMeta({
+                        chapter_key: chapterKey,
+                        book_key: bookKey,
+                        transcription_status: targetCh.transcription_status === 'failed' ? 'queued' : targetCh.transcription_status,
+                        illustration_status: targetCh.illustration_status === 'failed' ? 'queued' : targetCh.illustration_status,
+                        audio_enhance_status: targetCh.audio_enhance_status === 'failed' ? 'queued' : targetCh.audio_enhance_status,
+                        error_message: ''
+                    });
+                    recalculateAudiobookTotals(bookKey);
+                    triggerAudiobookQueueWorker(bookKey, undefined, true);
+                    logSystemEvent('STT', `Retried chapter task "${targetCh.title || chapterKey}"`, 'info');
+                    return NextResponse.json({ ok: true, message: `Retrying "${targetCh.title || chapterKey}".` });
+                }
             }
         }
 

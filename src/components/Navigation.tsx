@@ -173,7 +173,7 @@ export function Navigation() {
 
             {/* ── Desktop & Tablet Top Nav (≥640px) ── */}
             <nav className="hidden sm:block border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-2xl sticky top-0 z-50 w-full max-w-full">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between gap-4">
+                <div className="max-w-[1920px] 2xl:max-w-[2160px] mx-auto px-4 sm:px-6 md:px-8 h-20 flex items-center justify-between gap-4">
                     <Link href="/" className="flex items-center gap-3.5 group flex-shrink-0" title="Schedulearr Home">
                         <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1.5 border border-emerald-500/30 transition-transform group-hover:scale-105 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex items-center justify-center">
                             <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />

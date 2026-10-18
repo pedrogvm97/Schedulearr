@@ -1515,16 +1515,6 @@ export function SchedulePanel() {
                         </div>
                     )}
 
-                    {/* Floating Quick Jump to Today Button (Visible across all view modes) */}
-                    <button
-                        type="button"
-                        onClick={handleJumpToToday}
-                        className="fixed bottom-24 sm:bottom-8 right-6 z-40 px-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm sm:text-base uppercase tracking-wider shadow-[0_12px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/50 backdrop-blur-md"
-                        title="Quickly jump to Today in timeline"
-                    >
-                        <Flame size={20} className="fill-black" />
-                        <span>Go to Today</span>
-                    </button>
 
                     {/* Bottom Infinite Load More Future Releases Button */}
                     <div className="text-center pt-2">

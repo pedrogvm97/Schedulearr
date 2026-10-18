@@ -50,7 +50,12 @@ import {
     CloudCheck,
     ArrowUpRight,
     Battery,
-    BatteryCharging
+    BatteryCharging,
+    AlertTriangle,
+    Eye,
+    Filter,
+    Wrench,
+    Check
 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ConfirmModal';
 
@@ -78,6 +83,11 @@ export default function TasksPage() {
     const [chartMetricMode, setChartMetricMode] = useState<'duration' | 'units'>('duration');
     const [isSttBreakdownExpanded, setIsSttBreakdownExpanded] = useState<boolean>(true);
     const [isOverviewCollapsed, setIsOverviewCollapsed] = useState<boolean>(false);
+    const [showErrorModal, setShowErrorModal] = useState<boolean>(false);
+    const [previewPhotoItem, setPreviewPhotoItem] = useState<any | null>(null);
+    const [logCategoryFilter, setLogCategoryFilter] = useState<string>('all');
+    const [logLevelFilter, setLogLevelFilter] = useState<string>('all');
+    const [logSearchText, setLogSearchText] = useState<string>('');
     const [confirmModal, setConfirmModal] = useState<{
         isOpen: boolean;
         title: string;
@@ -160,6 +170,7 @@ export default function TasksPage() {
     const dvrScheduled: any[] = Array.isArray(data?.dvr?.scheduled) ? data.dvr.scheduled : [];
     const transfersActive: any[] = Array.isArray(data?.transfers?.active) ? data.transfers.active : [];
     const recentLogs: any[] = Array.isArray(data?.recentSystemLogs) ? data.recentSystemLogs : [];
+    const failedItems: any[] = Array.isArray(data?.failedItems) ? data.failedItems : [];
 
     const phoneBackup = data?.phoneBackupSuite;
     const phoneCounts = phoneBackup?.counts || {
@@ -179,7 +190,101 @@ export default function TasksPage() {
     const totalFailedChapters =
         (totals.transcriptions?.failed || 0) +
         (totals.art?.failedChapters || 0) +
-        (totals.voices?.failed || 0);
+        (totals.voices?.failed || 0) +
+        failedItems.length;
+
+    const allSystemLogs = React.useMemo(() => {
+        const normalized: Array<{
+            id: string;
+            timestamp: string | number;
+            level: 'info' | 'warn' | 'error';
+            category: string;
+            message: string;
+            details?: string;
+        }> = [];
+
+        for (const log of recentLogs) {
+            normalized.push({
+                id: String(log.id || `${log.timestamp}-${Math.random()}`),
+                timestamp: log.timestamp || '',
+                level: log.level === 'error' ? 'error' : log.level === 'warn' ? 'warn' : 'info',
+                category: log.category || 'System',
+                message: log.message || '',
+                details: log.details || ''
+            });
+        }
+
+        const history = Array.isArray(studio?.history) ? studio.history : [];
+        for (const h of history) {
+            const cat = h.queueType === 'transcription' ? 'STT' : h.queueType === 'voice' ? 'Voice' : h.queueType === 'art' ? 'Art' : 'Studio';
+            const msg = `${h.bookTitle ? `${h.bookTitle}: ` : ''}${h.chapterTitle ? `${h.chapterTitle} ` : ''}${h.detail || h.details || h.status || ''}`;
+            normalized.push({
+                id: String(h.id || `${h.timestamp}-${Math.random()}`),
+                timestamp: h.timestamp || '',
+                level: h.status === 'failed' ? 'error' : 'info',
+                category: cat,
+                message: msg.trim()
+            });
+        }
+
+        normalized.sort((a, b) => {
+            const timeA = new Date(a.timestamp).getTime() || 0;
+            const timeB = new Date(b.timestamp).getTime() || 0;
+            return timeB - timeA;
+        });
+
+        return normalized;
+    }, [recentLogs, studio?.history]);
+
+    const groupedLogs = React.useMemo(() => {
+        const filtered = allSystemLogs.filter(log => {
+            if (logLevelFilter !== 'all' && log.level !== logLevelFilter) return false;
+            if (logCategoryFilter !== 'all') {
+                const cat = log.category.toLowerCase();
+                const filter = logCategoryFilter.toLowerCase();
+                if (filter === 'stt' && !cat.includes('stt') && !cat.includes('transcription')) return false;
+                else if (filter === 'scheduler' && !cat.includes('sched')) return false;
+                else if (filter === 'pixel' && !cat.includes('pixel') && !cat.includes('phone')) return false;
+                else if (filter === 'streamguard' && !cat.includes('stream')) return false;
+                else if (filter === 'dvr' && !cat.includes('dvr')) return false;
+                else if (filter === 'media' && !cat.includes('media') && !cat.includes('art') && !cat.includes('voice')) return false;
+                else if (filter === 'system' && !cat.includes('system')) return false;
+                else if (!['stt', 'scheduler', 'pixel', 'streamguard', 'dvr', 'media', 'system'].includes(filter)) {
+                    if (!cat.includes(filter)) return false;
+                }
+            }
+            if (logSearchText.trim()) {
+                const q = logSearchText.toLowerCase();
+                const hit = (log.message || '').toLowerCase().includes(q) || (log.category || '').toLowerCase().includes(q);
+                if (!hit) return false;
+            }
+            return true;
+        });
+
+        const grouped: Array<{
+            id: string;
+            timestamp: string | number;
+            level: 'info' | 'warn' | 'error';
+            category: string;
+            message: string;
+            details?: string;
+            count: number;
+        }> = [];
+
+        for (const item of filtered) {
+            const prev = grouped[grouped.length - 1];
+            if (prev && prev.category === item.category && prev.level === item.level && prev.message === item.message) {
+                prev.count += 1;
+            } else {
+                grouped.push({
+                    ...item,
+                    count: 1
+                });
+            }
+        }
+
+        return grouped;
+    }, [allSystemLogs, logLevelFilter, logCategoryFilter, logSearchText]);
 
     const formatNextRun = (ts: number | string | null) => {
         if (!ts) return '—';
@@ -227,7 +332,7 @@ export default function TasksPage() {
     const ringDashoffset = ringCircumference - (ringCircumference * totalProcessingPercent) / 100;
 
     return (
-        <div className="min-h-screen bg-[#07090e] text-white px-4 py-5 md:px-8 max-w-[1750px] mx-auto space-y-6">
+        <div className="min-h-screen bg-[#07090e] text-white px-4 py-5 md:px-8 max-w-[1920px] 2xl:max-w-[2160px] mx-auto space-y-6">
             {/* Top Header Bar */}
             <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
                 <div className="flex items-center gap-3">
@@ -337,85 +442,153 @@ export default function TasksPage() {
                 </div>
 
                 {!isOverviewCollapsed && (
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-                        {/* ── Left Column: Total Processing % Circular Metric Card (lg:col-span-4 xl:col-span-3) ── */}
-                        <div className="lg:col-span-4 xl:col-span-3 rounded-2xl bg-black/40 border border-white/10 p-5 flex flex-col justify-between items-center text-center space-y-4">
-                            <div className="w-full flex items-center justify-between">
-                                <span className="text-xs font-black uppercase tracking-wider text-gray-400">Total</span>
-                                <span className={`px-2 py-0.5 rounded text-xs font-black uppercase ${
-                                    studioStatus.isRunning
-                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
-                                        : 'bg-white/5 text-gray-400 border border-white/10'
-                                }`}>
-                                    {studioStatus.isRunning ? 'Running' : 'Idle'}
-                                </span>
-                            </div>
-
-                            {/* Circular SVG Ring */}
-                            <div className="relative w-36 h-36 flex items-center justify-center my-1">
-                                <svg className="w-full h-full -rotate-90" viewBox="0 0 110 110">
-                                    <circle
-                                        cx="55"
-                                        cy="55"
-                                        r={ringRadius}
-                                        className="stroke-zinc-800"
-                                        strokeWidth="9"
-                                        fill="transparent"
-                                    />
-                                    <circle
-                                        cx="55"
-                                        cy="55"
-                                        r={ringRadius}
-                                        className="stroke-emerald-400 transition-all duration-700 ease-out"
-                                        strokeWidth="9"
-                                        strokeDasharray={ringCircumference}
-                                        strokeDashoffset={ringDashoffset}
-                                        strokeLinecap="round"
-                                        fill="transparent"
-                                    />
-                                </svg>
-                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                                    <span className="text-3xl md:text-4xl font-black font-mono text-white tracking-tight">
+                    <div className="space-y-5">
+                        {/* ── Top Row: 4-Card Command Deck ── */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {/* Card 1: Overall Progress */}
+                            <div className="rounded-2xl bg-black/40 border border-white/10 p-5 space-y-3 shadow-md flex flex-col justify-between">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                            <BarChart3 size={18} />
+                                        </div>
+                                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Total Progress</span>
+                                    </div>
+                                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-black uppercase ${
+                                        studioStatus.isRunning
+                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
+                                            : 'bg-white/5 text-gray-400 border border-white/10'
+                                    }`}>
+                                        {studioStatus.isRunning ? 'Active' : 'Idle'}
+                                    </span>
+                                </div>
+                                <div>
+                                    <div className="text-3xl font-black font-mono text-white tracking-tight">
                                         {totalProcessingPercent}%
-                                    </span>
-                                    <span className="text-xs font-bold text-gray-400 uppercase mt-0.5">
-                                        Overall
-                                    </span>
+                                    </div>
+                                    <div className="text-xs text-gray-400 font-medium mt-1">
+                                        {processingSummary.totalDone} of {processingSummary.totalUnits} units completed
+                                    </div>
+                                </div>
+                                <div className="w-full h-2 rounded-md bg-zinc-900 border border-white/5 overflow-hidden">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-emerald-500 to-indigo-500 rounded-md transition-all duration-700"
+                                        style={{ width: `${totalProcessingPercent}%` }}
+                                    />
                                 </div>
                             </div>
 
-                            {/* Bottom Dual Metric Pills */}
-                            <div className="w-full grid grid-cols-2 gap-2 pt-2 border-t border-white/10">
-                                <div
-                                    className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center"
-                                    title="Total units completed across all tasks and libraries"
-                                >
-                                    <span className="text-[11px] font-black uppercase text-gray-400 flex items-center gap-1">
-                                        <Layers size={13} className="text-indigo-400" />
-                                        <span>Units</span>
-                                    </span>
-                                    <span className="text-base font-black font-mono text-white mt-1">
-                                        {processingSummary.totalDone} / {processingSummary.totalUnits}
+                            {/* Card 2: Units Breakdown */}
+                            <div className="rounded-2xl bg-black/40 border border-white/10 p-5 space-y-3 shadow-md flex flex-col justify-between">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                                            <Layers size={18} />
+                                        </div>
+                                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Queue Load</span>
+                                    </div>
+                                    <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-white/5 text-gray-400 border border-white/10">
+                                        All Libraries
                                     </span>
                                 </div>
+                                <div>
+                                    <div className="text-3xl font-black font-mono text-white tracking-tight">
+                                        {processingSummary.totalPending} <span className="text-base text-gray-400 font-normal">Pending</span>
+                                    </div>
+                                    <div className="text-xs text-gray-400 font-medium mt-1">
+                                        {processingSummary.totalDone} completed out of {processingSummary.totalUnits} units
+                                    </div>
+                                </div>
+                                <div className="text-xs text-indigo-300 font-mono font-semibold">
+                                    STT • LLM Scenes • Art • Voice
+                                </div>
+                            </div>
 
-                                <div
-                                    className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center"
-                                    title="Cumulative processing time computed across all tasks"
-                                >
-                                    <span className="text-[11px] font-black uppercase text-gray-400 flex items-center gap-1">
-                                        <Clock size={13} className="text-amber-400" />
-                                        <span>Time</span>
+                            {/* Card 3: Total Compute Time */}
+                            <div className="rounded-2xl bg-black/40 border border-white/10 p-5 space-y-3 shadow-md flex flex-col justify-between">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                            <Clock size={18} />
+                                        </div>
+                                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Compute Time</span>
+                                    </div>
+                                    <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                        Wall-Clock
                                     </span>
-                                    <span className="text-base font-black font-mono text-white mt-1">
+                                </div>
+                                <div>
+                                    <div className="text-3xl font-black font-mono text-white tracking-tight">
                                         {processingSummary.totalDurationFormatted}
+                                    </div>
+                                    <div className="text-xs text-gray-400 font-medium mt-1 truncate" title={`Longest: ${processingSummary.longestTaskLabel} (${processingSummary.longestTaskDurationFormatted})`}>
+                                        Longest: <span className="text-amber-300 font-bold">{processingSummary.longestTaskLabel}</span> ({processingSummary.longestTaskDurationFormatted})
+                                    </div>
+                                </div>
+                                <div className="text-xs text-zinc-400 font-mono">
+                                    Tracked cumulative task duration
+                                </div>
+                            </div>
+
+                            {/* Card 4: Pipeline Health & Error Diagnostics */}
+                            <div className={`rounded-2xl border p-5 space-y-3 shadow-md flex flex-col justify-between ${
+                                totalFailedChapters > 0
+                                    ? 'bg-rose-950/20 border-rose-500/40 shadow-rose-950/20'
+                                    : 'bg-black/40 border-white/10'
+                            }`}>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`p-2 rounded-xl border ${
+                                            totalFailedChapters > 0
+                                                ? 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                                                : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                        }`}>
+                                            {totalFailedChapters > 0 ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+                                        </div>
+                                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Pipeline Health</span>
+                                    </div>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
+                                        totalFailedChapters > 0
+                                            ? 'bg-rose-500/30 text-rose-300 border border-rose-500/50'
+                                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                    }`}>
+                                        {totalFailedChapters > 0 ? `${totalFailedChapters} Errors` : 'Optimal'}
                                     </span>
+                                </div>
+                                <div>
+                                    <div className="text-3xl font-black font-mono text-white tracking-tight">
+                                        {totalFailedChapters > 0 ? (
+                                            <span className="text-rose-400">{totalFailedChapters} Issues</span>
+                                        ) : (
+                                            <span className="text-emerald-400">100% Ok</span>
+                                        )}
+                                    </div>
+                                    <div className="text-xs text-gray-400 font-medium mt-1">
+                                        {totalFailedChapters > 0 ? 'Failures detected in processing queue' : 'All worker pipelines operating cleanly'}
+                                    </div>
+                                </div>
+                                <div>
+                                    {totalFailedChapters > 0 ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowErrorModal(true)}
+                                            className="w-full py-1.5 px-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow"
+                                        >
+                                            <AlertTriangle size={14} className="text-rose-400" />
+                                            <span>View & Fix Errors</span>
+                                        </button>
+                                    ) : (
+                                        <div className="text-xs text-emerald-400 font-mono font-bold flex items-center gap-1">
+                                            <Check size={14} />
+                                            <span>No pipeline errors</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
 
-                        {/* ── Right Column: Absolute Task Duration & Workload Chart (lg:col-span-8 xl:col-span-9) ── */}
-                        <div className="lg:col-span-8 xl:col-span-9 rounded-2xl bg-black/40 border border-white/10 p-5 space-y-4">
+                        {/* ── Bottom Workload & Duration Comparison Card (Full Width) ── */}
+                        <div className="rounded-2xl bg-black/40 border border-white/10 p-5 space-y-4 shadow-xl">
                             {/* Chart Header Pill */}
                             <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/10">
                                 <div className="flex items-center gap-2">
@@ -598,6 +771,11 @@ export default function TasksPage() {
                 >
                     <BookOpen size={18} />
                     <span>Audiobooks</span>
+                    {queuedBooks.length > 0 && (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${activeLibraryTab === 'audiobooks' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
+                            {queuedBooks.length}
+                        </span>
+                    )}
                 </button>
 
                 <button
@@ -611,6 +789,11 @@ export default function TasksPage() {
                 >
                     <Tv size={18} />
                     <span>TV & Movies</span>
+                    {(dvrActive.length + dvrScheduled.length) > 0 && (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${activeLibraryTab === 'tv_movies' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
+                            {dvrActive.length + dvrScheduled.length}
+                        </span>
+                    )}
                 </button>
 
                 <button
@@ -637,6 +820,11 @@ export default function TasksPage() {
                 >
                     <Smartphone size={18} />
                     <span>Photos</span>
+                    {phoneItems.length > 0 && (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${activeLibraryTab === 'photos' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
+                            {phoneItems.length}
+                        </span>
+                    )}
                 </button>
 
                 <button
@@ -650,6 +838,11 @@ export default function TasksPage() {
                 >
                     <Terminal size={18} />
                     <span>System & Logs</span>
+                    {allSystemLogs.length > 0 && (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${activeLibraryTab === 'system' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
+                            {allSystemLogs.length}
+                        </span>
+                    )}
                 </button>
             </div>
 
@@ -741,8 +934,21 @@ export default function TasksPage() {
                                             {totals.transcriptions.done}/{totals.transcriptions.total} Ch
                                         </span>
                                     </div>
-                                    <div className="text-xs text-gray-400 font-semibold">
-                                        {totals.transcriptions.pending} queued • {totals.transcriptions.failed > 0 ? `${totals.transcriptions.failed} errors` : '0 errors'}
+                                    <div className="flex items-center justify-between text-xs text-gray-400 font-semibold">
+                                        <span>{totals.transcriptions.pending} queued</span>
+                                        {totals.transcriptions.failed > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowErrorModal(true)}
+                                                className="px-2 py-0.5 rounded-md bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 flex items-center gap-1 cursor-pointer transition-colors font-bold"
+                                                title="View error diagnostics and retry failed transcriptions"
+                                            >
+                                                <AlertTriangle size={12} className="text-rose-400" />
+                                                <span>{totals.transcriptions.failed} errors • View & Fix</span>
+                                            </button>
+                                        ) : (
+                                            <span className="text-zinc-500">0 errors</span>
+                                        )}
                                     </div>
                                     <div className="w-full h-2 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
                                         <div
@@ -765,8 +971,21 @@ export default function TasksPage() {
                                             {totals.voices.done}/{totals.voices.total} Ch
                                         </span>
                                     </div>
-                                    <div className="text-xs text-gray-400 font-semibold">
-                                        {totals.voices.pending} queued • {totals.voices.failed > 0 ? `${totals.voices.failed} errors` : '0 errors'}
+                                    <div className="flex items-center justify-between text-xs text-gray-400 font-semibold">
+                                        <span>{totals.voices.pending} queued</span>
+                                        {totals.voices.failed > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowErrorModal(true)}
+                                                className="px-2 py-0.5 rounded-md bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 flex items-center gap-1 cursor-pointer transition-colors font-bold"
+                                                title="View error diagnostics and retry failed voice chapters"
+                                            >
+                                                <AlertTriangle size={12} className="text-rose-400" />
+                                                <span>{totals.voices.failed} errors • View & Fix</span>
+                                            </button>
+                                        ) : (
+                                            <span className="text-zinc-500">0 errors</span>
+                                        )}
                                     </div>
                                     <div className="w-full h-2 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
                                         <div
@@ -884,8 +1103,19 @@ export default function TasksPage() {
                                             {totals.art.doneChapters}/{totals.art.totalChapters} Ch
                                         </span>
                                     </div>
-                                    <div className="text-xs text-gray-400 font-semibold">
-                                        {totals.art.keptScenes || 0} painted • {totals.art.pendingChapters} queued
+                                    <div className="flex items-center justify-between text-xs text-gray-400 font-semibold">
+                                        <span>{totals.art.keptScenes || 0} painted • {totals.art.pendingChapters} queued</span>
+                                        {(totals.art.failedChapters || 0) > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowErrorModal(true)}
+                                                className="px-2 py-0.5 rounded-md bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 flex items-center gap-1 cursor-pointer transition-colors font-bold"
+                                                title="View error diagnostics and retry failed art chapters"
+                                            >
+                                                <AlertTriangle size={12} className="text-rose-400" />
+                                                <span>{totals.art.failedChapters} errors • View & Fix</span>
+                                            </button>
+                                        ) : null}
                                     </div>
                                     <div className="w-full h-2 rounded-md bg-zinc-900 overflow-hidden border border-white/5">
                                         <div
@@ -960,13 +1190,14 @@ export default function TasksPage() {
                                 ) : (
                                     <div className="min-w-[960px] space-y-2">
                                         {/* ── Strict Column Headers ── */}
-                                        <div className="grid grid-cols-[minmax(240px,1.5fr)_54px_96px_86px_104px_96px_210px] items-center gap-3 px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 border-b border-white/10">
+                                        <div className="grid grid-cols-[minmax(240px,1.5fr)_80px_96px_86px_104px_96px_210px] items-center gap-3 px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 border-b border-white/10">
                                             <div className="flex items-center gap-2">
                                                 <span>#</span>
                                                 <span>Book</span>
                                             </div>
-                                            <div className="flex justify-center" title="Automatic Pipeline State">
-                                                <Zap size={14} className="text-zinc-400" />
+                                            <div className="flex items-center justify-center gap-1 text-zinc-400" title="Automatic Pipeline: automatically runs queued books through all enabled stages">
+                                                <Zap size={13} className="text-amber-400 fill-amber-400/20" />
+                                                <span>Auto</span>
                                             </div>
                                             <div className="flex items-center justify-center gap-1" title="Stage 1: Speech-to-Text Transcription">
                                                 <FileText size={14} className="text-indigo-400" />
@@ -998,7 +1229,7 @@ export default function TasksPage() {
                                             return (
                                                 <div
                                                     key={book.book_key}
-                                                    className={`rounded-xl p-3 sm:px-4 sm:py-3 border grid grid-cols-[minmax(240px,1.5fr)_54px_96px_86px_104px_96px_210px] items-center gap-3 transition-colors ${
+                                                    className={`rounded-xl p-3 sm:px-4 sm:py-3 border grid grid-cols-[minmax(240px,1.5fr)_80px_96px_86px_104px_96px_210px] items-center gap-3 transition-colors ${
                                                         isBookActive
                                                             ? 'bg-emerald-500/10 border-emerald-500/50 shadow-lg'
                                                             : 'bg-black/40 border-white/10 hover:border-white/20'
@@ -1021,7 +1252,7 @@ export default function TasksPage() {
                                                         </div>
                                                     </div>
 
-                                                    {/* Col 2: Pipeline State (Pure Symbol, Squared, No Text) */}
+                                                    {/* Col 2: Pipeline State (Clear Auto / Off toggle) */}
                                                     <div className="flex justify-center">
                                                         <button
                                                             type="button"
@@ -1031,14 +1262,15 @@ export default function TasksPage() {
                                                                 subAction: 'toggle_flag',
                                                                 field: 'queue_enabled'
                                                             })}
-                                                            title={isAutoOn ? "Automatic processing: Active (Click to pause)" : "Automatic processing: Paused (Click to resume)"}
-                                                            className={`w-9 h-9 rounded-lg border flex items-center justify-center cursor-pointer transition-all ${
+                                                            title={isAutoOn ? "Automatic processing: Active (Click to pause auto-pipeline)" : "Automatic processing: Paused (Click to resume auto-pipeline)"}
+                                                            className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-center gap-1 cursor-pointer transition-all text-xs font-bold ${
                                                                 isAutoOn
                                                                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30 shadow-sm'
-                                                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300'
+                                                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-200'
                                                             }`}
                                                         >
-                                                            <Zap size={18} className={isAutoOn ? "fill-current" : ""} />
+                                                            <Zap size={13} className={isAutoOn ? "fill-current text-emerald-400" : "text-zinc-500"} />
+                                                            <span>{isAutoOn ? 'Auto' : 'Off'}</span>
                                                         </button>
                                                     </div>
 
@@ -1533,34 +1765,167 @@ export default function TasksPage() {
                         </div>
                     </div>
 
-                    {/* Server Logs */}
-                    <section className="rounded-3xl bg-[#0d111a] border border-white/10 p-6 space-y-4 shadow-2xl">
-                        <div className="flex items-center justify-between pb-4 border-b border-white/10">
+                    {/* Server Logs with Android-Style Grouping & Full Filters */}
+                    <section className="rounded-3xl bg-[#0d111a] border border-white/10 p-6 space-y-5 shadow-2xl">
+                        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
                             <div className="flex items-center gap-3">
                                 <Terminal size={22} className="text-emerald-400" />
-                                <h3 className="text-xl font-black text-white">Live Server Log</h3>
+                                <div>
+                                    <h3 className="text-xl font-black text-white">System Logs & Event Telemetry</h3>
+                                    <p className="text-xs text-gray-400 font-mono">
+                                        Showing {groupedLogs.length} grouped event entries ({allSystemLogs.length} total raw messages)
+                                    </p>
+                                </div>
                             </div>
-                            <span className="text-xs font-mono font-bold text-gray-400">
-                                {transfersActive.length} Active Transfers
-                            </span>
+                            <div className="flex items-center gap-2">
+                                <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold bg-white/5 border border-white/10 text-gray-300">
+                                    {transfersActive.length} Active Transfers
+                                </span>
+                            </div>
                         </div>
 
-                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                            {(Array.isArray(studio?.history) ? studio.history : []).slice(0, 10).map((h: any, i: number) => (
-                                <div key={h.id || i} className="text-xs font-mono bg-black/40 border border-white/5 rounded-xl p-3 flex items-center justify-between gap-3">
-                                    <span className={h.status === 'failed' ? 'text-rose-300 truncate' : 'text-gray-200 truncate'}>
-                                        [{(h.queueType || h.taskType || 'TASK').toUpperCase()}] {h.bookTitle}{h.chapterTitle ? ` — ${h.chapterTitle}` : ''}: {h.detail || h.details}
-                                    </span>
-                                    <span className="text-gray-500 shrink-0">
-                                        {h.timestamp ? new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                                    </span>
+                        {/* Controls & Filter Bar */}
+                        <div className="space-y-3">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                                {/* Search input */}
+                                <div className="relative flex-1">
+                                    <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        value={logSearchText}
+                                        onChange={(e) => setLogSearchText(e.target.value)}
+                                        placeholder="Filter log messages..."
+                                        className="w-full pl-9 pr-8 py-2 rounded-xl bg-black/50 border border-white/10 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-400 font-mono"
+                                    />
+                                    {logSearchText && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setLogSearchText('')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
                                 </div>
-                            ))}
-                            {recentLogs.slice(0, 6).map((l: any) => (
-                                <div key={l.id} className="text-xs font-mono bg-black/40 border border-white/5 rounded-xl p-3 text-gray-300 truncate">
-                                    [{l.category}] {l.message}
+
+                                {/* Log Level Selector */}
+                                <div className="flex items-center gap-1 p-1 bg-black/60 rounded-xl border border-white/10 text-xs font-bold uppercase shrink-0">
+                                    {(['all', 'info', 'warn', 'error'] as const).map(lvl => (
+                                        <button
+                                            key={lvl}
+                                            type="button"
+                                            onClick={() => setLogLevelFilter(lvl)}
+                                            className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                                                logLevelFilter === lvl
+                                                    ? lvl === 'error'
+                                                        ? 'bg-rose-500 text-white font-black'
+                                                        : lvl === 'warn'
+                                                        ? 'bg-amber-500 text-black font-black'
+                                                        : 'bg-indigo-500 text-black font-black'
+                                                    : 'text-gray-400 hover:text-white'
+                                            }`}
+                                        >
+                                            {lvl === 'all' ? 'All' : lvl.toUpperCase()}
+                                        </button>
+                                    ))}
                                 </div>
-                            ))}
+                            </div>
+
+                            {/* Category Filter Pills */}
+                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs font-bold uppercase">
+                                <span className="text-gray-500 text-[11px] font-black mr-1 flex items-center gap-1">
+                                    <Filter size={12} />
+                                    <span>Scope:</span>
+                                </span>
+                                {([
+                                    { key: 'all', label: 'All Services' },
+                                    { key: 'stt', label: 'Speech-to-Text' },
+                                    { key: 'scheduler', label: 'Scheduler' },
+                                    { key: 'pixel', label: 'Pixel Bridge' },
+                                    { key: 'streamguard', label: 'StreamGuard' },
+                                    { key: 'dvr', label: 'Live TV & DVR' },
+                                    { key: 'media', label: 'Media Studio' },
+                                    { key: 'system', label: 'System' }
+                                ]).map(cat => (
+                                    <button
+                                        key={cat.key}
+                                        type="button"
+                                        onClick={() => setLogCategoryFilter(cat.key)}
+                                        className={`px-2.5 py-1 rounded-lg border transition-all cursor-pointer whitespace-nowrap text-xs font-bold ${
+                                            logCategoryFilter === cat.key
+                                                ? 'bg-white/20 text-white border-white/30 shadow-sm'
+                                                : 'bg-black/40 text-gray-400 hover:text-white border-white/5 hover:border-white/10'
+                                        }`}
+                                    >
+                                        {cat.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Log Stream Output (Android-Style Grouped) */}
+                        <div className="space-y-1.5 max-h-[540px] overflow-y-auto pr-2 custom-scrollbar font-mono text-xs">
+                            {groupedLogs.length === 0 ? (
+                                <div className="p-8 text-center text-gray-500 rounded-2xl bg-black/30 border border-white/5">
+                                    No log entries match the current search or filters.
+                                </div>
+                            ) : (
+                                groupedLogs.map((log) => {
+                                    const timeStr = log.timestamp
+                                        ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                                        : '—';
+
+                                    const isErr = log.level === 'error';
+                                    const isWarn = log.level === 'warn';
+
+                                    return (
+                                        <div
+                                            key={log.id}
+                                            className={`p-2.5 sm:px-3 sm:py-2 rounded-xl border flex items-start sm:items-center justify-between gap-3 transition-colors ${
+                                                isErr
+                                                    ? 'bg-rose-950/30 border-rose-500/30 text-rose-200'
+                                                    : isWarn
+                                                    ? 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+                                                    : 'bg-black/40 border-white/5 text-gray-300 hover:border-white/10'
+                                            }`}
+                                        >
+                                            <div className="flex flex-wrap sm:flex-nowrap items-baseline sm:items-center gap-2.5 min-w-0 flex-1">
+                                                <span className="text-gray-500 shrink-0 select-none text-[11px]">
+                                                    {timeStr}
+                                                </span>
+
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase shrink-0 border ${
+                                                    isErr
+                                                        ? 'bg-rose-500/30 text-rose-300 border-rose-500/50'
+                                                        : isWarn
+                                                        ? 'bg-amber-500/30 text-amber-300 border-amber-500/50'
+                                                        : 'bg-white/10 text-gray-300 border-white/10'
+                                                }`}>
+                                                    {log.level.toUpperCase()}
+                                                </span>
+
+                                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-white/5 border border-white/10 text-indigo-300 shrink-0">
+                                                    [{log.category.toUpperCase()}]
+                                                </span>
+
+                                                <span className="break-all sm:break-normal truncate-lines-2 sm:truncate font-normal text-xs">
+                                                    {log.message}
+                                                </span>
+                                            </div>
+
+                                            {/* Android-style repeat count badge */}
+                                            {log.count > 1 && (
+                                                <span
+                                                    className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-xs font-bold shrink-0 shadow-sm"
+                                                    title={`Repeated ${log.count} consecutive times`}
+                                                >
+                                                    ×{log.count}
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })
+                            )}
                         </div>
                     </section>
                 </div>
@@ -1914,11 +2279,69 @@ export default function TasksPage() {
                             </div>
                         </div>
 
+                        {/* ── 2B. PHOTO LIFECYCLE PROGRESS PIPELINE ── */}
+                        <div className="p-6 rounded-3xl bg-[#0d111a] border border-white/10 space-y-4 shadow-xl">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5">
+                                    <Sparkles size={20} className="text-indigo-400" />
+                                    <h4 className="text-lg font-black text-white">Full Lifecycle Progress (Staged → Cloud → Cleaned)</h4>
+                                </div>
+                                <span className="text-xl font-black font-mono text-indigo-300">
+                                    {(phoneCounts.queued + phoneCounts.staging + phoneCounts.transferred + phoneCounts.uploaded + phoneCounts.cleaned) > 0
+                                        ? Math.round((((phoneCounts.cleaned || 0) * 100 + (phoneCounts.uploaded || 0) * 75 + (phoneCounts.transferred || 0) * 50 + ((phoneCounts.queued || 0) + (phoneCounts.staging || 0)) * 25) / ((phoneCounts.queued + phoneCounts.staging + phoneCounts.transferred + phoneCounts.uploaded + phoneCounts.cleaned) * 100)) * 100)
+                                        : 0}% Complete
+                                </span>
+                            </div>
+
+                            {/* 4-Stage Connected Lifecycle Bar */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono font-bold">
+                                <div className="p-3 rounded-2xl bg-black/40 border border-sky-500/30 space-y-1.5">
+                                    <div className="flex justify-between text-sky-400">
+                                        <span>1. Staged</span>
+                                        <span>{phoneCounts.queued + phoneCounts.staging}</span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                                        <div className="h-full bg-sky-500 transition-all duration-500" style={{ width: `${(phoneCounts.queued + phoneCounts.staging) > 0 ? 100 : 0}%` }} />
+                                    </div>
+                                </div>
+
+                                <div className="p-3 rounded-2xl bg-black/40 border border-amber-500/30 space-y-1.5">
+                                    <div className="flex justify-between text-amber-400">
+                                        <span>2. On Phone</span>
+                                        <span>{phoneCounts.transferred}</span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                                        <div className="h-full bg-amber-500 transition-all duration-500" style={{ width: `${phoneCounts.transferred > 0 ? 100 : 0}%` }} />
+                                    </div>
+                                </div>
+
+                                <div className="p-3 rounded-2xl bg-black/40 border border-emerald-500/30 space-y-1.5">
+                                    <div className="flex justify-between text-emerald-400">
+                                        <span>3. Cloud Synced</span>
+                                        <span>{phoneCounts.uploaded}</span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                                        <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${phoneCounts.uploaded > 0 ? 100 : 0}%` }} />
+                                    </div>
+                                </div>
+
+                                <div className="p-3 rounded-2xl bg-black/40 border border-purple-500/30 space-y-1.5">
+                                    <div className="flex justify-between text-purple-400">
+                                        <span>4. Cleaned</span>
+                                        <span>{phoneCounts.cleaned}</span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+                                        <div className="h-full bg-purple-500 transition-all duration-500" style={{ width: `${phoneCounts.cleaned > 0 ? 100 : 0}%` }} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         {/* ── 3. MEDIA LEDGER & PROCESSING DETAILS ── */}
                         <section className="rounded-3xl bg-[#0d111a] border border-white/10 p-6 sm:p-8 space-y-6 shadow-2xl">
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/10">
                                 <div className="flex items-center gap-3">
-                                    <h3 className="text-2xl font-black text-white">Ledger</h3>
+                                    <h3 className="text-2xl font-black text-white">Media Ledger</h3>
                                     <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold bg-white/10 text-white">
                                         {filteredPhoneItems.length}
                                     </span>
@@ -1967,8 +2390,8 @@ export default function TasksPage() {
                                 </div>
                             </div>
 
-                            {/* Media Items List */}
-                            <div className="space-y-3">
+                            {/* Media Items List (Finite Bounded Scroll Container) */}
+                            <div className="max-h-[580px] overflow-y-auto pr-2 space-y-3 custom-scrollbar rounded-2xl bg-black/20 p-2 border border-white/5">
                                 {filteredPhoneItems.length === 0 ? (
                                     <div className="p-8 text-center text-zinc-500 text-sm font-mono">
                                         No media items found matching current filter
@@ -1987,6 +2410,12 @@ export default function TasksPage() {
                                                 ? { label: 'Cleaned', cls: 'bg-purple-500/20 text-purple-300 border-purple-500/40' }
                                                 : { label: 'Queued', cls: 'bg-zinc-800 text-zinc-400 border-zinc-700' };
 
+                                        const itemProgress =
+                                            item.status === 'cleaned' ? 100 :
+                                            item.status === 'uploaded' ? 75 :
+                                            item.status === 'transferred' ? 50 :
+                                            (item.status === 'staging' || item.status === 'queued') ? 25 : 0;
+
                                         const thumbSrc = item.thumbnailUrl || `/api/theater/photos/immich/asset?id=${item.assetId}&size=preview`;
 
                                         return (
@@ -1995,8 +2424,13 @@ export default function TasksPage() {
                                                 className="p-4 sm:p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 hover:border-zinc-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-6 shadow-lg"
                                             >
                                                 <div className="flex items-center gap-4 sm:gap-5 min-w-0">
-                                                    {/* Authentic Raster Thumbnail */}
-                                                    <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-zinc-900 border border-white/10 shadow-lg shrink-0 group">
+                                                    {/* Authentic Raster Thumbnail (Clickable Lightbox Trigger) */}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPreviewPhotoItem(item)}
+                                                        className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-zinc-900 border border-white/10 hover:border-indigo-500/50 shadow-lg shrink-0 group cursor-pointer focus:outline-none"
+                                                        title="Click to preview full photo or video"
+                                                    >
                                                         <img
                                                             src={thumbSrc}
                                                             alt={item.filename}
@@ -2017,9 +2451,12 @@ export default function TasksPage() {
                                                                 <Film size={12} className="text-purple-400" />
                                                             </div>
                                                         )}
-                                                    </div>
+                                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                                            <Eye size={24} className="text-white drop-shadow" />
+                                                        </div>
+                                                    </button>
 
-                                                    <div className="min-w-0 space-y-1.5">
+                                                    <div className="min-w-0 space-y-1.5 flex-1">
                                                         <div className="text-base sm:text-lg font-bold text-white truncate">
                                                             {item.filename}
                                                         </div>
@@ -2029,6 +2466,32 @@ export default function TasksPage() {
                                                             <span>{formatBytes(item.sizeBytes)}</span>
                                                             <span>•</span>
                                                             <span className="truncate max-w-[280px] text-zinc-500">{item.targetPath}</span>
+                                                        </div>
+
+                                                        {/* Multi-stage lifecycle progress bar */}
+                                                        <div className="w-full max-w-sm pt-2 space-y-1">
+                                                            <div className="flex items-center justify-between text-[11px] font-mono">
+                                                                <span className="text-zinc-400 font-bold">
+                                                                    {item.status === 'cleaned' ? 'Cleaned & Archived' : item.status === 'uploaded' ? 'Verified in Cloud' : item.status === 'transferred' ? 'Syncing on Phone' : 'Staged for Transfer'}
+                                                                </span>
+                                                                <span className={`font-black ${itemProgress === 100 ? 'text-purple-400' : itemProgress >= 75 ? 'text-emerald-400' : itemProgress >= 50 ? 'text-amber-400' : 'text-sky-400'}`}>
+                                                                    {itemProgress}%
+                                                                </span>
+                                                            </div>
+                                                            <div className="w-full h-1.5 rounded-full bg-zinc-900 border border-white/5 overflow-hidden flex">
+                                                                <div
+                                                                    className={`h-full transition-all duration-500 ${
+                                                                        itemProgress === 100
+                                                                            ? 'bg-gradient-to-r from-sky-500 via-emerald-500 to-purple-500'
+                                                                            : itemProgress >= 75
+                                                                            ? 'bg-gradient-to-r from-sky-500 via-amber-500 to-emerald-500'
+                                                                            : itemProgress >= 50
+                                                                            ? 'bg-gradient-to-r from-sky-500 to-amber-500'
+                                                                            : 'bg-sky-500'
+                                                                    }`}
+                                                                    style={{ width: `${itemProgress}%` }}
+                                                                />
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2071,6 +2534,176 @@ export default function TasksPage() {
                     </div>
                 );
             })()}
+
+            {/* Error Diagnostics & Resolution Modal */}
+            {showErrorModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+                    <div className="w-full max-w-3xl rounded-3xl bg-zinc-950 border border-rose-500/40 shadow-2xl p-6 space-y-6 max-h-[90vh] flex flex-col">
+                        <div className="flex items-center justify-between pb-4 border-b border-white/10 shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40">
+                                    <AlertTriangle size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-white">Diagnostics & Error Recovery</h3>
+                                    <p className="text-xs text-gray-400 font-mono">
+                                        {failedItems.length > 0 ? `${failedItems.length} failed task item(s) logged` : `${totalFailedChapters} task error(s) detected`}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowErrorModal(false)}
+                                className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all cursor-pointer"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Quick Actions Bar */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-white/5 border border-white/10 shrink-0">
+                            <div className="text-xs text-gray-300 font-medium">
+                                Resolve failures by re-triggering pipelines or clearing stale chapter error markers.
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        await runAction('retry_all_errors', { action: 'retry_all_failed_tasks' });
+                                        setShowErrorModal(false);
+                                    }}
+                                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg transition-all"
+                                >
+                                    <RotateCcw size={14} />
+                                    <span>Retry All</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        await runAction('clear_all_errors', { action: 'clear_failed_tasks' });
+                                        setShowErrorModal(false);
+                                    }}
+                                    className="px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all"
+                                >
+                                    <Trash2 size={14} />
+                                    <span>Clear Errors</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Error Items List */}
+                        <div className="space-y-3 overflow-y-auto pr-1 flex-1 custom-scrollbar">
+                            {failedItems.length > 0 ? (
+                                failedItems.map((item, idx) => (
+                                    <div
+                                        key={item.id || idx}
+                                        className="p-4 rounded-2xl bg-black/40 border border-rose-500/20 hover:border-rose-500/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                                    >
+                                        <div className="space-y-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <span className="px-2 py-0.5 rounded text-[11px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                                    {item.stage || 'Pipeline'}
+                                                </span>
+                                                <h4 className="text-sm font-black text-white truncate">
+                                                    {item.title} {item.item ? `— ${item.item}` : ''}
+                                                </h4>
+                                            </div>
+                                            <p className="text-xs font-mono text-rose-200/90 break-words">
+                                                {item.error || 'Chapter transcription/processing encountered an error'}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => runAction(`retry_item_${item.id}`, { action: 'retry_task_item', bookKey: item.bookKey, chapterKey: item.chapterKey })}
+                                            className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-all self-end sm:self-center"
+                                        >
+                                            <RotateCcw size={13} />
+                                            <span>Retry</span>
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="p-8 text-center rounded-2xl bg-black/20 border border-white/5 space-y-2">
+                                    <CheckCircle2 size={36} className="text-emerald-400 mx-auto" />
+                                    <p className="text-sm font-bold text-gray-300">No active chapter errors recorded</p>
+                                    <p className="text-xs text-gray-500 font-mono">Any logged errors have been cleared or re-queued for processing.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Photo Preview Lightbox Modal */}
+            {previewPhotoItem && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-lg p-4 animate-in fade-in">
+                    <div className="w-full max-w-4xl rounded-3xl bg-zinc-950 border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 px-6 border-b border-white/10 bg-black/40 shrink-0">
+                            <div className="min-w-0 pr-4">
+                                <h3 className="text-base font-black text-white truncate">{previewPhotoItem.filename}</h3>
+                                <p className="text-xs text-gray-400 font-mono truncate">{previewPhotoItem.targetPath || 'Pixel Bridge Media'}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setPreviewPhotoItem(null)}
+                                className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all cursor-pointer shrink-0"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Media View */}
+                        <div className="relative flex-1 bg-black flex items-center justify-center p-4 overflow-hidden min-h-[300px] max-h-[60vh]">
+                            {previewPhotoItem.mediaType === 'video' ? (
+                                <video
+                                    src={previewPhotoItem.thumbnailUrl || `/api/theater/photos/immich/asset?id=${previewPhotoItem.assetId}`}
+                                    controls
+                                    autoPlay
+                                    className="max-w-full max-h-[56vh] object-contain rounded-xl shadow-2xl"
+                                />
+                            ) : (
+                                <img
+                                    src={previewPhotoItem.thumbnailUrl || `/api/theater/photos/immich/asset?id=${previewPhotoItem.assetId}&size=preview`}
+                                    alt={previewPhotoItem.filename}
+                                    className="max-w-full max-h-[56vh] object-contain rounded-xl shadow-2xl"
+                                />
+                            )}
+                        </div>
+
+                        {/* Footer Details */}
+                        <div className="p-4 px-6 bg-zinc-900/80 border-t border-white/10 flex flex-wrap items-center justify-between gap-4 shrink-0">
+                            <div className="flex flex-wrap items-center gap-4 text-xs font-mono text-gray-300">
+                                <span className="px-2.5 py-1 rounded-lg bg-white/10 text-white font-bold uppercase">
+                                    {previewPhotoItem.status}
+                                </span>
+                                <span>Size: {Math.round((previewPhotoItem.sizeBytes || 0) / 1024 / 1024 * 10) / 10} MB</span>
+                                {previewPhotoItem.uploadedAt && <span>Uploaded: {new Date(previewPhotoItem.uploadedAt).toLocaleString()}</span>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        runAction(`phone_retry_${previewPhotoItem.id}`, { action: 'retry_phone_backup_item', itemId: previewPhotoItem.id });
+                                        setPreviewPhotoItem(null);
+                                    }}
+                                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all"
+                                >
+                                    <RotateCcw size={14} />
+                                    <span>Re-queue</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPreviewPhotoItem(null)}
+                                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider cursor-pointer transition-all"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Custom Confirm Modal */}
             {confirmModal && (

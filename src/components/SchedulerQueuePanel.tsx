@@ -292,6 +292,7 @@ export function SchedulerQueuePanel() {
         }
     };
 
+    const saveToastRef = useRef<any>(null);
     const updateConfig = async (updates: Partial<SchedulerConfig>) => {
         const nc = { ...schedulerConfig, ...updates };
         setSchedulerConfig(nc);
@@ -301,6 +302,10 @@ export function SchedulerQueuePanel() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(nc)
             });
+            if (saveToastRef.current) clearTimeout(saveToastRef.current);
+            saveToastRef.current = setTimeout(() => {
+                toast.success(`Saved batch size: ${nc.batchSize} items (${nc.interval}m interval)`);
+            }, 500);
         } catch { }
     };
 
@@ -889,14 +894,43 @@ export function SchedulerQueuePanel() {
                             </div>
                         </div>
 
-                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-3.5">
-                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Batch Size</span>
-                            <CustomSelect
-                                minimal
-                                options={[...Array(50)].map((_, i) => ({ id: i + 1, name: `${i + 1} items` }))}
-                                value={schedulerConfig.batchSize}
-                                onChange={val => updateConfig({ batchSize: Number(String(val).match(/\d+/)?.[0] || 10) })}
-                            />
+                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5 justify-center">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Batch Size</span>
+                                <span className="text-xs font-mono font-bold text-amber-400">{schedulerConfig.batchSize} items</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={500}
+                                    value={schedulerConfig.batchSize}
+                                    onChange={e => {
+                                        const val = Math.max(1, parseInt(e.target.value) || 1);
+                                        updateConfig({ batchSize: val });
+                                    }}
+                                    className="bg-zinc-900 border border-zinc-700/80 rounded-xl px-3 py-1.5 text-white text-base font-black outline-none w-full focus:border-amber-400 transition-colors"
+                                    title="Type any custom batch size to search per cycle"
+                                    placeholder="e.g. 15"
+                                />
+                            </div>
+                            <div className="flex items-center gap-1 pt-1 overflow-x-auto no-scrollbar">
+                                {[5, 10, 20, 35, 50].map(n => (
+                                    <button
+                                        key={n}
+                                        type="button"
+                                        onClick={() => updateConfig({ batchSize: n })}
+                                        className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                                            schedulerConfig.batchSize === n
+                                                ? 'bg-amber-500 text-black font-black'
+                                                : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                                        }`}
+                                        title={`Set batch size to ${n}`}
+                                    >
+                                        {n}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
                         <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">

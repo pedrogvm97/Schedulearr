@@ -29,7 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <MusicPlayerProvider>
           <Navigation />
 
-          <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-6 pb-24 sm:pb-6 overflow-x-hidden">
+          <main className="flex-1 w-full max-w-[1920px] 2xl:max-w-[2160px] mx-auto px-3 sm:px-6 md:px-8 py-4 sm:py-6 pb-24 sm:pb-6 overflow-x-hidden">
             {children}
           </main>
         </MusicPlayerProvider>
