@@ -7,6 +7,7 @@ import {
     Laptop, CheckCircle2, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConnectedDevicesToggleSection } from '@/components/ConnectedDevicesToggleSection';
 
 interface MusicDownloadModalProps {
     track?: any;
@@ -629,6 +630,17 @@ export function MusicDownloadModal({
                             })}
                         </div>
                     </div>
+
+                    {/* 4. Connected Devices Offline Sync */}
+                    <ConnectedDevicesToggleSection
+                        media={{
+                            id: track?.id || albumName || initialTitle,
+                            title: downloadScope === 'album' && isAlbumAvailable ? (albumName || 'Album') : (track?.title || track?.name || initialTitle),
+                            category: 'music',
+                            path: track?.path || (albumTracks?.[0]?.path),
+                            streamUrl: track?.streamUrl || track?.previewUrl
+                        }}
+                    />
                 </div>
 
                 {/* Progress & Actions Footer */}

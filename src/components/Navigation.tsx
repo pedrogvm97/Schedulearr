@@ -97,6 +97,7 @@ export function Navigation() {
     const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
     const [appVersion, setAppVersion] = useState('0.6.44');
     const [activeMusicCount, setActiveMusicCount] = useState(0);
+    const [totalDownloadsCount, setTotalDownloadsCount] = useState(0);
     const [ongoingTasks, setOngoingTasks] = useState<Array<{
         id: string;
         category: string;
@@ -110,13 +111,14 @@ export function Navigation() {
     useEffect(() => {
         const checkQueueAndOngoing = async () => {
             try {
-                const [qRes, oRes] = await Promise.all([
-                    fetch('/api/theater/music/queue'),
+                const [dRes, oRes] = await Promise.all([
+                    fetch('/api/downloads/count'),
                     fetch('/api/system/ongoing')
                 ]);
-                if (qRes.ok) {
-                    const data = await qRes.json();
-                    setActiveMusicCount((data.activeCount || 0) + (data.queuedCount || 0));
+                if (dRes.ok) {
+                    const data = await dRes.json();
+                    setTotalDownloadsCount(data.totalActive || 0);
+                    setActiveMusicCount(data.mediaJobsCount || 0);
                 }
                 if (oRes.ok) {
                     const oData = await oRes.json();
@@ -125,7 +127,7 @@ export function Navigation() {
             } catch {}
         };
         checkQueueAndOngoing();
-        const interval = setInterval(checkQueueAndOngoing, 4000);
+        const interval = setInterval(checkQueueAndOngoing, 3500);
 
         fetch('/api/system/version')
             .then(r => r.ok ? r.json() : null)
@@ -200,13 +202,13 @@ export function Navigation() {
                                     <span className="shrink-0">{item.icon(active)}</span>
                                     <span className="hidden 2xl:inline tracking-tight ml-2">{item.label}</span>
                                     {item.href === '/tasks' && totalTasksCount > 0 && (
-                                        <span className="min-w-[20px] h-[20px] px-1 rounded-full bg-amber-500 text-black text-[11px] font-black flex items-center justify-center animate-pulse shadow-md ml-1.5">
+                                        <span className="min-w-[20px] h-[20px] px-1 rounded-full bg-amber-500 text-black text-[11px] font-black flex items-center justify-center animate-pulse shadow-md ml-1.5" title={`${totalTasksCount} ongoing task${totalTasksCount > 1 ? 's' : ''}`}>
                                             {totalTasksCount}
                                         </span>
                                     )}
-                                    {item.href === '/downloads' && activeMusicCount > 0 && (
-                                        <span className="min-w-[20px] h-[20px] px-1 rounded-full bg-sky-400 text-black text-[11px] font-black flex items-center justify-center animate-pulse shadow-md ml-1.5">
-                                            {activeMusicCount}
+                                    {item.href === '/downloads' && totalDownloadsCount > 0 && (
+                                        <span className="min-w-[20px] h-[20px] px-1 rounded-full bg-sky-400 text-black text-[11px] font-black flex items-center justify-center animate-pulse shadow-md ml-1.5" title={`${totalDownloadsCount} active download${totalDownloadsCount > 1 ? 's' : ''}`}>
+                                            {totalDownloadsCount}
                                         </span>
                                     )}
                                 </Link>
@@ -234,9 +236,9 @@ export function Navigation() {
                             >
                                 <div className={`transition-transform duration-200 relative ${active ? 'scale-110' : ''}`}>
                                     {item.icon(active)}
-                                    {item.href === '/downloads' && activeMusicCount > 0 && (
-                                        <span className="absolute -top-1.5 -right-2 w-4 h-4 rounded-full bg-sky-400 text-black text-[10px] font-black flex items-center justify-center animate-pulse">
-                                            {activeMusicCount}
+                                    {item.href === '/downloads' && totalDownloadsCount > 0 && (
+                                        <span className="absolute -top-1.5 -right-2 w-4 h-4 rounded-full bg-sky-400 text-black text-[10px] font-black flex items-center justify-center animate-pulse" title={`${totalDownloadsCount} active download${totalDownloadsCount > 1 ? 's' : ''}`}>
+                                            {totalDownloadsCount}
                                         </span>
                                     )}
                                     {item.href === '/tasks' && totalTasksCount > 0 && (

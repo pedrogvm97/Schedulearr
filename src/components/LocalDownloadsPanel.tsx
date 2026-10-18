@@ -4,11 +4,12 @@ import { useState, useEffect, useMemo } from "react";
 import { 
     Film, Play, Music, Tv, HardDrive, FolderOpen, ExternalLink, 
     Download, Search, RefreshCw, X, Copy, Check, Disc, Clock,
-    MonitorPlay
+    MonitorPlay, Smartphone
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { useMusicPlayer } from "@/context/MusicPlayerContext";
+import { ConnectedDevicesToggleSection } from "@/components/ConnectedDevicesToggleSection";
 
 export interface LocalMediaItem {
     id: string;
@@ -48,6 +49,7 @@ export function LocalDownloadsPanel() {
     const [copiedPathId, setCopiedPathId] = useState<string | null>(null);
     const [previewVideo, setPreviewVideo] = useState<LocalMediaItem | null>(null);
     const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+    const [deviceSyncMedia, setDeviceSyncMedia] = useState<LocalMediaItem | null>(null);
 
     const fetchLocalItems = async (isManual = false) => {
         if (isManual) setRefreshing(true);
@@ -469,6 +471,15 @@ export function LocalDownloadsPanel() {
                                     >
                                         <Download size={14} />
                                     </a>
+
+                                    {/* Device Offline Sync */}
+                                    <button
+                                        onClick={() => setDeviceSyncMedia(item)}
+                                        className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-black transition-all border border-amber-500/30 active:scale-95 cursor-pointer shadow-sm"
+                                        title="Offline Sync to Connected Device (Pixel 10, Tablet, etc.)"
+                                    >
+                                        <Smartphone size={14} />
+                                    </button>
                                 </div>
                             </div>
                         );
@@ -522,6 +533,55 @@ export function LocalDownloadsPanel() {
                                     <FolderOpen size={12} /> Show in Folder
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Device Sync Modal */}
+            {deviceSyncMedia && (
+                <div
+                    onClick={(e) => { if (e.target === e.currentTarget) setDeviceSyncMedia(null); }}
+                    className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in"
+                >
+                    <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-[2.5rem] p-6 sm:p-8 space-y-6 shadow-2xl relative">
+                        <div className="flex items-center justify-between pb-3 border-b border-zinc-900">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 rounded-2xl bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                    <Smartphone size={24} />
+                                </div>
+                                <div className="min-w-0">
+                                    <h3 className="text-xl font-black text-white truncate">Sync to Device</h3>
+                                    <p className="text-xs text-zinc-400 truncate">{deviceSyncMedia.title}</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setDeviceSyncMedia(null)}
+                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-900 transition-all cursor-pointer"
+                                title="Close"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <ConnectedDevicesToggleSection
+                            media={{
+                                id: deviceSyncMedia.id,
+                                title: deviceSyncMedia.title,
+                                category: deviceSyncMedia.category,
+                                path: deviceSyncMedia.path,
+                                streamUrl: deviceSyncMedia.streamUrl,
+                                sizeBytes: deviceSyncMedia.sizeBytes
+                            }}
+                        />
+
+                        <div className="pt-3 border-t border-zinc-900 flex justify-end">
+                            <button
+                                onClick={() => setDeviceSyncMedia(null)}
+                                className="px-6 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                                Done
+                            </button>
                         </div>
                     </div>
                 </div>

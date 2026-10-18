@@ -12,6 +12,7 @@ import {
     Check,
     Layers
 } from 'lucide-react';
+import { ConnectedDevicesToggleSection } from '@/components/ConnectedDevicesToggleSection';
 
 export interface AudiobookExportModalProps {
     isOpen: boolean;
@@ -271,6 +272,17 @@ export const AudiobookExportModal: React.FC<AudiobookExportModalProps> = ({
                                 {includeMetadata && <Check size={16} />}
                             </button>
                         </div>
+                    </div>
+
+                    {/* 5. Connected Devices Offline Sync */}
+                    <div className="p-4 rounded-2xl bg-zinc-900/50 border border-zinc-850">
+                        <ConnectedDevicesToggleSection
+                            media={{
+                                id: `book-${bookKey}`,
+                                title: bookTitle,
+                                category: 'audiobook'
+                            }}
+                        />
                     </div>
                 </div>
 

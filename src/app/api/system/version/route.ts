@@ -8,7 +8,13 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
-  '• [v0.6.45] Tasks Queued Books Strict Grid Alignment, Pure Symbols (Cut AUTO ON Text), and Automatic Queue Advance for Scene Art',
+  '• [v0.6.51] Unified Multi-Source Download Counter, Connected Devices Custom Folders, and Offline Device Sync Toggles',
+  '  - Add live aggregated download counter badge on Transfers tab in Navigation across desktop, tablet, and mobile that pulses whenever anything is downloading (qBittorrent active downloads, direct media downloads, and connected device syncs)',
+  '  - Introduce Connected Devices & Folders panel (/downloads?tab=devices) allowing users to pair Pixel phones, tablets, or local folders and configure custom Schedulearr directories of their choosing (e.g. /sdcard/Schedulearr, /sdcard/Music/Schedulearr)',
+  '  - Wire automatic connection & folder validation with ADB shell mkdir -p, storage headroom analysis, and live battery telemetry',
+  '  - Add Connected Devices section to media download modals (Music, Albums, Audiobooks, Local Downloads) with per-device ON/OFF toggles for offline media sync',
+  '  - Background device sync worker automatically pushes queued media via ADB to the chosen Schedulearr folder when the device connects and broadcasts Android MediaStore rescan',
+  '• [v0.6.50] Plex Stream Guard: Automated Bandwidth & CPU Protection for Live Playback',
   '  - Rebuild Queued Books into a strict CSS grid with dedicated column headers (#/Book, State, Text, Scenes, Art, Voice, Actions) for 100% pixel-perfect vertical column alignment',
   '  - Cut all text labels ("AUTO ON" / "PAUSED") in strict adherence to Symbols Over Text rule, replacing with a clean 18px Zap symbol button with hover tooltips and queue_enabled toggling',
   '  - Fix queue worker stalling when book art is 100% complete (230/230): worker now automatically advances down the priority queue to scene and paint subsequent books without getting stuck on pending voice chapters or forceBookKey locks',

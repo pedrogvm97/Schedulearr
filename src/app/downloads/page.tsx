@@ -4,12 +4,13 @@ import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon, Music, Folder, Disc, RefreshCw } from "lucide-react";
+import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon, Music, Folder, Disc, RefreshCw, Smartphone, Send, BookOpen } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { IndexersPanel } from "@/components/IndexersPanel";
 import { PlexUserManagerPanel } from "@/components/PlexUserManagerPanel";
 import { LocalDownloadsPanel } from "@/components/LocalDownloadsPanel";
+import { ConnectedDevicesPanel, DeviceSyncItem } from "@/components/ConnectedDevicesPanel";
 import { toast } from "sonner";
 
 // --- Interfaces ---
@@ -346,19 +347,109 @@ function MusicJobRow({ job, onCancel, onOpenMedia }: MusicJobRowProps) {
     );
 }
 
+// ─── Unified Device Sync Row ──────────────────────────────────────────────────
+interface DeviceSyncRowProps {
+    item: DeviceSyncItem;
+    onCancel: (id: string) => void;
+}
+
+function DeviceSyncRow({ item, onCancel }: DeviceSyncRowProps) {
+    const isCompleted = item.status === 'completed';
+    const isFailed = item.status === 'failed';
+    const isSyncing = item.status === 'syncing';
+
+    return (
+        <div className="p-3 md:px-4 md:py-3 hover:bg-zinc-800/40 transition-colors flex flex-col md:grid md:grid-cols-[auto_2fr_0.8fr_1fr_1fr_1fr_auto] gap-3 md:gap-4 md:items-center relative group">
+            {/* Device Icon Thumbnail */}
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 group-hover:border-amber-500/50 shadow-md relative flex items-center justify-center">
+                <Smartphone size={26} className={isSyncing ? "text-amber-400 animate-pulse" : isCompleted ? "text-emerald-400" : "text-zinc-500"} />
+            </div>
+
+            {/* Title + badges + destination */}
+            <div className="min-w-0 pr-2 md:pr-0">
+                <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                    <span className="text-xs uppercase font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                        Device Sync • {item.mediaType}
+                    </span>
+                    <span className="text-xs text-zinc-400 font-mono truncate max-w-[280px]" title={item.targetPath || item.sourcePath}>
+                        📱 {item.deviceName} ({item.targetPath || item.sourcePath})
+                    </span>
+                </div>
+                <h3 className="text-base font-semibold text-white truncate">
+                    {item.mediaTitle}
+                </h3>
+            </div>
+
+            {/* Size */}
+            <div className="text-sm text-zinc-400 flex items-center md:items-start font-mono">
+                <span className="md:hidden text-xs text-zinc-500 uppercase font-semibold mr-2 w-16">Size:</span>
+                {item.sizeBytes > 0 ? formatBytes(item.sizeBytes) : '—'}
+            </div>
+
+            {/* Progress Bar & percentage */}
+            <div className="flex flex-col gap-1 w-full">
+                <div className="flex justify-between text-xs text-zinc-400 font-mono">
+                    <span className="font-bold text-zinc-200">
+                        {isCompleted ? '100%' : isSyncing ? `${item.progress}%` : isFailed ? 'Failed' : 'Queued'}
+                    </span>
+                    <span>{item.speedBps > 0 ? formatSpeed(item.speedBps) : ''}</span>
+                </div>
+                <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                        className={`h-full transition-all duration-300 ${
+                            isCompleted ? 'bg-emerald-500' : isFailed ? 'bg-rose-500' : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${item.progress || (isCompleted ? 100 : 8)}%` }}
+                    />
+                </div>
+            </div>
+
+            {/* Transfer Speed */}
+            <div className="text-sm font-mono text-zinc-400">
+                <span className="md:hidden text-xs text-zinc-500 uppercase font-semibold mr-2 w-16">Speed:</span>
+                {item.speedBps > 0 ? formatSpeed(item.speedBps) : isCompleted ? 'Synced' : '—'}
+            </div>
+
+            {/* Status / State Badge */}
+            <div className="text-xs font-bold uppercase tracking-wide">
+                <span className={`px-2 py-0.5 rounded text-[11px] ${
+                    isCompleted ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                    isSyncing ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse' :
+                    isFailed ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                    'bg-zinc-800 text-zinc-400'
+                }`}>
+                    {item.status}
+                </span>
+            </div>
+
+            {/* Actions */}
+            <div className="absolute top-3 right-3 md:relative md:top-auto md:right-auto flex-shrink-0 flex items-center gap-1.5">
+                <button
+                    onClick={() => onCancel(item.id)}
+                    className="p-2.5 bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-lg transition-all shadow-md cursor-pointer"
+                    title="Cancel Device Sync"
+                >
+                    <Trash2 size={18} />
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // ─── Main Content Component ───────────────────────────────────────────────────
 function DownloadsContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
-    const initialTab = (['downloads', 'local', 'profiles', 'indexers', 'users'].includes(searchParams.get('tab') || '')
+    const initialTab = (['downloads', 'local', 'devices', 'profiles', 'indexers', 'users'].includes(searchParams.get('tab') || '')
         ? searchParams.get('tab')
-        : 'downloads') as 'downloads' | 'local' | 'profiles' | 'indexers' | 'users';
+        : 'downloads') as 'downloads' | 'local' | 'devices' | 'profiles' | 'indexers' | 'users';
 
-    const [activeTab, setActiveTab] = useState<'downloads' | 'local' | 'profiles' | 'indexers' | 'users'>(initialTab);
+    const [activeTab, setActiveTab] = useState<'downloads' | 'local' | 'devices' | 'profiles' | 'indexers' | 'users'>(initialTab);
     const [torrents, setTorrents] = useState<Torrent[]>([]);
     const [musicJobs, setMusicJobs] = useState<MusicJob[]>([]);
-    const [downloadMediaFilter, setDownloadMediaFilter] = useState<'all' | 'torrents' | 'music'>('all');
+    const [deviceQueue, setDeviceQueue] = useState<DeviceSyncItem[]>([]);
+    const [downloadMediaFilter, setDownloadMediaFilter] = useState<'all' | 'torrents' | 'music' | 'devices'>('all');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -369,6 +460,16 @@ function DownloadsContent() {
             if (res.ok) {
                 const data = await res.json();
                 setMusicJobs(data.jobs || []);
+            }
+        } catch {}
+    };
+
+    const fetchDeviceQueue = async () => {
+        try {
+            const res = await fetch('/api/devices/sync');
+            if (res.ok) {
+                const data = await res.json();
+                setDeviceQueue(data.items || []);
             }
         } catch {}
     };
@@ -385,17 +486,32 @@ function DownloadsContent() {
         }
     };
 
+    const handleCancelDeviceSync = async (id: string) => {
+        try {
+            const res = await fetch(`/api/devices/sync?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (res.ok) {
+                toast.success('Removed device sync job');
+                fetchDeviceQueue();
+            }
+        } catch {
+            toast.error('Failed to cancel device sync');
+        }
+    };
+
     useEffect(() => {
         const tab = searchParams.get('tab');
         if (tab === 'music') {
             setActiveTab('downloads');
             setDownloadMediaFilter('music');
-        } else if (tab && ['downloads', 'local', 'profiles', 'indexers', 'users'].includes(tab)) {
+        } else if (tab === 'device_sync') {
+            setActiveTab('downloads');
+            setDownloadMediaFilter('devices');
+        } else if (tab && ['downloads', 'local', 'devices', 'profiles', 'indexers', 'users'].includes(tab)) {
             setActiveTab(tab as any);
         }
     }, [searchParams]);
 
-    const handleTabChange = (tab: 'downloads' | 'local' | 'profiles' | 'indexers' | 'users') => {
+    const handleTabChange = (tab: 'downloads' | 'local' | 'devices' | 'profiles' | 'indexers' | 'users') => {
         setActiveTab(tab);
         const url = tab === 'downloads' ? '/downloads' : `/downloads?tab=${tab}`;
         router.replace(url, { scroll: false });
@@ -489,10 +605,12 @@ function DownloadsContent() {
     useEffect(() => {
         fetchTorrents();
         fetchMusicQueue();
+        fetchDeviceQueue();
         fetchSettings();
         const interval = setInterval(() => {
             fetchTorrents();
             fetchMusicQueue();
+            fetchDeviceQueue();
         }, 3000);
         return () => clearInterval(interval);
     }, []);
@@ -685,7 +803,7 @@ function DownloadsContent() {
                                 : 'text-zinc-500 hover:text-zinc-300'
                         }`}
                     >
-                        <DownloadIcon size={16} /> Transfers ({torrents.length + musicJobs.length})
+                        <DownloadIcon size={16} /> Transfers ({torrents.length + musicJobs.length + deviceQueue.length})
                     </button>
                     <button
                         onClick={() => handleTabChange('local')}
@@ -696,6 +814,16 @@ function DownloadsContent() {
                         }`}
                     >
                         <HardDrive size={16} /> Local Downloads
+                    </button>
+                    <button
+                        onClick={() => handleTabChange('devices')}
+                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                            activeTab === 'devices'
+                                ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30 shadow-md'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                    >
+                        <Smartphone size={16} /> Devices ({deviceQueue.length})
                     </button>
                     <button
                         onClick={() => handleTabChange('profiles')}
@@ -733,6 +861,13 @@ function DownloadsContent() {
             {/* Local Downloads Tab */}
             {activeTab === 'local' && (
                 <LocalDownloadsPanel />
+            )}
+
+            {/* Devices Tab */}
+            {activeTab === 'devices' && (
+                <div className="animate-in fade-in duration-200">
+                    <ConnectedDevicesPanel />
+                </div>
             )}
 
             {/* Profiles Tab */}
@@ -781,7 +916,7 @@ function DownloadsContent() {
                                         : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
-                                All Media ({torrents.length + musicJobs.length})
+                                All Media ({torrents.length + musicJobs.length + deviceQueue.length})
                             </button>
                             <button
                                 onClick={() => setDownloadMediaFilter('torrents')}
@@ -803,15 +938,26 @@ function DownloadsContent() {
                             >
                                 <Music size={14} /> Music &amp; Audio ({musicJobs.length})
                             </button>
+                            <button
+                                onClick={() => setDownloadMediaFilter('devices')}
+                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    downloadMediaFilter === 'devices'
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-md'
+                                        : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                <Smartphone size={14} /> Device Sync ({deviceQueue.length})
+                            </button>
                         </div>
                     </div>
 
                     {/* ── Transfers List ─────────────────────────────────────────────────── */}
-                    {loading && torrents.length === 0 && musicJobs.length === 0 ? (
+                    {loading && torrents.length === 0 && musicJobs.length === 0 && deviceQueue.length === 0 ? (
                         <div className="text-zinc-500 text-center py-10">Loading transfers...</div>
                     ) : (downloadMediaFilter === 'torrents' && torrents.length === 0) ||
                         (downloadMediaFilter === 'music' && musicJobs.length === 0) ||
-                        (downloadMediaFilter === 'all' && torrents.length === 0 && musicJobs.length === 0) ? (
+                        (downloadMediaFilter === 'devices' && deviceQueue.length === 0) ||
+                        (downloadMediaFilter === 'all' && torrents.length === 0 && musicJobs.length === 0 && deviceQueue.length === 0) ? (
                         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">
                             No active downloads found.
                         </div>
@@ -832,11 +978,22 @@ function DownloadsContent() {
                                 <span className="cursor-pointer flex items-center gap-1 hover:text-white" onClick={() => toggleSort('dlspeed')}>
                                     Down Speed {sortField === 'dlspeed' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                                 </span>
-                                <span>Status / Indexer</span>
+                                <span>Status / Target</span>
                                 <span className="text-right">Actions</span>
                             </div>
 
                             <div className="divide-y divide-zinc-800/60">
+                                {/* Device Sync Transfers */}
+                                {(downloadMediaFilter === 'all' || downloadMediaFilter === 'devices') &&
+                                    deviceQueue.map((item) => (
+                                        <DeviceSyncRow
+                                            key={item.id}
+                                            item={item}
+                                            onCancel={handleCancelDeviceSync}
+                                        />
+                                    ))
+                                }
+
                                 {/* Music & Audio Downloads */}
                                 {(downloadMediaFilter === 'all' || downloadMediaFilter === 'music') &&
                                     musicJobs.map((j) => (

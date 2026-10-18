@@ -20,6 +20,7 @@ import { triggerVideoAiQueueWorker } from '@/lib/videoAi';
 import { runPeriodicCalendarSync } from '@/lib/calendarSync';
 import { getCalendarSyncConfig } from '@/lib/db';
 import { startStreamGuardWatchdog, isStreamGuardActive } from '@/lib/streamGuard';
+import { processDeviceSyncCycle } from '@/lib/deviceSync';
 import fs from 'fs';
 import path from 'path';
 
@@ -189,6 +190,17 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
             setTimeout(runCalendarSyncCycle, intervalMin * 60 * 1000);
         };
         setTimeout(runCalendarSyncCycle, 8000); // Start 8s after boot
+
+        // Connected Devices & Folders Offline Media Sync Worker (checks every 20 seconds)
+        const runDeviceSyncCycle = async () => {
+            try {
+                await processDeviceSyncCycle();
+            } catch (err) {
+                console.error('❌ Device sync cycle error:', err);
+            }
+            setTimeout(runDeviceSyncCycle, 20 * 1000);
+        };
+        setTimeout(runDeviceSyncCycle, 12000); // Start 12s after boot
     };
 
     startScheduler();
