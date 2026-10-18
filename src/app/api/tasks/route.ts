@@ -52,6 +52,7 @@ import {
     getPhoneBackupTasksSummary,
     triggerPhoneBackupBatch,
     triggerGooglePhotosCleanup,
+    wakeGooglePhotosAndScan,
     retryPhoneBackupItem,
     clearCleanedPhoneBackup
 } from '@/lib/pixelBackupSuite';
@@ -683,6 +684,11 @@ export async function POST(request: Request) {
 
         if (action === 'trigger_phone_backup_clean') {
             const res = await triggerGooglePhotosCleanup();
+            return NextResponse.json({ ok: true, ...res });
+        }
+
+        if (action === 'trigger_google_photos_wake') {
+            const res = await wakeGooglePhotosAndScan();
             return NextResponse.json({ ok: true, ...res });
         }
 

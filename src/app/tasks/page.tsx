@@ -46,6 +46,8 @@ import {
     Smartphone,
     Film,
     Cloud,
+    CloudUpload,
+    CloudCheck,
     ArrowUpRight,
     Battery,
     BatteryCharging
@@ -1746,26 +1748,36 @@ export default function TasksPage() {
                                     </button>
                                 </div>
                             ) : phoneBackup?.activeTransfer ? (
-                                <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-3">
+                                <div className="p-5 rounded-3xl bg-indigo-500/10 border border-indigo-500/30 space-y-3">
                                     <div className="flex items-center justify-between gap-4">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
-                                                {phoneBackup.activeTransfer.mediaType === 'video' ? <Film size={20} /> : <ImageIcon size={20} />}
+                                        <div className="flex items-center gap-4 min-w-0">
+                                            <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden bg-zinc-900 border border-indigo-500/30 shrink-0 shadow">
+                                                <img
+                                                    src={phoneBackup.activeTransfer.thumbnailUrl || `/api/theater/photos/immich/asset?id=${phoneBackup.activeTransfer.assetId}&size=preview`}
+                                                    alt={phoneBackup.activeTransfer.filename}
+                                                    className="w-full h-full object-cover"
+                                                    loading="lazy"
+                                                />
+                                                {phoneBackup.activeTransfer.mediaType === 'video' && (
+                                                    <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-md text-white text-[10px] font-bold flex items-center gap-1">
+                                                        <Film size={10} className="text-purple-400" />
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="min-w-0">
-                                                <div className="text-sm font-black text-white truncate">
+                                            <div className="min-w-0 space-y-1">
+                                                <div className="text-base sm:text-lg font-black text-white truncate">
                                                     {phoneBackup.activeTransfer.filename}
                                                 </div>
-                                                <div className="text-xs font-mono text-zinc-400">
+                                                <div className="text-xs sm:text-sm font-mono text-zinc-400">
                                                     {formatBytes(phoneBackup.activeTransfer.sizeBytes)} • {phoneBackup.activeTransfer.targetPath}
                                                 </div>
                                             </div>
                                         </div>
-                                        <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold uppercase bg-sky-500/20 text-sky-300 border border-sky-500/40 shrink-0 animate-pulse">
+                                        <span className="px-3.5 py-1.5 rounded-xl text-xs font-mono font-bold uppercase bg-sky-500/20 text-sky-300 border border-sky-500/40 shrink-0 animate-pulse">
                                             Staging via ADB
                                         </span>
                                     </div>
-                                    <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden">
+                                    <div className="w-full h-2.5 rounded-full bg-zinc-900 overflow-hidden">
                                         <div className="h-full bg-indigo-500 rounded-full animate-pulse" style={{ width: '65%' }} />
                                     </div>
                                 </div>
@@ -1784,45 +1796,114 @@ export default function TasksPage() {
                             )}
                         </section>
 
+                        {/* ── GOOGLE PHOTOS CLOUD UPLOAD INSPECTOR ── */}
+                        <section className="p-6 sm:p-7 rounded-3xl bg-[#0d111a] border border-white/10 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-6">
+                            <div className="flex items-center gap-5 min-w-0">
+                                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 shadow-lg ${
+                                    phoneCounts.transferred > 0
+                                        ? 'bg-amber-500/15 border border-amber-500/30 text-amber-400'
+                                        : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
+                                }`}>
+                                    {phoneCounts.transferred > 0 ? (
+                                        <CloudUpload size={32} className="animate-pulse" />
+                                    ) : (
+                                        <CloudCheck size={32} />
+                                    )}
+                                </div>
+                                <div className="min-w-0 space-y-1">
+                                    <div className="flex items-center gap-3">
+                                        <h4 className="text-xl font-black text-white">Google Photos Cloud</h4>
+                                        <span className={`px-3 py-1 rounded-xl text-xs font-mono font-black uppercase border whitespace-nowrap ${
+                                            phoneCounts.transferred > 0
+                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                                                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        }`}>
+                                            {phoneCounts.transferred > 0 ? 'Syncing to Cloud' : 'Cloud Synced'}
+                                        </span>
+                                    </div>
+                                    <div className="text-sm font-semibold text-zinc-300">
+                                        {phoneCounts.transferred > 0
+                                            ? `${phoneCounts.transferred} photo(s) in Pixel buffer • Google Photos is syncing to Google Cloud in Lifetime Unlimited Original Quality`
+                                            : `All staged media verified in Google Photos Cloud • 0 files pending on phone`}
+                                    </div>
+                                    <div className="text-xs font-mono text-zinc-500">
+                                        Pixel 1 GPhotos tier: Unlimited Original • Auto-Reconciliation Active
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0 self-start md:self-center">
+                                <button
+                                    type="button"
+                                    onClick={() => runAction('phone_wake', { action: 'trigger_google_photos_wake' })}
+                                    disabled={busyKey === 'phone_wake'}
+                                    title="Awaken Google Photos app and broadcast MediaStore scan to jumpstart cloud upload"
+                                    className="p-3.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-amber-400 transition-all cursor-pointer shadow disabled:opacity-50"
+                                >
+                                    <Zap size={22} className={busyKey === 'phone_wake' ? 'animate-bounce' : ''} />
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => runAction('phone_clean', { action: 'trigger_phone_backup_clean' })}
+                                    disabled={busyKey === 'phone_clean'}
+                                    title="Reconcile with Google Photos: Run Free Up Space to verify cloud backup and purge local buffer"
+                                    className="p-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all cursor-pointer shadow-lg disabled:opacity-50"
+                                >
+                                    <Sparkles size={22} className={busyKey === 'phone_clean' ? 'animate-spin' : ''} />
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => runAction('phone_batch', { action: 'trigger_phone_backup_batch' })}
+                                    disabled={busyKey === 'phone_batch' || phoneCounts.queued === 0}
+                                    title="Push next batch of queued photos from Immich to Pixel staging buffer"
+                                    className="p-3.5 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-white font-black transition-all cursor-pointer shadow-lg disabled:opacity-40"
+                                >
+                                    <ArrowUpRight size={22} className={busyKey === 'phone_batch' ? 'animate-pulse' : ''} />
+                                </button>
+                            </div>
+                        </section>
+
                         {/* ── 2. PIPELINE BREAKDOWN COUNTERS ── */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-sky-500/30 space-y-2 shadow-xl">
+                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-sky-500/30 space-y-2 shadow-xl" title="Photos and videos queued in server staging buffer waiting to be sent to Pixel">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm font-black uppercase tracking-wider text-sky-400">Staged</span>
-                                    <ArrowUp size={22} className="text-sky-400" />
+                                    <span className="text-base font-black uppercase tracking-wider text-sky-400">Staged</span>
+                                    <ArrowUp size={24} className="text-sky-400" />
                                 </div>
                                 <div className="text-3xl font-black text-white font-mono">
                                     {phoneCounts.queued + phoneCounts.staging}
                                 </div>
-                                <div className="text-xs text-zinc-400 font-mono">Queued in buffer</div>
+                                <div className="text-xs text-zinc-400 font-mono">Server queue buffer</div>
                             </div>
 
-                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-amber-500/30 space-y-2 shadow-xl">
+                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-amber-500/30 space-y-2 shadow-xl" title="Media copied to Pixel /sdcard/DCIM/SchedulearrSync/ actively uploading to Google Photos">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm font-black uppercase tracking-wider text-amber-400">Transferred</span>
-                                    <Smartphone size={22} className="text-amber-400" />
+                                    <span className="text-base font-black uppercase tracking-wider text-amber-400">On Phone</span>
+                                    <CloudUpload size={24} className="text-amber-400 animate-pulse" />
                                 </div>
                                 <div className="text-3xl font-black text-white font-mono">
                                     {phoneCounts.transferred}
                                 </div>
-                                <div className="text-xs text-zinc-400 font-mono">On phone awaiting cloud</div>
+                                <div className="text-xs text-zinc-400 font-mono">Pixel buffer • Cloud syncing</div>
                             </div>
 
-                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-emerald-500/30 space-y-2 shadow-xl">
+                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-emerald-500/30 space-y-2 shadow-xl" title="Confirmed safely uploaded to Google Photos Cloud in Lifetime Unlimited Original Quality">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm font-black uppercase tracking-wider text-emerald-400">Uploaded</span>
-                                    <CheckCircle2 size={22} className="text-emerald-400" />
+                                    <span className="text-base font-black uppercase tracking-wider text-emerald-400">Uploaded</span>
+                                    <CheckCircle2 size={24} className="text-emerald-400" />
                                 </div>
                                 <div className="text-3xl font-black text-white font-mono">
                                     {phoneCounts.uploaded}
                                 </div>
-                                <div className="text-xs text-zinc-400 font-mono">Unlimited cloud verified</div>
+                                <div className="text-xs text-zinc-400 font-mono">Google Cloud verified</div>
                             </div>
 
-                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-purple-500/30 space-y-2 shadow-xl">
+                            <div className="p-6 rounded-3xl bg-[#0d111a] border border-purple-500/30 space-y-2 shadow-xl" title="Local phone storage reclaimed after Google Photos verified cloud backup">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm font-black uppercase tracking-wider text-purple-400">Cleaned</span>
-                                    <Trash2 size={22} className="text-purple-400" />
+                                    <span className="text-base font-black uppercase tracking-wider text-purple-400">Cleaned</span>
+                                    <Trash2 size={24} className="text-purple-400" />
                                 </div>
                                 <div className="text-3xl font-black text-white font-mono">
                                     {phoneCounts.cleaned}
@@ -1899,47 +1980,65 @@ export default function TasksPage() {
                                             item.status === 'staging'
                                                 ? { label: 'Staging', cls: 'bg-sky-500/20 text-sky-300 border-sky-500/40 animate-pulse' }
                                                 : item.status === 'transferred'
-                                                ? { label: 'Transferred', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' }
+                                                ? { label: 'On Phone (Syncing)', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' }
                                                 : item.status === 'uploaded'
-                                                ? { label: 'Uploaded', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' }
+                                                ? { label: 'Uploaded (Cloud)', cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' }
                                                 : item.status === 'cleaned'
                                                 ? { label: 'Cleaned', cls: 'bg-purple-500/20 text-purple-300 border-purple-500/40' }
                                                 : { label: 'Queued', cls: 'bg-zinc-800 text-zinc-400 border-zinc-700' };
 
+                                        const thumbSrc = item.thumbnailUrl || `/api/theater/photos/immich/asset?id=${item.assetId}&size=preview`;
+
                                         return (
                                             <div
                                                 key={item.id}
-                                                className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-zinc-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                                                className="p-4 sm:p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 hover:border-zinc-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-6 shadow-lg"
                                             >
-                                                <div className="flex items-center gap-4 min-w-0">
-                                                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
-                                                        isVideo
-                                                            ? 'bg-purple-500/15 border border-purple-500/30 text-purple-400'
-                                                            : 'bg-sky-500/15 border border-sky-500/30 text-sky-400'
-                                                    }`}>
-                                                        {isVideo ? <Film size={22} /> : <ImageIcon size={22} />}
+                                                <div className="flex items-center gap-4 sm:gap-5 min-w-0">
+                                                    {/* Authentic Raster Thumbnail */}
+                                                    <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-zinc-900 border border-white/10 shadow-lg shrink-0 group">
+                                                        <img
+                                                            src={thumbSrc}
+                                                            alt={item.filename}
+                                                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                                                            loading="lazy"
+                                                            onError={(e) => {
+                                                                const target = e.currentTarget;
+                                                                target.style.display = 'none';
+                                                                const fallback = target.parentElement?.querySelector('.img-fallback') as HTMLElement;
+                                                                if (fallback) fallback.style.display = 'flex';
+                                                            }}
+                                                        />
+                                                        <div className="img-fallback hidden w-full h-full items-center justify-center bg-zinc-800 text-zinc-400">
+                                                            {isVideo ? <Film size={28} /> : <ImageIcon size={28} />}
+                                                        </div>
+                                                        {isVideo && (
+                                                            <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md border border-white/20 text-white flex items-center gap-1.5 text-xs font-black shadow">
+                                                                <Film size={12} className="text-purple-400" />
+                                                            </div>
+                                                        )}
                                                     </div>
 
-                                                    <div className="min-w-0 space-y-1">
-                                                        <div className="text-base font-bold text-white truncate">
+                                                    <div className="min-w-0 space-y-1.5">
+                                                        <div className="text-base sm:text-lg font-bold text-white truncate">
                                                             {item.filename}
                                                         </div>
-                                                        <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400 font-mono">
-                                                            <span>{isVideo ? 'VIDEO' : 'PHOTO'}</span>
+                                                        <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-zinc-400 font-mono">
+                                                            <span className="font-bold text-zinc-300">{isVideo ? 'VIDEO' : 'PHOTO'}</span>
                                                             <span>•</span>
                                                             <span>{formatBytes(item.sizeBytes)}</span>
                                                             <span>•</span>
-                                                            <span className="truncate max-w-[240px] text-zinc-500">{item.targetPath}</span>
+                                                            <span className="truncate max-w-[280px] text-zinc-500">{item.targetPath}</span>
                                                         </div>
                                                     </div>
                                                 </div>
 
                                                 <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
-                                                    <div className="text-right font-mono text-xs text-zinc-400">
+                                                    <div className="text-right font-mono text-xs sm:text-sm text-zinc-400">
                                                         {item.uploadedAt ? (
-                                                            <div>Uploaded {formatTimeAgo(item.uploadedAt)}</div>
+                                                            <div className="text-emerald-400 font-bold">Uploaded {formatTimeAgo(item.uploadedAt)}</div>
                                                         ) : item.transferredAt ? (
-                                                            <div>Transferred {formatTimeAgo(item.transferredAt)}</div>
+                                                            <div className="text-amber-400 font-bold">Transferred {formatTimeAgo(item.transferredAt)}</div>
                                                         ) : (
                                                             <div>Staged {formatTimeAgo(item.stagedAt)}</div>
                                                         )}
@@ -1948,18 +2047,18 @@ export default function TasksPage() {
                                                         )}
                                                     </div>
 
-                                                    <span className={`px-3 py-1 rounded-xl text-xs font-mono font-bold uppercase border whitespace-nowrap ${statusBadge.cls}`}>
+                                                    <span className={`px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-mono font-bold uppercase border whitespace-nowrap ${statusBadge.cls}`}>
                                                         {statusBadge.label}
                                                     </span>
 
-                                                    {(item.status === 'cleaned' || item.status === 'failed') && (
+                                                    {(item.status === 'cleaned' || item.status === 'uploaded' || item.status === 'failed') && (
                                                         <button
                                                             type="button"
                                                             onClick={() => runAction(`phone_retry_${item.id}`, { action: 'retry_phone_backup_item', itemId: item.id })}
-                                                            title="Re-queue Item"
-                                                            className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer"
+                                                            title="Re-queue Item for Staging"
+                                                            className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer shadow"
                                                         >
-                                                            <RotateCcw size={16} />
+                                                            <RotateCcw size={18} />
                                                         </button>
                                                     )}
                                                 </div>

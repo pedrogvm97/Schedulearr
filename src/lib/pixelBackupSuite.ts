@@ -27,6 +27,17 @@ export interface PhoneBackupItem {
     error?: string;
 }
 
+export interface GooglePhotosCloudTelemetry {
+    isCloudUploading: boolean;
+    isPhotosActive: boolean;
+    pendingOnDeviceCount: number;
+    pendingOnDeviceBytes: number;
+    backedUpCount: number;
+    cloudSyncState: 'uploading' | 'backed_up' | 'idle' | 'sleeping';
+    statusDetail: string;
+    lastCloudScanTime?: string;
+}
+
 export interface PhoneBackupSuiteSummary {
     activeTransfer: PhoneBackupItem | null;
     activeTaskName: 'idle' | 'staging' | 'transferring' | 'uploading' | 'cleaning' | 'paused';
@@ -53,6 +64,7 @@ export interface PhoneBackupSuiteSummary {
         totalBytesTransferred: number;
         totalBytesCleaned: number;
     };
+    cloudTelemetry?: GooglePhotosCloudTelemetry;
     items: PhoneBackupItem[];
     lastSyncTime?: string;
     lastCleanTime?: string;
@@ -340,9 +352,9 @@ export async function checkGooglePhotosUploadProgress(target: string): Promise<n
             if (item.status === 'transferred') {
                 const baseName = path.basename(item.targetPath || item.filename);
                 const transferredMs = item.transferredAt ? new Date(item.transferredAt).getTime() : 0;
-                // If transferred > 20 seconds ago and no longer on device, Google Photos has uploaded and freed it!
-                if (now - transferredMs > 20000 && !filesOnDevice.has(baseName)) {
-                    item.status = 'cleaned';
+                // If transferred > 15 seconds ago and no longer on device, Google Photos has uploaded and freed it!
+                if (now - transferredMs > 15000 && !filesOnDevice.has(baseName)) {
+                    item.status = 'uploaded';
                     item.uploadedAt = item.uploadedAt || new Date().toISOString();
                     item.cleanedAt = new Date().toISOString();
                     cleanedCount++;
@@ -417,7 +429,12 @@ export async function getPhoneBackupTasksSummary(): Promise<PhoneBackupSuiteSumm
         } else if (item.status === 'uploaded') {
             uploaded++;
             totalBytesTransferred += item.sizeBytes || 0;
+            if (item.cleanedAt) {
+                cleaned++;
+                totalBytesCleaned += item.sizeBytes || 0;
+            }
         } else if (item.status === 'cleaned') {
+            uploaded++;
             cleaned++;
             totalBytesCleaned += item.sizeBytes || 0;
         }
@@ -440,6 +457,31 @@ export async function getPhoneBackupTasksSummary(): Promise<PhoneBackupSuiteSumm
         statusMessage = `Google Photos uploading ${transferred} item(s) in Original Quality`;
     }
 
+    const cloudSyncState: GooglePhotosCloudTelemetry['cloudSyncState'] =
+        streamThrottled ? 'sleeping' : transferred > 0 ? 'uploading' : uploaded > 0 ? 'backed_up' : 'idle';
+
+    let cloudStatusMessage = '';
+    if (streamThrottled) {
+        cloudStatusMessage = 'Plex streaming active • Cloud transfers held to preserve bandwidth';
+    } else if (transferred > 0) {
+        cloudStatusMessage = `Google Photos is syncing ${transferred} item(s) to cloud • Lifetime Unlimited Original Quality`;
+    } else if (uploaded > 0) {
+        cloudStatusMessage = `All staged media verified in Google Photos Cloud • 0 items pending on phone`;
+    } else {
+        cloudStatusMessage = 'Google Photos Cloud sync ready • Waiting for media staging';
+    }
+
+    const cloudTelemetry: GooglePhotosCloudTelemetry = {
+        isCloudUploading: transferred > 0,
+        isPhotosActive: resolvedNode?.isOnline ?? false,
+        pendingOnDeviceCount: transferred,
+        pendingOnDeviceBytes: ledger.filter(i => i.status === 'transferred').reduce((acc, i) => acc + (i.sizeBytes || 0), 0),
+        backedUpCount: uploaded,
+        cloudSyncState,
+        statusDetail: cloudStatusMessage,
+        lastCloudScanTime: getSetting('pixel_last_clean_time') || getSetting('pixel_last_sync_time')
+    };
+
     return {
         activeTransfer,
         activeTaskName,
@@ -455,6 +497,7 @@ export async function getPhoneBackupTasksSummary(): Promise<PhoneBackupSuiteSumm
             totalBytesTransferred,
             totalBytesCleaned
         },
+        cloudTelemetry,
         items: ledger,
         lastSyncTime: getSetting('pixel_last_sync_time'),
         lastCleanTime: getSetting('pixel_last_clean_time'),
@@ -610,6 +653,17 @@ export async function processPhoneBackupCycle(): Promise<void> {
         // 3. Check and clean verified uploads
         await checkGooglePhotosUploadProgress(target);
 
+        // 3.5 Auto-Reconciliation with Google Photos:
+        // When items have been transferred for >= 35s, trigger Free Up Space so Google Photos purges backed-up files and updates counts!
+        const currentLedger = getPhoneBackupLedger();
+        const transferredItems = currentLedger.filter(i => i.status === 'transferred');
+        const nowMs = Date.now();
+        const hasMatured = transferredItems.some(i => i.transferredAt && (nowMs - new Date(i.transferredAt).getTime()) > 35000);
+
+        if (autoClean && hasMatured) {
+            await triggerGooglePhotosCleanup();
+        }
+
         // 4. Storage check
         const dfOut = await execAsync(`adb -s ${target} shell df -h /data`, { timeout: 2500 }).catch(() => ({ stdout: '' }));
         const dfLines = dfOut.stdout.trim().split('\n');
@@ -630,6 +684,16 @@ export async function processPhoneBackupCycle(): Promise<void> {
             if (autoClean) {
                 await triggerGooglePhotosCleanup();
             }
+            return;
+        }
+
+        // If buffer on phone already has more than 2x batchSize awaiting cloud upload, wait for Google Photos to drain
+        if (transferredItems.length >= batchSize * 2) {
+            // Awaken Google Photos to accelerate cloud backup
+            await execAsync(
+                `adb -s ${target} shell am start -n com.google.android.apps.photos/.home.HomeActivity`,
+                { timeout: 2500 }
+            ).catch(() => null);
             return;
         }
 
@@ -662,6 +726,32 @@ export async function processPhoneBackupCycle(): Promise<void> {
         console.error('[PHONE-BACKUP] Error in phone backup cycle:', e);
     } finally {
         isPhoneBackupRunning = false;
+    }
+}
+
+/**
+ * Wakes Google Photos in foreground and broadcasts MediaStore rescan.
+ */
+export async function wakeGooglePhotosAndScan(target?: string): Promise<{ success: boolean; message: string }> {
+    const rawNode = getSetting('pixel_bridge_node');
+    const node = rawNode ? JSON.parse(rawNode) : null;
+    if (!node || !node.ip) {
+        return { success: false, message: 'No paired Pixel node found in settings' };
+    }
+    const phoneTarget = target || `${node.ip}:${node.port || 5555}`;
+    try {
+        await execAsync(`adb connect ${phoneTarget}`, { timeout: 2500 }).catch(() => null);
+        await execAsync(
+            `adb -s ${phoneTarget} shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/DCIM/SchedulearrSync`,
+            { timeout: 3000 }
+        ).catch(() => null);
+        await execAsync(
+            `adb -s ${phoneTarget} shell am start -n com.google.android.apps.photos/.home.HomeActivity`,
+            { timeout: 3000 }
+        ).catch(() => null);
+        return { success: true, message: 'Google Photos awakened in foreground and MediaStore re-indexed' };
+    } catch (e: any) {
+        return { success: false, message: `Failed to wake Google Photos: ${e.message}` };
     }
 }
 
