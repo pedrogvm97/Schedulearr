@@ -362,7 +362,11 @@ export async function POST(req: Request) {
                     });
 
                     if (hasLocalUsb) {
-                        await execAsync('adb tcpip 5555', { timeout: 6000 }).catch(() => null);
+                        const lines = (localDevRes.stdout || '').split('\n').slice(1);
+                        const usbDeviceLine = lines.find(l => l.includes('usb:'));
+                        const usbSerial = usbDeviceLine ? usbDeviceLine.trim().split(/\s+/)[0] : '';
+                        await execAsync(`adb disconnect ${target}`).catch(() => null);
+                        await execAsync(usbSerial ? `adb -s ${usbSerial} tcpip 5555` : 'adb tcpip 5555', { timeout: 6000 }).catch(() => null);
                     } else if (fs.existsSync('/var/run/docker.sock')) {
                         // Privileged USB runner on server
                         await runPrivilegedUsbAdb(cleanIp);
@@ -472,7 +476,14 @@ export async function POST(req: Request) {
                 });
 
                 if (hasLocalUsb) {
-                    const tcpipRes = await execAsync('adb tcpip 5555', { timeout: 8000 }).catch(e => ({ stdout: e.message, stderr: '' }));
+                    const lines = (localDevRes.stdout || '').split('\n').slice(1);
+                    const usbDeviceLine = lines.find(l => l.includes('usb:'));
+                    const usbSerial = usbDeviceLine ? usbDeviceLine.trim().split(/\s+/)[0] : '';
+                    if (targetIp && targetIp.trim()) {
+                        const cleanIp = targetIp.trim().split(':')[0];
+                        await execAsync(`adb disconnect ${cleanIp}:5555`).catch(() => null);
+                    }
+                    const tcpipRes = await execAsync(usbSerial ? `adb -s ${usbSerial} tcpip 5555` : 'adb tcpip 5555', { timeout: 8000 }).catch(e => ({ stdout: e.message, stderr: '' }));
                     let connectOutput = '';
                     if (targetIp && targetIp.trim()) {
                         const cleanIp = targetIp.trim().split(':')[0];
