@@ -4697,6 +4697,430 @@ export const clearVideoAiHistory = () => {
     }
 };
 
+// ── Unified Library Processing & Absolute Task Workload Telemetry ──
+export interface LibraryTaskBreakdownItem {
+    id: string;
+    label: string;
+    done: number;
+    total: number;
+    unit: string;
+    durationMs: number;
+}
+
+export interface LibraryTaskMetric {
+    key: 'stt' | 'art' | 'scening' | 'voice' | 'translation';
+    label: string;
+    icon: string;
+    color: string;
+    done: number;
+    total: number;
+    pending: number;
+    failed: number;
+    percent: number;
+    durationMs: number;
+    durationFormatted: string;
+    avgSecondsPerUnit: number;
+    isLongest: boolean;
+    isCrossLibrary: boolean;
+    breakdown: LibraryTaskBreakdownItem[];
+}
+
+export interface UnifiedLibraryProcessingSummary {
+    totalUnits: number;
+    totalDone: number;
+    totalPending: number;
+    totalFailed: number;
+    totalPercent: number;
+    totalDurationMs: number;
+    totalDurationFormatted: string;
+    longestTaskKey: string;
+    longestTaskLabel: string;
+    longestTaskDurationFormatted: string;
+    tasks: LibraryTaskMetric[];
+}
+
+function formatTaskDuration(ms: number): string {
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    if (totalSec < 60) return `${totalSec}s`;
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+export const getUnifiedLibraryProcessingMetrics = (): UnifiedLibraryProcessingSummary => {
+    // 1. Audiobooks Chapters & Books
+    let abTotalChapters = 0;
+    let abSttDone = 0;
+    let abSttFailed = 0;
+    let abSttTranscribedSec = 0;
+    let abVoiceDone = 0;
+    let abVoiceFailed = 0;
+    let abArtDoneChapters = 0;
+    let abArtFailed = 0;
+    let abScenedChapters = 0;
+    let abDetectedScenes = 0;
+    let abPaintedScenes = 0;
+
+    try {
+        const chRow = db.prepare(`
+            SELECT 
+                COUNT(*) as total_chapters,
+                SUM(CASE WHEN transcription_status = 'completed' OR (synced_lyrics IS NOT NULL AND length(synced_lyrics) > 20) THEN 1 ELSE 0 END) as stt_done,
+                SUM(CASE WHEN transcription_status = 'failed' THEN 1 ELSE 0 END) as stt_failed,
+                SUM(CASE WHEN audio_enhance_status = 'completed' THEN 1 ELSE 0 END) as voice_done,
+                SUM(CASE WHEN audio_enhance_status = 'failed' THEN 1 ELSE 0 END) as voice_failed,
+                SUM(CASE WHEN illustration_status = 'completed' THEN 1 ELSE 0 END) as art_done,
+                SUM(CASE WHEN illustration_status = 'failed' THEN 1 ELSE 0 END) as art_failed,
+                SUM(CASE WHEN transcribed_seconds > 0 THEN transcribed_seconds ELSE 0 END) as transcribed_sec,
+                SUM(CASE WHEN duration_sec > 0 THEN duration_sec ELSE 0 END) as total_duration_sec
+            FROM audiobook_chapters_meta
+        `).get() as any;
+
+        if (chRow) {
+            abTotalChapters = Number(chRow.total_chapters || 0);
+            abSttDone = Number(chRow.stt_done || 0);
+            abSttFailed = Number(chRow.stt_failed || 0);
+            abVoiceDone = Number(chRow.voice_done || 0);
+            abVoiceFailed = Number(chRow.voice_failed || 0);
+            abArtDoneChapters = Number(chRow.art_done || 0);
+            abArtFailed = Number(chRow.art_failed || 0);
+            abSttTranscribedSec = Number(chRow.transcribed_sec || 0);
+        }
+
+        const bookRow = db.prepare(`
+            SELECT 
+                SUM(scened_chapters) as scened_chapters,
+                SUM(total_scenes) as total_scenes,
+                SUM(illustrated_scenes) as illustrated_scenes
+            FROM audiobook_books_meta
+        `).get() as any;
+
+        if (bookRow) {
+            abScenedChapters = Number(bookRow.scened_chapters || 0);
+            abDetectedScenes = Number(bookRow.total_scenes || 0);
+            abPaintedScenes = Number(bookRow.illustrated_scenes || 0);
+        }
+    } catch (e) {
+        console.error('Error querying audiobook processing totals:', e);
+    }
+
+    // 2. Video Subtitles & Video AI
+    let videoSubsTotal = 0;
+    let videoSubsDone = 0;
+    let videoSubsFailed = 0;
+    let videoSubsDurationMs = 0;
+    let videoTransDone = 0;
+    let videoTransDurationMs = 0;
+
+    try {
+        const videoRow = db.prepare(`
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as done,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN language != 'en' AND status = 'completed' THEN 1 ELSE 0 END) as trans_done,
+                SUM(CASE WHEN duration_ms > 0 THEN duration_ms ELSE 0 END) as dur_ms
+            FROM video_ai_subtitles
+        `).get() as any;
+
+        if (videoRow) {
+            videoSubsTotal = Number(videoRow.total || 0);
+            videoSubsDone = Number(videoRow.done || 0);
+            videoSubsFailed = Number(videoRow.failed || 0);
+            videoSubsDurationMs = Number(videoRow.dur_ms || 0);
+            videoTransDone = Number(videoRow.trans_done || 0);
+        }
+
+        const histRow = db.prepare(`
+            SELECT 
+                SUM(CASE WHEN action = 'transcribe' THEN duration_ms ELSE 0 END) as stt_hist_ms,
+                SUM(CASE WHEN action = 'translate' THEN duration_ms ELSE 0 END) as trans_hist_ms
+            FROM video_ai_history
+        `).get() as any;
+
+        if (histRow) {
+            const histStt = Number(histRow.stt_hist_ms || 0);
+            if (histStt > videoSubsDurationMs) videoSubsDurationMs = histStt;
+            videoTransDurationMs = Number(histRow.trans_hist_ms || 0);
+        }
+    } catch (e) {
+        console.error('Error querying video subtitles processing totals:', e);
+    }
+
+    // 3. Music Lyrics
+    let musicLyricsTotal = 0;
+    let musicLyricsDone = 0;
+    let musicLyricsDurationMs = 0;
+
+    try {
+        const musicRow = db.prepare(`
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN synced_lyrics IS NOT NULL AND length(synced_lyrics) > 20 THEN 1 ELSE 0 END) as done
+            FROM music_lyrics
+        `).get() as any;
+
+        if (musicRow) {
+            musicLyricsTotal = Number(musicRow.total || 0);
+            musicLyricsDone = Number(musicRow.done || 0);
+            musicLyricsDurationMs = musicLyricsDone * 1800;
+        }
+    } catch (e) {
+        console.error('Error querying music lyrics processing totals:', e);
+    }
+
+    // 4. API Usage Events for fine-grained measured latency
+    let apiSttMs = 0;
+    let apiSceningMs = 0;
+    let apiArtMs = 0;
+
+    try {
+        const eventRows = db.prepare(`
+            SELECT task_type, SUM(latency_ms) as lat_ms
+            FROM ai_api_usage_events
+            GROUP BY task_type
+        `).all() as any[];
+
+        for (const r of eventRows) {
+            const tt = String(r.task_type || '').toLowerCase();
+            const lat = Number(r.lat_ms || 0);
+            if (tt.includes('stt') || tt.includes('transcrib')) {
+                apiSttMs += lat;
+            } else if (tt.includes('scene') || tt.includes('prompt') || tt.includes('llm')) {
+                apiSceningMs += lat;
+            } else if (tt.includes('art') || tt.includes('paint') || tt.includes('illustrat') || tt.includes('image')) {
+                apiArtMs += lat;
+            }
+        }
+    } catch (e) {
+        console.error('Error querying ai_api_usage_events:', e);
+    }
+
+    // 5. Compute Durations & Metrics per Task
+    // A. Speech-to-Text (CROSS-LIBRARY: Audiobooks + Video + Music)
+    const abSttEstimatedMs = abSttTranscribedSec > 0
+        ? Math.round(abSttTranscribedSec * 350)
+        : (abSttDone * 90000);
+    const abSttDurationMs = Math.max(apiSttMs, abSttEstimatedMs);
+    const totalSttDurationMs = abSttDurationMs + videoSubsDurationMs + musicLyricsDurationMs;
+    const totalSttDone = abSttDone + videoSubsDone + musicLyricsDone;
+    const totalSttUnits = Math.max(
+        totalSttDone,
+        abTotalChapters + Math.max(videoSubsTotal, videoSubsDone) + Math.max(musicLyricsTotal, musicLyricsDone)
+    );
+    const totalSttPending = Math.max(0, totalSttUnits - totalSttDone);
+
+    // B. Visual Scene Artwork & Painting
+    const totalArtScenesDone = abPaintedScenes;
+    const totalArtScenesTarget = Math.max(abDetectedScenes, abPaintedScenes, abArtDoneChapters, 1);
+    const artDurationMs = Math.max(apiArtMs, totalArtScenesDone * 12500);
+
+    // C. LLM Scene Detection & Narrative Breakdown
+    const totalScenedUnitsDone = Math.max(abScenedChapters, abSttDone > 0 ? Math.min(abSttDone, abTotalChapters) : 0);
+    const totalScenedUnitsTarget = Math.max(abTotalChapters, totalScenedUnitsDone, 1);
+    const sceningDurationMs = Math.max(apiSceningMs, totalScenedUnitsDone * 4500);
+
+    // D. Narrator Voice & Audio DSP (FFmpeg Audio Enhancement)
+    const voiceDone = abVoiceDone;
+    const voiceTarget = Math.max(abTotalChapters, voiceDone, 1);
+    const voiceDurationMs = voiceDone * 45000;
+
+    // E. Subtitle Translation & Sync
+    const translationDone = videoTransDone;
+    const translationTarget = Math.max(videoSubsDone, translationDone, 1);
+    const translationDurationMs = Math.max(videoTransDurationMs, translationDone * 8000);
+
+    const tasksList: LibraryTaskMetric[] = [
+        {
+            key: 'stt',
+            label: 'Speech-to-Text',
+            icon: 'Mic',
+            color: 'indigo',
+            done: totalSttDone,
+            total: totalSttUnits,
+            pending: totalSttPending,
+            failed: abSttFailed + videoSubsFailed,
+            percent: totalSttUnits > 0 ? Math.min(100, Math.round((totalSttDone / totalSttUnits) * 100)) : 0,
+            durationMs: totalSttDurationMs,
+            durationFormatted: formatTaskDuration(totalSttDurationMs),
+            avgSecondsPerUnit: totalSttDone > 0 ? Math.round((totalSttDurationMs / totalSttDone) / 1000) : 0,
+            isLongest: false,
+            isCrossLibrary: true,
+            breakdown: [
+                {
+                    id: 'audiobooks',
+                    label: 'Audiobooks',
+                    done: abSttDone,
+                    total: abTotalChapters,
+                    unit: 'chapters',
+                    durationMs: abSttDurationMs
+                },
+                {
+                    id: 'movies_tv',
+                    label: 'Movies & TV',
+                    done: videoSubsDone,
+                    total: Math.max(videoSubsTotal, videoSubsDone),
+                    unit: 'videos',
+                    durationMs: videoSubsDurationMs
+                },
+                {
+                    id: 'music',
+                    label: 'Music Lyrics',
+                    done: musicLyricsDone,
+                    total: Math.max(musicLyricsTotal, musicLyricsDone),
+                    unit: 'tracks',
+                    durationMs: musicLyricsDurationMs
+                }
+            ]
+        },
+        {
+            key: 'art',
+            label: 'Artwork',
+            icon: 'Image',
+            color: 'purple',
+            done: totalArtScenesDone,
+            total: totalArtScenesTarget,
+            pending: Math.max(0, totalArtScenesTarget - totalArtScenesDone),
+            failed: abArtFailed,
+            percent: totalArtScenesTarget > 0 ? Math.min(100, Math.round((totalArtScenesDone / totalArtScenesTarget) * 100)) : 0,
+            durationMs: artDurationMs,
+            durationFormatted: formatTaskDuration(artDurationMs),
+            avgSecondsPerUnit: totalArtScenesDone > 0 ? Math.round((artDurationMs / totalArtScenesDone) / 1000) : 0,
+            isLongest: false,
+            isCrossLibrary: false,
+            breakdown: [
+                {
+                    id: 'audiobook_scenes',
+                    label: 'Book Scenes',
+                    done: totalArtScenesDone,
+                    total: totalArtScenesTarget,
+                    unit: 'illustrations',
+                    durationMs: artDurationMs
+                }
+            ]
+        },
+        {
+            key: 'scening',
+            label: 'Scenes',
+            icon: 'Wand2',
+            color: 'cyan',
+            done: totalScenedUnitsDone,
+            total: totalScenedUnitsTarget,
+            pending: Math.max(0, totalScenedUnitsTarget - totalScenedUnitsDone),
+            failed: 0,
+            percent: totalScenedUnitsTarget > 0 ? Math.min(100, Math.round((totalScenedUnitsDone / totalScenedUnitsTarget) * 100)) : 0,
+            durationMs: sceningDurationMs,
+            durationFormatted: formatTaskDuration(sceningDurationMs),
+            avgSecondsPerUnit: totalScenedUnitsDone > 0 ? Math.round((sceningDurationMs / totalScenedUnitsDone) / 1000) : 0,
+            isLongest: false,
+            isCrossLibrary: false,
+            breakdown: [
+                {
+                    id: 'audiobook_chapters',
+                    label: 'Audiobook Chapters',
+                    done: totalScenedUnitsDone,
+                    total: totalScenedUnitsTarget,
+                    unit: 'chapters',
+                    durationMs: sceningDurationMs
+                }
+            ]
+        },
+        {
+            key: 'voice',
+            label: 'Voice',
+            icon: 'Headphones',
+            color: 'emerald',
+            done: voiceDone,
+            total: voiceTarget,
+            pending: Math.max(0, voiceTarget - voiceDone),
+            failed: abVoiceFailed,
+            percent: voiceTarget > 0 ? Math.min(100, Math.round((voiceDone / voiceTarget) * 100)) : 0,
+            durationMs: voiceDurationMs,
+            durationFormatted: formatTaskDuration(voiceDurationMs),
+            avgSecondsPerUnit: voiceDone > 0 ? Math.round((voiceDurationMs / voiceDone) / 1000) : 0,
+            isLongest: false,
+            isCrossLibrary: false,
+            breakdown: [
+                {
+                    id: 'narrator_enhancement',
+                    label: 'Narrator DSP',
+                    done: voiceDone,
+                    total: voiceTarget,
+                    unit: 'chapters',
+                    durationMs: voiceDurationMs
+                }
+            ]
+        },
+        {
+            key: 'translation',
+            label: 'Translation',
+            icon: 'Globe',
+            color: 'sky',
+            done: translationDone,
+            total: translationTarget,
+            pending: Math.max(0, translationTarget - translationDone),
+            failed: 0,
+            percent: translationTarget > 0 ? Math.min(100, Math.round((translationDone / translationTarget) * 100)) : 0,
+            durationMs: translationDurationMs,
+            durationFormatted: formatTaskDuration(translationDurationMs),
+            avgSecondsPerUnit: translationDone > 0 ? Math.round((translationDurationMs / translationDone) / 1000) : 0,
+            isLongest: false,
+            isCrossLibrary: false,
+            breakdown: [
+                {
+                    id: 'subtitle_translations',
+                    label: 'Target Subtitles',
+                    done: translationDone,
+                    total: translationTarget,
+                    unit: 'tracks',
+                    durationMs: translationDurationMs
+                }
+            ]
+        }
+    ];
+
+    // Find the longest task
+    let maxDuration = -1;
+    let longestKey = 'stt';
+    for (const t of tasksList) {
+        if (t.durationMs > maxDuration) {
+            maxDuration = t.durationMs;
+            longestKey = t.key;
+        }
+    }
+
+    for (const t of tasksList) {
+        if (t.key === longestKey) {
+            t.isLongest = true;
+        }
+    }
+
+    const longestTask = tasksList.find(t => t.key === longestKey) || tasksList[0];
+
+    // Overall Totals
+    const totalUnits = tasksList.reduce((acc, t) => acc + t.total, 0);
+    const totalDone = tasksList.reduce((acc, t) => acc + t.done, 0);
+    const totalPending = tasksList.reduce((acc, t) => acc + t.pending, 0);
+    const totalFailed = tasksList.reduce((acc, t) => acc + t.failed, 0);
+    const totalDurationMs = tasksList.reduce((acc, t) => acc + t.durationMs, 0);
+    const totalPercent = totalUnits > 0 ? Math.min(100, Math.round((totalDone / totalUnits) * 100)) : 0;
+
+    return {
+        totalUnits,
+        totalDone,
+        totalPending,
+        totalFailed,
+        totalPercent,
+        totalDurationMs,
+        totalDurationFormatted: formatTaskDuration(totalDurationMs),
+        longestTaskKey: longestKey,
+        longestTaskLabel: longestTask.label,
+        longestTaskDurationFormatted: longestTask.durationFormatted,
+        tasks: tasksList
+    };
+};
+
 export default db;
 
 

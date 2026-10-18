@@ -38,7 +38,8 @@ import {
     getTheaterLibraries,
     updateTheaterLibrary,
     getIptvEpgCountForLibrary,
-    setCalendarSyncConfig
+    setCalendarSyncConfig,
+    getUnifiedLibraryProcessingMetrics
 } from '@/lib/db';
 import { getActiveStreamHubsSummary } from '@/lib/iptvStreamHub';
 import { cancelRecordingProcess } from '@/lib/iptvDvrScheduler';
@@ -264,10 +265,13 @@ export async function GET() {
             scheduledDvrRecordings.length +
             queuedBooks.length;
 
+        const libraryProcessingSummary = getUnifiedLibraryProcessingMetrics();
+
         return NextResponse.json({
             ok: true,
             activeCount,
             queuedCount,
+            libraryProcessingSummary,
             liveStreams: activeStreamHubs,
             epgSyncs: activeEpgSyncs,
             epgSchedules,

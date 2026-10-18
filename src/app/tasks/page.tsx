@@ -35,8 +35,12 @@ import {
     Layers,
     ChevronDown,
     ChevronRight,
+    ChevronUp,
     Zap,
-    Headphones
+    Headphones,
+    BarChart3,
+    Timer,
+    CheckCircle2
 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ConfirmModal';
 
@@ -51,6 +55,9 @@ export default function TasksPage() {
     const [nowMs, setNowMs] = useState<number>(Date.now());
     const [activeLibraryTab, setActiveLibraryTab] = useState<TaskLibraryTab>('audiobooks');
     const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
+    const [chartMetricMode, setChartMetricMode] = useState<'duration' | 'units'>('duration');
+    const [isSttBreakdownExpanded, setIsSttBreakdownExpanded] = useState<boolean>(true);
+    const [isOverviewCollapsed, setIsOverviewCollapsed] = useState<boolean>(false);
     const [confirmModal, setConfirmModal] = useState<{
         isOpen: boolean;
         title: string;
@@ -163,6 +170,28 @@ export default function TasksPage() {
     const isLocalTasksActive = isVoiceRunning || (isSttRunning && sttUsesLocalCpu);
     const isAiCloudTasksActive = isArtRunning || isLlmRunning || (isSttRunning && !sttUsesLocalCpu);
 
+    const processingSummary = data?.libraryProcessingSummary || {
+        totalUnits: (totals.transcriptions?.total || 0) + (totals.art?.totalChapters || 0) + (totals.llmScenes?.totalChapters || 0) + (totals.voices?.total || 0),
+        totalDone: (totals.transcriptions?.done || 0) + (totals.art?.doneChapters || 0) + (totals.llmScenes?.doneChapters || 0) + (totals.voices?.done || 0),
+        totalPending: (totals.transcriptions?.pending || 0) + (totals.art?.pendingChapters || 0) + (totals.llmScenes?.pendingChapters || 0) + (totals.voices?.pending || 0),
+        totalFailed: totalFailedChapters,
+        totalPercent: ((totals.transcriptions?.total || 0) + (totals.art?.totalChapters || 0) + (totals.llmScenes?.totalChapters || 0) + (totals.voices?.total || 0)) > 0
+            ? Math.round((((totals.transcriptions?.done || 0) + (totals.art?.doneChapters || 0) + (totals.llmScenes?.doneChapters || 0) + (totals.voices?.done || 0)) / ((totals.transcriptions?.total || 0) + (totals.art?.totalChapters || 0) + (totals.llmScenes?.totalChapters || 0) + (totals.voices?.total || 0))) * 100)
+            : 0,
+        totalDurationMs: 0,
+        totalDurationFormatted: '0m',
+        longestTaskKey: 'stt',
+        longestTaskLabel: 'Speech-to-Text',
+        longestTaskDurationFormatted: '0m',
+        tasks: []
+    };
+
+    const maxTaskDuration = Math.max(1, ...(processingSummary.tasks || []).map((t: any) => t.durationMs || 0));
+    const totalProcessingPercent = Math.min(100, Math.max(0, processingSummary.totalPercent || 0));
+    const ringRadius = 44;
+    const ringCircumference = 2 * Math.PI * ringRadius;
+    const ringDashoffset = ringCircumference - (ringCircumference * totalProcessingPercent) / 100;
+
     return (
         <div className="min-h-screen bg-[#07090e] text-white px-4 py-5 md:px-8 max-w-[1750px] mx-auto space-y-6">
             {/* Top Header Bar */}
@@ -196,25 +225,290 @@ export default function TasksPage() {
                                 ? 'AI features are globally paused. Click to resume AI transcription, scening, and image generation.'
                                 : 'Immediately halt all AI features (transcription, scening, image generation) to prevent API calls.'
                         }
-                        className={`px-4 py-2.5 rounded-xl text-base font-black flex items-center gap-2 whitespace-nowrap cursor-pointer transition-all disabled:opacity-50 ${
+                        className={`p-3 rounded-xl text-base font-black flex items-center justify-center cursor-pointer transition-all disabled:opacity-50 ${
                             studioCfg.aiPaused
                                 ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg'
                                 : 'bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200'
                         }`}
                     >
                         {studioCfg.aiPaused ? <Play className="w-5 h-5 fill-current" /> : <Pause className="w-5 h-5" />}
-                        <span>{studioCfg.aiPaused ? 'Resume AI' : 'Pause AI'}</span>
                     </button>
                     <button
                         onClick={fetchTasks}
                         title="Refresh live status"
-                        className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-base font-bold text-gray-200 flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                        className="p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 flex items-center justify-center cursor-pointer"
                     >
                         <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin text-indigo-400' : ''}`} />
-                        Refresh
                     </button>
                 </div>
             </div>
+
+            {/* ═══════════════════════════════════════════════════════════════════
+                UNIFIED LIBRARY PROCESSING % & ABSOLUTE WORKLOAD CHART
+               ═══════════════════════════════════════════════════════════════════ */}
+            <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 md:p-6 shadow-2xl space-y-5">
+                {/* Section Top Controls */}
+                <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                            <BarChart3 size={24} />
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                            <h2 className="text-xl md:text-2xl font-black text-white">Progress</h2>
+                            <span className="px-2.5 py-1 rounded-md text-xs font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                                {totalProcessingPercent}%
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        {/* Toggle Mode: Absolute Duration vs Relative Completion Units */}
+                        <div className="flex items-center p-1 rounded-xl bg-black/50 border border-white/10">
+                            <button
+                                type="button"
+                                onClick={() => setChartMetricMode('duration')}
+                                title="Absolute Duration Chart (identifies which task is taking longest)"
+                                className={`p-2 rounded-lg transition-all cursor-pointer ${
+                                    chartMetricMode === 'duration'
+                                        ? 'bg-amber-500 text-black shadow-md font-black'
+                                        : 'text-gray-400 hover:text-white'
+                                }`}
+                            >
+                                <Timer size={18} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setChartMetricMode('units')}
+                                title="Completion Progress Units Chart"
+                                className={`p-2 rounded-lg transition-all cursor-pointer ${
+                                    chartMetricMode === 'units'
+                                        ? 'bg-indigo-500 text-white shadow-md font-black'
+                                        : 'text-gray-400 hover:text-white'
+                                }`}
+                            >
+                                <Layers size={18} />
+                            </button>
+                        </div>
+
+                        {/* Collapse/Expand Toggle (Pure Symbol) */}
+                        <button
+                            type="button"
+                            onClick={() => setIsOverviewCollapsed(prev => !prev)}
+                            title={isOverviewCollapsed ? 'Expand Overview' : 'Collapse Overview'}
+                            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all cursor-pointer"
+                        >
+                            {isOverviewCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                        </button>
+                    </div>
+                </div>
+
+                {!isOverviewCollapsed && (
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                        {/* ── Left Column: Total Processing % Circular Metric Card (lg:col-span-4 xl:col-span-3) ── */}
+                        <div className="lg:col-span-4 xl:col-span-3 rounded-2xl bg-black/40 border border-white/10 p-5 flex flex-col justify-between items-center text-center space-y-4">
+                            <div className="w-full flex items-center justify-between">
+                                <span className="text-xs font-black uppercase tracking-wider text-gray-400">Total</span>
+                                <span className={`px-2 py-0.5 rounded text-xs font-black uppercase ${
+                                    studioStatus.isRunning
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
+                                        : 'bg-white/5 text-gray-400 border border-white/10'
+                                }`}>
+                                    {studioStatus.isRunning ? 'Running' : 'Idle'}
+                                </span>
+                            </div>
+
+                            {/* Circular SVG Ring */}
+                            <div className="relative w-36 h-36 flex items-center justify-center my-1">
+                                <svg className="w-full h-full -rotate-90" viewBox="0 0 110 110">
+                                    <circle
+                                        cx="55"
+                                        cy="55"
+                                        r={ringRadius}
+                                        className="stroke-zinc-800"
+                                        strokeWidth="9"
+                                        fill="transparent"
+                                    />
+                                    <circle
+                                        cx="55"
+                                        cy="55"
+                                        r={ringRadius}
+                                        className="stroke-emerald-400 transition-all duration-700 ease-out"
+                                        strokeWidth="9"
+                                        strokeDasharray={ringCircumference}
+                                        strokeDashoffset={ringDashoffset}
+                                        strokeLinecap="round"
+                                        fill="transparent"
+                                    />
+                                </svg>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                    <span className="text-3xl md:text-4xl font-black font-mono text-white tracking-tight">
+                                        {totalProcessingPercent}%
+                                    </span>
+                                    <span className="text-xs font-bold text-gray-400 uppercase mt-0.5">
+                                        Overall
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Bottom Dual Metric Pills */}
+                            <div className="w-full grid grid-cols-2 gap-2 pt-2 border-t border-white/10">
+                                <div
+                                    className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center"
+                                    title="Total units completed across all tasks and libraries"
+                                >
+                                    <span className="text-[11px] font-black uppercase text-gray-400 flex items-center gap-1">
+                                        <Layers size={13} className="text-indigo-400" />
+                                        <span>Units</span>
+                                    </span>
+                                    <span className="text-base font-black font-mono text-white mt-1">
+                                        {processingSummary.totalDone} / {processingSummary.totalUnits}
+                                    </span>
+                                </div>
+
+                                <div
+                                    className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center"
+                                    title="Cumulative processing time computed across all tasks"
+                                >
+                                    <span className="text-[11px] font-black uppercase text-gray-400 flex items-center gap-1">
+                                        <Clock size={13} className="text-amber-400" />
+                                        <span>Time</span>
+                                    </span>
+                                    <span className="text-base font-black font-mono text-white mt-1">
+                                        {processingSummary.totalDurationFormatted}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ── Right Column: Absolute Task Duration & Workload Chart (lg:col-span-8 xl:col-span-9) ── */}
+                        <div className="lg:col-span-8 xl:col-span-9 rounded-2xl bg-black/40 border border-white/10 p-5 space-y-4">
+                            {/* Chart Header Pill */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/10">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-black uppercase tracking-wider text-gray-400">
+                                        {chartMetricMode === 'duration' ? 'Absolute Duration Comparison' : 'Task Completion Ratio'}
+                                    </span>
+                                </div>
+
+                                <div
+                                    className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black uppercase tracking-wider flex items-center gap-1.5"
+                                    title="The task taking the longest cumulative compute/wall-clock time across your entire library"
+                                >
+                                    <Timer size={14} className="text-amber-400" />
+                                    <span>Longest: {processingSummary.longestTaskLabel} ({processingSummary.longestTaskDurationFormatted})</span>
+                                </div>
+                            </div>
+
+                            {/* Task Rows List */}
+                            <div className="space-y-3.5">
+                                {(processingSummary.tasks || []).map((task: any) => {
+                                    const isStt = task.key === 'stt';
+                                    const widthPct = chartMetricMode === 'duration'
+                                        ? Math.max(5, Math.round(((task.durationMs || 0) / maxTaskDuration) * 100))
+                                        : Math.max(5, Math.min(100, task.percent || 0));
+
+                                    const taskColorMap: Record<string, { bar: string; icon: string; border: string }> = {
+                                        stt: { bar: 'from-indigo-600 via-indigo-500 to-indigo-400', icon: 'text-indigo-400', border: 'border-indigo-500/30' },
+                                        art: { bar: 'from-purple-600 via-purple-500 to-purple-400', icon: 'text-purple-400', border: 'border-purple-500/30' },
+                                        scening: { bar: 'from-cyan-600 via-cyan-500 to-cyan-400', icon: 'text-cyan-400', border: 'border-cyan-500/30' },
+                                        voice: { bar: 'from-emerald-600 via-emerald-500 to-emerald-400', icon: 'text-emerald-400', border: 'border-emerald-500/30' },
+                                        translation: { bar: 'from-sky-600 via-sky-500 to-sky-400', icon: 'text-sky-400', border: 'border-sky-500/30' }
+                                    };
+                                    const colors = taskColorMap[task.key] || taskColorMap.stt;
+
+                                    return (
+                                        <div
+                                            key={task.key}
+                                            className={`p-3.5 rounded-xl border transition-all ${
+                                                task.isLongest
+                                                    ? 'bg-amber-500/5 border-amber-500/40 shadow-sm'
+                                                    : 'bg-black/40 border-white/10 hover:border-white/20'
+                                            }`}
+                                        >
+                                            {/* Row Top Header */}
+                                            <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
+                                                <div className="flex items-center gap-2.5">
+                                                    {task.key === 'stt' && <Mic size={20} className={colors.icon} />}
+                                                    {task.key === 'art' && <ImageIcon size={20} className={colors.icon} />}
+                                                    {task.key === 'scening' && <Wand2 size={20} className={colors.icon} />}
+                                                    {task.key === 'voice' && <Headphones size={20} className={colors.icon} />}
+                                                    {task.key === 'translation' && <Globe size={20} className={colors.icon} />}
+
+                                                    <span className="text-base md:text-lg font-black text-white">
+                                                        {task.label}
+                                                    </span>
+
+                                                    {task.isCrossLibrary && (
+                                                        <span
+                                                            className="px-2 py-0.5 rounded text-[11px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
+                                                            title="Video & Audio to Text is common to almost all libraries: Audiobooks, Movies, TV, and Music"
+                                                        >
+                                                            Cross-Library
+                                                        </span>
+                                                    )}
+
+                                                    {task.isLongest && (
+                                                        <span
+                                                            className="px-2 py-0.5 rounded text-[11px] font-black uppercase tracking-wider bg-amber-500/25 text-amber-300 border border-amber-500/50 flex items-center gap-1 shadow-sm shadow-amber-500/20"
+                                                            title="This task takes the longest cumulative compute and wall-clock processing time"
+                                                        >
+                                                            <Timer size={12} />
+                                                            <span>Longest</span>
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex items-center gap-3">
+                                                    <span
+                                                        className="font-mono text-base md:text-lg font-black text-white"
+                                                        title="Cumulative processing time"
+                                                    >
+                                                        {task.durationFormatted}
+                                                    </span>
+                                                    <span
+                                                        className="font-mono text-xs md:text-sm font-bold text-gray-400"
+                                                        title="Completed units / Total units"
+                                                    >
+                                                        {task.done} / {task.total} ({task.percent}%)
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Absolute Visual Bar */}
+                                            <div className="w-full h-3.5 rounded-lg bg-zinc-900 border border-white/5 overflow-hidden">
+                                                <div
+                                                    className={`h-full bg-gradient-to-r ${colors.bar} rounded-lg transition-all duration-500`}
+                                                    style={{ width: `${widthPct}%` }}
+                                                    title={`${task.label}: ${task.durationFormatted} • ${task.done}/${task.total} units (${task.percent}%)`}
+                                                />
+                                            </div>
+
+                                            {/* Cross-Library Breakdown Pill Row for Speech-to-Text */}
+                                            {isStt && Array.isArray(task.breakdown) && task.breakdown.length > 0 && (
+                                                <div className="pt-2 mt-2 border-t border-white/5 flex flex-wrap items-center gap-2">
+                                                    {task.breakdown.map((b: any) => (
+                                                        <div
+                                                            key={b.id}
+                                                            className="px-2.5 py-1 rounded-lg bg-black/60 border border-white/10 flex items-center gap-2 text-xs font-bold text-gray-300"
+                                                            title={`${b.label}: ${b.done}/${b.total} ${b.unit} processed to text`}
+                                                        >
+                                                            {b.id === 'audiobooks' && <BookOpen size={14} className="text-amber-400" />}
+                                                            {b.id === 'movies_tv' && <Tv size={14} className="text-sky-400" />}
+                                                            {b.id === 'music' && <Radio size={14} className="text-emerald-400" />}
+                                                            <span>{b.label}</span>
+                                                            <span className="font-mono font-black text-white">{b.done}/{b.total}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </section>
 
             {/* ── Library Subtabs Navigation ── */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-white/10">
