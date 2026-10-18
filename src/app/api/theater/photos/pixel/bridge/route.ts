@@ -3,7 +3,7 @@ import { getSetting, setSetting } from '@/lib/db';
 import { exec } from 'child_process';
 import util from 'util';
 import { isStreamGuardActive } from '@/lib/streamGuard';
-import { getPhoneBackupTasksSummary } from '@/lib/pixelBackupSuite';
+import { getPhoneBackupTasksSummary, resetUnverifiedPhoneBackupItems } from '@/lib/pixelBackupSuite';
 
 const execAsync = util.promisify(exec);
 
@@ -142,6 +142,15 @@ export async function POST(req: Request) {
             if (toggles.batchSize !== undefined) setSetting('pixel_batch_size', String(toggles.batchSize));
 
             return NextResponse.json({ success: true, toggles: getStoredToggles() });
+        }
+
+        if (action === 'reset_unverified') {
+            const res = resetUnverifiedPhoneBackupItems();
+            return NextResponse.json({
+                success: true,
+                message: `Reset ${res.resetCount} unverified media items back to queued state.`,
+                ...res
+            });
         }
 
         if (action === 'sync_batch') {

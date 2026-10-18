@@ -6,7 +6,7 @@ import {
     Image as ImageIcon, Mic, RefreshCw, Check, ArrowUp, ArrowDown,
     Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2, Subtitles,
     Smartphone, Zap, HardDrive, Battery, BatteryCharging, Globe, Cpu,
-    Cloud, Package, CheckCircle2
+    Cloud, Package, CheckCircle2, RotateCcw
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
@@ -275,6 +275,23 @@ export default function Settings() {
             }
         } catch {
             toast.error('Failed to unpair Pixel node');
+        }
+    };
+
+    const handleResetUnverifiedLedger = async () => {
+        try {
+            const res = await fetch('/api/theater/photos/pixel/bridge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reset_unverified' })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                toast.success(data.message || 'Reset unverified transfer counts');
+                fetchPairedPixelNode();
+            }
+        } catch {
+            toast.error('Failed to reset unverified transfers');
         }
     };
 
@@ -1730,6 +1747,13 @@ export default function Settings() {
                                                 <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase whitespace-nowrap bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
                                                     {pairedPixelNode.unlimitedTier === 'original_quality' ? 'Unlimited Original' : 'Storage Saver'}
                                                 </span>
+                                                <span className={`px-2 py-0.5 rounded-lg text-xs font-bold border shrink-0 ${
+                                                    pairedPixelNode.adbActive
+                                                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                                                        : 'bg-red-500/15 text-red-300 border-red-500/40'
+                                                }`} title={pairedPixelNode.adbActive ? 'ADB Connection Active and Authorized' : (pairedPixelNode.note || 'ADB Port 5555 Closed / Unauthorized on phone')}>
+                                                    {pairedPixelNode.adbActive ? 'ADB Active' : 'ADB Port Closed'}
+                                                </span>
                                                 <span className={`w-2.5 h-2.5 rounded-full ${pairedPixelNode.isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
                                             </div>
                                             <div className="flex items-center gap-4 text-xs text-zinc-400 font-medium mt-1">
@@ -1745,6 +1769,14 @@ export default function Settings() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleResetUnverifiedLedger}
+                                            title="Reset unverified transfer counts back to queued"
+                                            className="p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all cursor-pointer"
+                                        >
+                                            <RotateCcw size={20} />
+                                        </button>
                                         <button
                                             type="button"
                                             onClick={handleAutoSolveSettings}

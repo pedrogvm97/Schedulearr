@@ -97,93 +97,30 @@ export interface PhoneBackupSuiteSummary {
     lastHealTime?: string;
 }
 
-const DEFAULT_SEED_ITEMS: PhoneBackupItem[] = [
-    {
-        id: 'pb-seed-01',
-        assetId: 'asset-seed-01',
-        filename: 'IMG_20241018_142010.jpg',
-        mediaType: 'photo',
-        sizeBytes: 4404019, // ~4.2 MB
-        status: 'uploaded',
-        targetPath: '/sdcard/DCIM/SchedulearrSync/IMG_20241018_142010.jpg',
-        stagedAt: new Date(Date.now() - 3600000 * 3).toISOString(),
-        transferredAt: new Date(Date.now() - 3600000 * 2.8).toISOString(),
-        uploadedAt: new Date(Date.now() - 3600000 * 2.5).toISOString(),
-        speedBps: 28500000
-    },
-    {
-        id: 'pb-seed-02',
-        assetId: 'asset-seed-02',
-        filename: 'VID_20241017_201530.mp4',
-        mediaType: 'video',
-        sizeBytes: 51200000, // ~48.8 MB
-        status: 'uploaded',
-        targetPath: '/sdcard/DCIM/SchedulearrSync/VID_20241017_201530.mp4',
-        stagedAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-        transferredAt: new Date(Date.now() - 3600000 * 3.7).toISOString(),
-        uploadedAt: new Date(Date.now() - 3600000 * 3.1).toISOString(),
-        speedBps: 31200000
-    },
-    {
-        id: 'pb-seed-03',
-        assetId: 'asset-seed-03',
-        filename: 'IMG_20241018_114005.jpg',
-        mediaType: 'photo',
-        sizeBytes: 5347737, // ~5.1 MB
-        status: 'transferred',
-        targetPath: '/sdcard/DCIM/SchedulearrSync/IMG_20241018_114005.jpg',
-        stagedAt: new Date(Date.now() - 3600000 * 1.5).toISOString(),
-        transferredAt: new Date(Date.now() - 3600000 * 1.3).toISOString(),
-        speedBps: 26800000
-    },
-    {
-        id: 'pb-seed-04',
-        assetId: 'asset-seed-04',
-        filename: 'IMG_20241018_121540.jpg',
-        mediaType: 'photo',
-        sizeBytes: 3984588, // ~3.8 MB
-        status: 'transferred',
-        targetPath: '/sdcard/DCIM/SchedulearrSync/IMG_20241018_121540.jpg',
-        stagedAt: new Date(Date.now() - 3600000 * 1.2).toISOString(),
-        transferredAt: new Date(Date.now() - 3600000 * 1.0).toISOString(),
-        speedBps: 29400000
-    },
-    {
-        id: 'pb-seed-05',
-        assetId: 'asset-seed-05',
-        filename: 'IMG_20241018_130114.jpg',
-        mediaType: 'photo',
-        sizeBytes: 4823449, // ~4.6 MB
-        status: 'staging',
-        targetPath: '/sdcard/DCIM/SchedulearrSync/IMG_20241018_130114.jpg',
-        stagedAt: new Date(Date.now() - 300000).toISOString(),
-        speedBps: 0
-    },
-    {
-        id: 'pb-seed-06',
-        assetId: 'asset-seed-06',
-        filename: 'IMG_20241018_134550.jpg',
-        mediaType: 'photo',
-        sizeBytes: 4089446, // ~3.9 MB
-        status: 'queued',
-        targetPath: '/sdcard/DCIM/SchedulearrSync/IMG_20241018_134550.jpg',
-        stagedAt: new Date(Date.now() - 120000).toISOString()
-    },
-    {
-        id: 'pb-seed-07',
-        assetId: 'asset-seed-07',
-        filename: 'IMG_20241016_163012.jpg',
-        mediaType: 'photo',
-        sizeBytes: 6501171, // ~6.2 MB
-        status: 'cleaned',
-        targetPath: '/sdcard/DCIM/SchedulearrSync/IMG_20241016_163012.jpg',
-        stagedAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-        transferredAt: new Date(Date.now() - 3600000 * 23.5).toISOString(),
-        uploadedAt: new Date(Date.now() - 3600000 * 22).toISOString(),
-        cleanedAt: new Date(Date.now() - 3600000 * 20).toISOString(),
-        speedBps: 27500000
+const DEFAULT_SEED_ITEMS: PhoneBackupItem[] = [];
+
+/**
+ * Resets all items that were marked 'transferred' or 'uploaded' back to 'queued'
+ * if the device was never actually connected and authorized in ADB.
+ */
+export function resetUnverifiedPhoneBackupItems(): { resetCount: number } {
+    const ledger = getPhoneBackupLedger();
+    let resetCount = 0;
+    for (const item of ledger) {
+        if (item.status === 'uploaded' || item.status === 'transferred') {
+            item.status = 'queued';
+            item.transferredAt = undefined;
+            item.uploadedAt = undefined;
+            item.cleanedAt = undefined;
+            item.speedBps = undefined;
+            resetCount++;
+        }
     }
-];
+    if (resetCount > 0) {
+        savePhoneBackupLedger(ledger);
+    }
+    return { resetCount };
+}
 
 /**
  * Returns the current ledger of phone backup items.
@@ -193,7 +130,7 @@ export function getPhoneBackupLedger(): PhoneBackupItem[] {
         const raw = getSetting('pixel_backup_ledger');
         if (raw) {
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) {
+            if (Array.isArray(parsed)) {
                 return parsed;
             }
         }
@@ -201,8 +138,8 @@ export function getPhoneBackupLedger(): PhoneBackupItem[] {
         console.error('[PHONE-BACKUP] Failed to parse backup ledger:', e);
     }
 
-    setSetting('pixel_backup_ledger', JSON.stringify(DEFAULT_SEED_ITEMS));
-    return DEFAULT_SEED_ITEMS;
+    setSetting('pixel_backup_ledger', JSON.stringify([]));
+    return [];
 }
 
 /**
@@ -325,15 +262,26 @@ export async function pushSingleItemToPixel(target: string, item: PhoneBackupIte
     const startTime = Date.now();
     let tempPath: string | null = null;
     try {
-        tempPath = await downloadImmichAssetToTemp(item.assetId);
-        if (tempPath && fs.existsSync(tempPath)) {
-            await execAsync(`adb -s ${target} push "${tempPath}" "${item.targetPath}"`, { timeout: 120000 });
-            try { fs.unlinkSync(tempPath); } catch {}
+        // 1. Strict ADB verification: Ensure device is genuinely connected and authorized
+        const stateCheck = await execAsync(`adb -s ${target} get-state`, { timeout: 2500 }).catch(() => ({ stdout: '' }));
+        if (stateCheck.stdout.trim() !== 'device') {
+            throw new Error(`Device ${target} is offline or unauthorized in ADB. Enable Wireless Debugging on phone.`);
         }
+
+        // 2. Download from Immich library buffer
+        tempPath = await downloadImmichAssetToTemp(item.assetId);
+        if (!tempPath || !fs.existsSync(tempPath)) {
+            throw new Error(`Failed to download media asset from Immich library buffer`);
+        }
+
+        // 3. Push to phone via ADB
+        await execAsync(`adb -s ${target} push "${tempPath}" "${item.targetPath}"`, { timeout: 120000 });
+        try { fs.unlinkSync(tempPath); } catch {}
 
         const elapsedSec = Math.max(1, (Date.now() - startTime) / 1000);
         item.status = 'transferred';
         item.transferredAt = new Date().toISOString();
+        item.error = undefined;
         if (item.sizeBytes > 0) {
             item.speedBps = Math.round(item.sizeBytes / elapsedSec);
         }
@@ -362,7 +310,14 @@ export async function pushSingleItemToPixel(target: string, item: PhoneBackupIte
  */
 export async function checkGooglePhotosUploadProgress(target: string): Promise<number> {
     try {
-        const res = await execAsync(`adb -s ${target} shell ls -1 /sdcard/DCIM/SchedulearrSync/`, { timeout: 3500 }).catch(() => ({ stdout: '' }));
+        // 1. Verify ADB connection is active and authorized
+        const stateCheck = await execAsync(`adb -s ${target} get-state`, { timeout: 2500 }).catch(() => ({ stdout: '' }));
+        if (stateCheck.stdout.trim() !== 'device') {
+            return 0; // Device not connected/authorized: DO NOT assume uploaded!
+        }
+
+        // 2. List directory
+        const res = await execAsync(`adb -s ${target} shell ls -1 /sdcard/DCIM/SchedulearrSync/`, { timeout: 4000 });
         const filesOnDevice = new Set(
             res.stdout
                 .split('\n')
@@ -375,11 +330,12 @@ export async function checkGooglePhotosUploadProgress(target: string): Promise<n
         const now = Date.now();
 
         for (const item of ledger) {
-            if (item.status === 'transferred') {
+            // Only examine items that were confirmed transferred
+            if (item.status === 'transferred' && item.transferredAt) {
                 const baseName = path.basename(item.targetPath || item.filename);
-                const transferredMs = item.transferredAt ? new Date(item.transferredAt).getTime() : 0;
-                // If transferred > 15 seconds ago and no longer on device, Google Photos has uploaded and freed it!
-                if (now - transferredMs > 15000 && !filesOnDevice.has(baseName)) {
+                const transferredMs = new Date(item.transferredAt).getTime();
+                // If transferred > 30 seconds ago and no longer on phone, Google Photos has uploaded and freed it!
+                if (now - transferredMs > 30000 && !filesOnDevice.has(baseName)) {
                     item.status = 'uploaded';
                     item.uploadedAt = item.uploadedAt || new Date().toISOString();
                     item.cleanedAt = new Date().toISOString();
@@ -668,6 +624,15 @@ export async function triggerPhoneBackupBatch(batchSize: number = 25): Promise<{
 
     try {
         await execAsync(`adb connect ${target}`, { timeout: 3000 }).catch(() => null);
+        const stateRes = await execAsync(`adb -s ${target} get-state`, { timeout: 2000 }).catch(() => ({ stdout: '' }));
+        if (stateRes.stdout.trim() !== 'device') {
+            return {
+                success: false,
+                pushedCount: 0,
+                message: `Device ${node.model || target} is not connected or unauthorized in ADB. Enable Wireless Debugging on your phone.`
+            };
+        }
+
         await execAsync(`adb -s ${target} shell mkdir -p /sdcard/DCIM/SchedulearrSync`, { timeout: 3000 }).catch(() => null);
 
         let pushedCount = 0;

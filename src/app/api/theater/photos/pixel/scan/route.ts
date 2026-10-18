@@ -149,6 +149,25 @@ async function queryDeviceAdb(ip: string, port: number = 5555): Promise<Partial<
         // Try connecting
         await execAsync(`adb connect ${target}`, { timeout: 3000 }).catch(() => null);
 
+        // Verify ADB device state
+        const stateRes = await execAsync(`adb -s ${target} get-state`, { timeout: 2000 }).catch(() => ({ stdout: '' }));
+        const state = stateRes.stdout.trim();
+        const isDevice = state === 'device';
+
+        if (!isDevice) {
+            return {
+                model: 'Google Pixel 10',
+                device: 'husky',
+                androidVersion: '14',
+                unlimitedTier: 'none',
+                role: 'sync_target',
+                adbActive: false,
+                note: state === 'unauthorized'
+                    ? 'Unauthorized (Accept ADB prompt on phone)'
+                    : 'Port 5555 Closed / Offline'
+            };
+        }
+
         // Fetch properties
         const [modelOut, deviceOut, releaseOut] = await Promise.all([
             execAsync(`adb -s ${target} shell getprop ro.product.model`, { timeout: 2000 }).catch(() => ({ stdout: '' })),
@@ -199,16 +218,18 @@ async function queryDeviceAdb(ip: string, port: number = 5555): Promise<Partial<
             totalStorage,
             batteryLevel,
             isCharging,
-            adbActive: true
+            adbActive: true,
+            note: 'Active ADB Connection'
         };
     } catch {
         return {
-            model: 'Google Pixel 10 (ADB)',
+            model: 'Google Pixel 10',
             device: 'husky',
             androidVersion: '14',
             unlimitedTier: 'none',
             role: 'sync_target',
-            adbActive: false
+            adbActive: false,
+            note: 'Port 5555 Closed / Offline'
         };
     }
 }
@@ -315,6 +336,27 @@ export async function POST(req: Request) {
         if (action === 'unpair') {
             setSetting('pixel_bridge_node', '');
             return NextResponse.json({ success: true, message: 'Pixel Bridge Node unpaired' });
+        }
+
+        // Action: Pair with Android 11+ Wireless Debugging 6-digit pairing code
+        if (action === 'pair_code') {
+            const { ip, pairingPort, pairingCode, connectPort } = body;
+            if (!ip || !pairingPort || !pairingCode) {
+                return NextResponse.json({ error: 'IP, pairing port, and 6-digit pairing code are required' }, { status: 400 });
+            }
+            try {
+                const pairRes = await execAsync(`adb pair ${ip}:${pairingPort} ${pairingCode}`, { timeout: 12000 });
+                const connPort = connectPort || 5555;
+                const connectRes = await execAsync(`adb connect ${ip}:${connPort}`, { timeout: 5000 }).catch(() => ({ stdout: '' }));
+                return NextResponse.json({
+                    success: true,
+                    pairOutput: pairRes.stdout.trim(),
+                    connectOutput: connectRes.stdout.trim(),
+                    message: `Successfully paired with ${ip}:${pairingPort}`
+                });
+            } catch (err: any) {
+                return NextResponse.json({ error: `Pairing failed: ${err.message}` }, { status: 500 });
+            }
         }
 
         // Action 3: Scan network for Pixels (ADB connected list, wireless debugging ports & local ARP)
