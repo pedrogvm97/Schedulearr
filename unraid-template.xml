@@ -50,6 +50,10 @@
   <Environment/>
   <Labels>
     <Label>
+      <Key>net.unraid.docker.managed</Key>
+      <Value>dockerman</Value>
+    </Label>
+    <Label>
       <Key>net.unraid.docker.icon</Key>
       <Value>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png</Value>
     </Label>

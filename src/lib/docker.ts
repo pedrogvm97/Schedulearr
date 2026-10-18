@@ -304,6 +304,9 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     Labels: {
       ...(containerInfo.Config?.Labels || {}),
       'schedulearr.original_name': baseName,
+      'net.unraid.docker.managed': 'dockerman',
+      'net.unraid.docker.webui': 'http://[IP]:[PORT:3010]/',
+      'net.unraid.docker.shell': 'sh',
       'net.unraid.docker.icon': 'https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png'
     }
   };

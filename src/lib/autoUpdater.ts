@@ -131,7 +131,7 @@ async function checkAndUpdate() {
     }
     console.log('[AutoUpdater] Image pulled. Launching updater helper to recreate Schedulearr...');
 
-    const finalImage = `${fromImage}:${tag}`;
+    const finalImage = `${fromImage}:latest`;
     if (containerInfo) {
       await recreateSelfContainer(docker, containerInfo, finalImage);
       console.log('[AutoUpdater] Updater helper launched successfully. Handing off to new container.');
