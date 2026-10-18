@@ -78,7 +78,7 @@ export function SubtitleSettingsPanel() {
 
         fetch('/api/settings')
             .then(r => r.ok ? r.json() : {})
-            .then(data => {
+            .then((data: any) => {
                 if (data?.subtitle_appearance) {
                     try {
                         const parsed = JSON.parse(data.subtitle_appearance);

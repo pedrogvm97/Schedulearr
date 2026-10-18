@@ -5264,6 +5264,27 @@ export const detectAudiobookChapterScenesWithLlm = async (
             transitionsToProcess.push(...localTransitions);
         }
 
+        // Guaranteed Opening Scene Fail-Safe: Ensure a chapter with transcripts never remains at 0 scenes
+        if (transitionsToProcess.length === 0 && discoveredScenes.length === 0) {
+            const defaultPrompt = sanitizeAndGroundScenePrompt({
+                rawPrompt: `Cinematic depiction of ${currentBook.title} by ${currentBook.author}, opening scene of ${cleanChapLabel}. Setting: ${windowEraInfo.eraContext || 'Dramatic narrative setting'}. Highly detailed ${windowEraInfo.styleFinish} painting.`,
+                sceneSnippet: `${cleanChapLabel} opening scene`,
+                bookTitle: currentBook.title,
+                author: currentBook.author,
+                chapterTitle: latestChapter.title,
+                effectiveStyle,
+                attempt: 0
+            });
+            transitionsToProcess.push({
+                atSecond: 0,
+                sceneTitle: `${cleanChapLabel} — Opening`,
+                transitionReason: `Opening scene of ${cleanChapLabel}`,
+                characters: Array.from(characterBible).slice(0, 3),
+                visualSetting: windowEraInfo.eraContext || 'Dramatic narrative setting',
+                illustrationPrompt: defaultPrompt
+            });
+        }
+
         for (const tr of transitionsToProcess) {
             for (const chName of tr.characters) {
                 if (chName) characterBible.add(chName);
@@ -5953,15 +5974,17 @@ export const runSingleSceningOrImagingStep = async (
 
     const allBooks = getAllAudiobooksMeta();
     const autoQueueAll = config.enabled && config.aiFeaturesEnabled !== false;
-    const candidateBooks = forceBookKey
-        ? allBooks.filter(b => b.book_key === forceBookKey)
-        : allBooks
-            .filter(b => (b.queue_enabled || autoQueueAll) && b.status !== 'completed')
-            .sort((a, b) => {
-                const pA = a.queue_enabled ? (a.queue_priority || 100) : 1000 + (a.queue_priority || 100);
-                const pB = b.queue_enabled ? (b.queue_priority || 100) : 1000 + (b.queue_priority || 100);
-                return pA - pB;
-            });
+    const candidateBooks = allBooks
+        .filter(b => (b.queue_enabled || autoQueueAll || (forceBookKey && b.book_key === forceBookKey)) && b.status !== 'completed')
+        .sort((a, b) => {
+            if (forceBookKey) {
+                if (a.book_key === forceBookKey) return -1;
+                if (b.book_key === forceBookKey) return 1;
+            }
+            const pA = a.queue_enabled ? (a.queue_priority || 100) : 1000 + (a.queue_priority || 100);
+            const pB = b.queue_enabled ? (b.queue_priority || 100) : 1000 + (b.queue_priority || 100);
+            return pA - pB;
+        });
 
     let blockedByQuotaCount = 0;
     let failedCount = 0;
@@ -5974,7 +5997,7 @@ export const runSingleSceningOrImagingStep = async (
         if (!bookSceningOn) continue;
 
         const chapters = getAudiobookChaptersMeta(book.book_key);
-        const targetChapters = forceChapterKey
+        const targetChapters = (forceChapterKey && (!forceBookKey || forceBookKey === book.book_key))
             ? chapters.filter(c => c.chapter_key === forceChapterKey)
             : chapters;
 
@@ -6173,15 +6196,17 @@ export const processAudiobookPriorityQueueStep = async (
 
         const allBooks = getAllAudiobooksMeta();
         const autoQueueAll = config.enabled && config.aiFeaturesEnabled !== false;
-        const candidateBooks = forceBookKey
-            ? allBooks.filter(b => b.book_key === forceBookKey)
-            : allBooks
-                .filter(b => (b.queue_enabled || autoQueueAll) && b.status !== 'completed')
-                .sort((a, b) => {
-                    const pA = a.queue_enabled ? (a.queue_priority || 100) : 1000 + (a.queue_priority || 100);
-                    const pB = b.queue_enabled ? (b.queue_priority || 100) : 1000 + (b.queue_priority || 100);
-                    return pA - pB;
-                });
+        const candidateBooks = allBooks
+            .filter(b => (b.queue_enabled || autoQueueAll || (forceBookKey && b.book_key === forceBookKey)) && b.status !== 'completed')
+            .sort((a, b) => {
+                if (forceBookKey) {
+                    if (a.book_key === forceBookKey) return -1;
+                    if (b.book_key === forceBookKey) return 1;
+                }
+                const pA = a.queue_enabled ? (a.queue_priority || 100) : 1000 + (a.queue_priority || 100);
+                const pB = b.queue_enabled ? (b.queue_priority || 100) : 1000 + (b.queue_priority || 100);
+                return pA - pB;
+            });
 
         if (candidateBooks.length === 0) {
             updateLiveStatus({
@@ -6219,7 +6244,7 @@ export const processAudiobookPriorityQueueStep = async (
                 if (chapters.length === 0) {
                     unmappedBooksCount++;
                 }
-                const targetChapters = forceChapterKey
+                const targetChapters = (forceChapterKey && (!forceBookKey || forceBookKey === book.book_key))
                     ? chapters.filter(c => c.chapter_key === forceChapterKey)
                     : chapters;
 
@@ -6272,7 +6297,7 @@ export const processAudiobookPriorityQueueStep = async (
         for (const book of candidateBooks) {
             if (!book.enhance_audio_enabled) continue;
             const chapters = getAudiobookChaptersMeta(book.book_key);
-            const targetChapters = forceChapterKey
+            const targetChapters = (forceChapterKey && (!forceBookKey || forceBookKey === book.book_key))
                 ? chapters.filter(c => c.chapter_key === forceChapterKey)
                 : chapters;
 

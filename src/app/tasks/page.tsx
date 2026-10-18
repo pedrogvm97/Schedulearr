@@ -570,214 +570,272 @@ export default function TasksPage() {
                         </div>
 
                         {!isQueueCollapsed && (
-                            <div className="space-y-3 pt-2">
+                            <div className="pt-2 overflow-x-auto no-scrollbar scrollbar-none">
                                 {queuedBooks.length === 0 ? (
                                     <div className="rounded-2xl bg-black/30 border border-white/10 p-6 text-center text-sm font-semibold text-gray-400">
                                         No audiobooks queued. Select a book above or enable auto-clean/pipeline in settings.
                                     </div>
                                 ) : (
-                                    queuedBooks.map((book: any, idx: number) => {
-                                        const isBookActive = studioStatus.isRunning && studioStatus.activeBookKey === book.book_key;
-                                        const totalCh = Math.max(book.total_chapters || 0, book.synced_chapters_count || 0, 1);
-                                        const isAutoOn = book.is_queued === 1 || Boolean(book.transcribe_enabled && book.illustrate_enabled);
+                                    <div className="min-w-[960px] space-y-2">
+                                        {/* ── Strict Column Headers ── */}
+                                        <div className="grid grid-cols-[minmax(240px,1.5fr)_54px_96px_86px_104px_96px_210px] items-center gap-3 px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500 border-b border-white/10">
+                                            <div className="flex items-center gap-2">
+                                                <span>#</span>
+                                                <span>Book</span>
+                                            </div>
+                                            <div className="flex justify-center" title="Automatic Pipeline State">
+                                                <Zap size={14} className="text-zinc-400" />
+                                            </div>
+                                            <div className="flex items-center justify-center gap-1" title="Stage 1: Speech-to-Text Transcription">
+                                                <FileText size={14} className="text-indigo-400" />
+                                                <span>Text</span>
+                                            </div>
+                                            <div className="flex items-center justify-center gap-1" title="Stage 2: LLM Scene Detection">
+                                                <Wand2 size={14} className="text-cyan-400" />
+                                                <span>Scenes</span>
+                                            </div>
+                                            <div className="flex items-center justify-center gap-1" title="Stage 3: Scene Artwork Painting">
+                                                <ImageIcon size={14} className="text-purple-400" />
+                                                <span>Art</span>
+                                            </div>
+                                            <div className="flex items-center justify-center gap-1" title="Stage 1B: Narrator Voice Enhancement">
+                                                <Headphones size={14} className="text-emerald-400" />
+                                                <span>Voice</span>
+                                            </div>
+                                            <div className="text-right">
+                                                <span>Actions</span>
+                                            </div>
+                                        </div>
 
-                                        return (
-                                            <div
-                                                key={book.book_key}
-                                                className={`rounded-xl p-3.5 sm:p-4 border flex items-center justify-between gap-4 flex-nowrap overflow-x-auto ${
-                                                    isBookActive
-                                                        ? 'bg-emerald-500/10 border-emerald-500/50 shadow-lg'
-                                                        : 'bg-black/40 border-white/10 hover:border-white/20'
-                                                }`}
-                                            >
-                                                {/* Book Title & Index */}
-                                                <div className="flex items-center gap-3 shrink-0 min-w-[200px] max-w-[260px]">
-                                                    <span className="w-8 h-8 rounded-md bg-white/10 flex items-center justify-center text-sm font-black text-gray-300 shrink-0 border border-white/10">
-                                                        #{idx + 1}
-                                                    </span>
-                                                    <div className="min-w-0">
-                                                        <h4 className="text-base font-black text-white truncate" title={book.title}>
-                                                            {book.title}
-                                                        </h4>
-                                                        {book.author && (
-                                                            <p className="text-xs text-gray-400 font-bold truncate">
-                                                                {book.author}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                </div>
+                                        {/* ── Queued Book Rows (Strict Grid Alignment) ── */}
+                                        {queuedBooks.map((book: any, idx: number) => {
+                                            const isBookActive = studioStatus.isRunning && studioStatus.activeBookKey === book.book_key;
+                                            const totalCh = Math.max(book.total_chapters || 0, book.synced_chapters_count || 0, 1);
+                                            const isAutoOn = book.queue_enabled ?? (book.is_queued === 1 || Boolean(book.transcribe_enabled && book.illustrate_enabled));
 
-                                                {/* Explicit Auto Toggle Pill (Squared) */}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => runAction(`auto_toggle_${book.book_key}`, {
-                                                        action: 'book_queue_action',
-                                                        bookKey: book.book_key,
-                                                        subAction: 'toggle_flag',
-                                                        field: 'transcribe_enabled'
-                                                    })}
-                                                    title={isAutoOn ? "Auto-processing is active for this book" : "Auto-processing is paused"}
-                                                    className={`px-3 py-1.5 rounded-md text-xs font-black uppercase tracking-wider border flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                                                        isAutoOn
-                                                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                            return (
+                                                <div
+                                                    key={book.book_key}
+                                                    className={`rounded-xl p-3 sm:px-4 sm:py-3 border grid grid-cols-[minmax(240px,1.5fr)_54px_96px_86px_104px_96px_210px] items-center gap-3 transition-colors ${
+                                                        isBookActive
+                                                            ? 'bg-emerald-500/10 border-emerald-500/50 shadow-lg'
+                                                            : 'bg-black/40 border-white/10 hover:border-white/20'
                                                     }`}
                                                 >
-                                                    <Zap size={13} className={isAutoOn ? "fill-current" : ""} />
-                                                    <span>{isAutoOn ? 'AUTO ON' : 'PAUSED'}</span>
-                                                </button>
-
-                                                {/* Stage Progress Meters (Squared, pure symbols + counts with tooltips) */}
-                                                <div className="flex items-center gap-2 shrink-0 flex-nowrap">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => runAction(`flag_stt_${book.book_key}`, {
-                                                            action: 'book_queue_action',
-                                                            bookKey: book.book_key,
-                                                            subAction: 'toggle_flag',
-                                                            field: 'transcribe_enabled'
-                                                        })}
-                                                        title={`Stage 1: Speech-to-Text Transcription (${book.transcribed_chapters || 0}/${totalCh} chapters)`}
-                                                        className={`px-2.5 py-1.5 rounded-md text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                                                            book.transcribe_enabled
-                                                                ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                                                                : 'bg-white/5 text-gray-500 border-white/10 line-through'
-                                                        }`}
-                                                    >
-                                                        <FileText size={15} />
-                                                        <span>{book.transcribed_chapters || 0}/{totalCh}</span>
-                                                    </button>
-
-                                                    <div
-                                                        title={`Stage 2: LLM Scene Detection (${book.detected_scenes_count ?? book.total_scenes ?? 0} scenes detected across ${book.scened_chapters_count ?? book.scened_chapters ?? 0}/${totalCh} chapters)`}
-                                                        className="px-2.5 py-1.5 rounded-md text-xs font-mono font-black border bg-cyan-500/15 text-cyan-300 border-cyan-500/35 flex items-center gap-1.5 shrink-0"
-                                                    >
-                                                        <Wand2 size={15} />
-                                                        <span>{book.detected_scenes_count ?? book.total_scenes ?? 0} Sc</span>
+                                                    {/* Col 1: Index + Book Title & Author */}
+                                                    <div className="flex items-center gap-3 min-w-0 pr-2">
+                                                        <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-xs font-black text-gray-300 shrink-0 border border-white/10">
+                                                            #{idx + 1}
+                                                        </span>
+                                                        <div className="min-w-0">
+                                                            <h4 className="text-base font-black text-white truncate" title={book.title}>
+                                                                {book.title}
+                                                            </h4>
+                                                            {book.author && (
+                                                                <p className="text-xs text-gray-400 font-bold truncate">
+                                                                    {book.author}
+                                                                </p>
+                                                            )}
+                                                        </div>
                                                     </div>
 
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => runAction(`flag_art_${book.book_key}`, {
-                                                            action: 'book_queue_action',
-                                                            bookKey: book.book_key,
-                                                            subAction: 'toggle_flag',
-                                                            field: 'illustrate_enabled'
-                                                        })}
-                                                        title={`Stage 3: Scene Artwork Painting (${book.painted_scenes_count ?? book.illustrated_scenes ?? 0}/${book.detected_scenes_count ?? book.total_scenes ?? 0} scenes painted)`}
-                                                        className={`px-2.5 py-1.5 rounded-md text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                                                            book.illustrate_enabled
-                                                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
-                                                                : 'bg-white/5 text-gray-500 border-white/10 line-through'
-                                                        }`}
-                                                    >
-                                                        <ImageIcon size={15} />
-                                                        <span>{book.painted_scenes_count ?? book.illustrated_scenes ?? 0}/{book.detected_scenes_count ?? book.total_scenes ?? 0}</span>
-                                                    </button>
-
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => runAction(`flag_voice_${book.book_key}`, {
-                                                            action: 'book_queue_action',
-                                                            bookKey: book.book_key,
-                                                            subAction: 'toggle_flag',
-                                                            field: 'enhance_audio_enabled'
-                                                        })}
-                                                        title={`Stage 1B: Narrator Voice Processing (${book.enhanced_chapters || 0}/${totalCh} chapters)`}
-                                                        className={`px-2.5 py-1.5 rounded-md text-xs font-mono font-black border flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                                                            book.enhance_audio_enabled
-                                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                                                : 'bg-white/5 text-gray-500 border-white/10 line-through'
-                                                        }`}
-                                                    >
-                                                        <Headphones size={15} />
-                                                        <span>{book.enhanced_chapters || 0}/{totalCh}</span>
-                                                    </button>
-                                                </div>
-
-                                                {/* Single-Row Action Controls (Pure symbols + tooltips, Squared) */}
-                                                <div className="flex items-center gap-1.5 shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => runAction(`start_${book.book_key}`, {
-                                                            action: 'book_queue_action',
-                                                            bookKey: book.book_key,
-                                                            subAction: 'start_now'
-                                                        })}
-                                                        title="Start running pipeline for this book immediately"
-                                                        className="p-2 rounded-md bg-emerald-500 hover:bg-emerald-400 text-black transition-all cursor-pointer shadow"
-                                                    >
-                                                        <Play size={16} className="fill-current" />
-                                                    </button>
-
-                                                    {idx > 0 && (
+                                                    {/* Col 2: Pipeline State (Pure Symbol, Squared, No Text) */}
+                                                    <div className="flex justify-center">
                                                         <button
                                                             type="button"
-                                                            onClick={() => runAction(`top_${book.book_key}`, {
+                                                            onClick={() => runAction(`queue_toggle_${book.book_key}`, {
                                                                 action: 'book_queue_action',
                                                                 bookKey: book.book_key,
-                                                                subAction: 'prioritize_top'
+                                                                subAction: 'toggle_flag',
+                                                                field: 'queue_enabled'
                                                             })}
-                                                            title="Move book to top of priority queue"
-                                                            className="p-2 rounded-md bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
+                                                            title={isAutoOn ? "Automatic processing: Active (Click to pause)" : "Automatic processing: Paused (Click to resume)"}
+                                                            className={`w-9 h-9 rounded-lg border flex items-center justify-center cursor-pointer transition-all ${
+                                                                isAutoOn
+                                                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30 shadow-sm'
+                                                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300'
+                                                            }`}
                                                         >
-                                                            <ArrowUp size={16} />
+                                                            <Zap size={18} className={isAutoOn ? "fill-current" : ""} />
                                                         </button>
-                                                    )}
+                                                    </div>
 
-                                                    {book.failed_chapters_count > 0 && (
+                                                    {/* Col 3: Stage 1 Text / Transcribe */}
+                                                    <div className="flex justify-center">
                                                         <button
                                                             type="button"
-                                                            onClick={() => runAction(`retry_${book.book_key}`, {
+                                                            onClick={() => runAction(`flag_stt_${book.book_key}`, {
                                                                 action: 'book_queue_action',
                                                                 bookKey: book.book_key,
-                                                                subAction: 'retry_failed'
+                                                                subAction: 'toggle_flag',
+                                                                field: 'transcribe_enabled'
                                                             })}
-                                                            title="Retry failed chapters"
-                                                            className="p-2 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all cursor-pointer"
+                                                            title={`Stage 1: Speech-to-Text Transcription (${book.transcribed_chapters || 0}/${totalCh} chapters)`}
+                                                            className={`w-full py-1.5 rounded-lg text-xs font-mono font-black border flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                                                                book.transcribe_enabled
+                                                                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/30'
+                                                                    : 'bg-white/5 text-gray-500 border-white/10 line-through'
+                                                            }`}
                                                         >
-                                                            <RotateCcw size={16} />
+                                                            <FileText size={15} />
+                                                            <span>{book.transcribed_chapters || 0}/{totalCh}</span>
                                                         </button>
-                                                    )}
+                                                    </div>
 
-                                                    <button
-                                                        type="button"
-                                                        disabled={(book.transcribed_chapters || 0) === 0}
-                                                        onClick={() => runAction(`redo_${book.book_key}`, {
-                                                            action: 'book_queue_action',
-                                                            bookKey: book.book_key,
-                                                            subAction: 'redo_art'
-                                                        })}
-                                                        title={(book.transcribed_chapters || 0) === 0 ? 'Requires transcription first' : 'Redo scene detection & artwork'}
-                                                        className="p-2 rounded-md bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition-all cursor-pointer disabled:opacity-30"
-                                                    >
-                                                        <Sparkles size={16} />
-                                                    </button>
+                                                    {/* Col 4: Stage 2 Scenes */}
+                                                    <div className="flex justify-center">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => runAction(`flag_scene_${book.book_key}`, {
+                                                                action: 'book_queue_action',
+                                                                bookKey: book.book_key,
+                                                                subAction: 'toggle_flag',
+                                                                field: 'scening_enabled'
+                                                            })}
+                                                            title={`Stage 2: LLM Scene Detection (${book.detected_scenes_count ?? book.total_scenes ?? 0} scenes detected across ${book.scened_chapters_count ?? book.scened_chapters ?? 0}/${totalCh} chapters)`}
+                                                            className={`w-full py-1.5 rounded-lg text-xs font-mono font-black border flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                                                                book.scening_enabled !== false
+                                                                    ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/35 hover:bg-cyan-500/25'
+                                                                    : 'bg-white/5 text-gray-500 border-white/10 line-through'
+                                                            }`}
+                                                        >
+                                                            <Wand2 size={15} />
+                                                            <span>{book.detected_scenes_count ?? book.total_scenes ?? 0} Sc</span>
+                                                        </button>
+                                                    </div>
 
-                                                    <Link
-                                                        href={`/discover?tab=audiobooks&bookKey=${encodeURIComponent(book.book_key)}`}
-                                                        title="Open in Media Manager"
-                                                        className="p-2 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition-all cursor-pointer"
-                                                    >
-                                                        <Sliders size={16} />
-                                                    </Link>
+                                                    {/* Col 5: Stage 3 Art */}
+                                                    <div className="flex justify-center">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => runAction(`flag_art_${book.book_key}`, {
+                                                                action: 'book_queue_action',
+                                                                bookKey: book.book_key,
+                                                                subAction: 'toggle_flag',
+                                                                field: 'illustrate_enabled'
+                                                            })}
+                                                            title={`Stage 3: Scene Artwork Painting (${book.painted_scenes_count ?? book.illustrated_scenes ?? 0}/${book.detected_scenes_count ?? book.total_scenes ?? 0} scenes painted)`}
+                                                            className={`w-full py-1.5 rounded-lg text-xs font-mono font-black border flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                                                                book.illustrate_enabled
+                                                                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30'
+                                                                    : 'bg-white/5 text-gray-500 border-white/10 line-through'
+                                                            }`}
+                                                        >
+                                                            <ImageIcon size={15} />
+                                                            <span>{book.painted_scenes_count ?? book.illustrated_scenes ?? 0}/{book.detected_scenes_count ?? book.total_scenes ?? 0}</span>
+                                                        </button>
+                                                    </div>
 
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => runAction(`rm_${book.book_key}`, {
-                                                            action: 'book_queue_action',
-                                                            bookKey: book.book_key,
-                                                            subAction: 'remove_queue'
-                                                        })}
-                                                        title="Remove from queue"
-                                                        className="p-2 rounded-md bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition-all cursor-pointer"
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
+                                                    {/* Col 6: Stage 1B Voice */}
+                                                    <div className="flex justify-center">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => runAction(`flag_voice_${book.book_key}`, {
+                                                                action: 'book_queue_action',
+                                                                bookKey: book.book_key,
+                                                                subAction: 'toggle_flag',
+                                                                field: 'enhance_audio_enabled'
+                                                            })}
+                                                            title={`Stage 1B: Narrator Voice Processing (${book.enhanced_chapters || 0}/${totalCh} chapters)`}
+                                                            className={`w-full py-1.5 rounded-lg text-xs font-mono font-black border flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                                                                book.enhance_audio_enabled
+                                                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                                                                    : 'bg-white/5 text-gray-500 border-white/10 line-through'
+                                                            }`}
+                                                        >
+                                                            <Headphones size={15} />
+                                                            <span>{book.enhanced_chapters || 0}/{totalCh}</span>
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Col 7: Actions (Flush Right, Fixed Slot Widths) */}
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => runAction(`start_${book.book_key}`, {
+                                                                action: 'book_queue_action',
+                                                                bookKey: book.book_key,
+                                                                subAction: 'start_now'
+                                                            })}
+                                                            title="Start running pipeline for this book immediately"
+                                                            className="w-8 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black flex items-center justify-center transition-all cursor-pointer shadow shrink-0"
+                                                        >
+                                                            <Play size={16} className="fill-current" />
+                                                        </button>
+
+                                                        {idx > 0 ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => runAction(`top_${book.book_key}`, {
+                                                                    action: 'book_queue_action',
+                                                                    bookKey: book.book_key,
+                                                                    subAction: 'prioritize_top'
+                                                                })}
+                                                                title="Move book to top of priority queue"
+                                                                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
+                                                            >
+                                                                <ArrowUp size={16} />
+                                                            </button>
+                                                        ) : (
+                                                            <div className="w-8 h-8 shrink-0" />
+                                                        )}
+
+                                                        {book.failed_chapters_count > 0 ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => runAction(`retry_${book.book_key}`, {
+                                                                    action: 'book_queue_action',
+                                                                    bookKey: book.book_key,
+                                                                    subAction: 'retry_failed'
+                                                                })}
+                                                                title="Retry failed chapters"
+                                                                className="w-8 h-8 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                                                            >
+                                                                <RotateCcw size={16} />
+                                                            </button>
+                                                        ) : (
+                                                            <div className="w-8 h-8 shrink-0" />
+                                                        )}
+
+                                                        <button
+                                                            type="button"
+                                                            disabled={(book.transcribed_chapters || 0) === 0}
+                                                            onClick={() => runAction(`redo_${book.book_key}`, {
+                                                                action: 'book_queue_action',
+                                                                bookKey: book.book_key,
+                                                                subAction: 'redo_art'
+                                                            })}
+                                                            title={(book.transcribed_chapters || 0) === 0 ? 'Requires transcription first' : 'Redo scene detection & artwork'}
+                                                            className="w-8 h-8 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 flex items-center justify-center transition-all cursor-pointer disabled:opacity-30 shrink-0"
+                                                        >
+                                                            <Sparkles size={16} />
+                                                        </button>
+
+                                                        <Link
+                                                            href={`/discover?tab=audiobooks&bookKey=${encodeURIComponent(book.book_key)}`}
+                                                            title="Open in Media Manager"
+                                                            className="w-8 h-8 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                                                        >
+                                                            <Sliders size={16} />
+                                                        </Link>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => runAction(`rm_${book.book_key}`, {
+                                                                action: 'book_queue_action',
+                                                                bookKey: book.book_key,
+                                                                subAction: 'remove_queue'
+                                                            })}
+                                                            title="Remove from queue"
+                                                            className="w-8 h-8 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                                                        >
+                                                            <X size={16} />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        );
-                                    })
+                                            );
+                                        })}
+                                    </div>
                                 )}
                             </div>
                         )}

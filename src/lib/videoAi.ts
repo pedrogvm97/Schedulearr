@@ -485,7 +485,8 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
         mediaType = 'movie'
     } = params;
 
-    const resolvedVideoPath = resolveAccessibleMediaPath(rawVideoPath, mediaType) || rawVideoPath;
+    const normalizedType = mediaType === 'recording' ? 'episode' : mediaType;
+    const resolvedVideoPath = resolveAccessibleMediaPath(rawVideoPath, normalizedType as 'movie' | 'episode' | 'audiobook' | 'music') || rawVideoPath;
     if (!resolvedVideoPath || !fs.existsSync(resolvedVideoPath)) {
         return { success: false, error: 'Video file does not exist on disk' };
     }

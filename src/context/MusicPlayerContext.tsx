@@ -6491,7 +6491,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 )}
 
                                                 {/* Overlaid Live Subtitles in Plain Art */}
-                                                {showAudiobookSubtitles && (
+                                                {showAudiobookSubtitles && (() => {
+                                                    const currentActiveLine = (currentLyricIndex >= 0 && lyricsData?.lines?.[currentLyricIndex]) ? lyricsData.lines[currentLyricIndex] : null;
+                                                    return (
                                                     <div className={`absolute inset-x-3 ${subtitleAppearance.position === 'top' ? 'top-4' : 'bottom-12'} z-20 flex flex-col items-center justify-end pointer-events-none transition-all duration-300`}>
                                                         <div className={`w-full max-w-lg text-center px-3.5 py-2 rounded-xl transition-all ${
                                                             subtitleAppearance.backdrop === 'shadow'
@@ -6526,7 +6528,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             )}
                                                         </div>
                                                     </div>
-                                                )}
+                                                    );
+                                                })()}
 
                                                 {/* Custom Cover Swap / Update Badge in Plain Art */}
                                                 <button

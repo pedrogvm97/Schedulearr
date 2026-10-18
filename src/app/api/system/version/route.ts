@@ -8,6 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.45] Tasks Queued Books Strict Grid Alignment, Pure Symbols (Cut AUTO ON Text), and Automatic Queue Advance for Scene Art',
+  '  - Rebuild Queued Books into a strict CSS grid with dedicated column headers (#/Book, State, Text, Scenes, Art, Voice, Actions) for 100% pixel-perfect vertical column alignment',
+  '  - Cut all text labels ("AUTO ON" / "PAUSED") in strict adherence to Symbols Over Text rule, replacing with a clean 18px Zap symbol button with hover tooltips and queue_enabled toggling',
+  '  - Fix queue worker stalling when book art is 100% complete (230/230): worker now automatically advances down the priority queue to scene and paint subsequent books without getting stuck on pending voice chapters or forceBookKey locks',
+  '  - Add guaranteed opening scene fail-safe in LLM scene detection so chapters with transcripts always establish scenes and immediately start painting artwork',
+  '  - Fix action buttons alignment across all rows with fixed-slot geometry so right margin is always flush',
   '• [v0.6.44] Photos Media Manager, Pixel Bridge Automation Toggles, Auto-Solver Watchdog & Immich Deep-Linking',
   '  - Fix empty state navigation in Theater and Media tabs: route directly to /settings?subtopic=instances&addType=immich instead of local folder modal',
   '  - Pre-select Immich in Settings instance dropdown when accessed with addType=immich or type=immich with prefilled instance name',

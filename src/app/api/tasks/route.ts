@@ -507,12 +507,23 @@ export async function POST(request: Request) {
 
             if (subAction === 'toggle_flag') {
                 const field = String(body.field || '');
-                if (field === 'transcribe_enabled' || field === 'illustrate_enabled' || field === 'enhance_audio_enabled') {
+                if (
+                    field === 'transcribe_enabled' ||
+                    field === 'scening_enabled' ||
+                    field === 'illustrate_enabled' ||
+                    field === 'enhance_audio_enabled' ||
+                    field === 'queue_enabled'
+                ) {
+                    const nextVal = !existing[field];
                     upsertAudiobookMeta({
                         ...existing,
-                        [field]: !existing[field]
+                        [field]: nextVal,
+                        ...(field === 'queue_enabled' ? { status: nextVal ? 'queued' : 'idle' } : {})
                     });
                     recalculateAudiobookTotals(bookKey);
+                    if (field === 'queue_enabled' && nextVal) {
+                        triggerAudiobookQueueWorker();
+                    }
                     return NextResponse.json({ ok: true, message: `Updated ${existing.title}.` });
                 }
             }

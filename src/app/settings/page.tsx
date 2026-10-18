@@ -2985,29 +2985,29 @@ export default function Settings() {
                                     engineMode={voiceNarrationMode === 'neural_tts' ? 'neural_tts' : 'timbre_filter'}
                                     onChangeEngineMode={mode => {
                                         setVoiceNarrationMode(mode);
-                                        saveAudiobookStudioConfig({ voiceNarrationMode: mode });
+                                        saveAudiobookStudioConfig({ voiceNarrationMode: mode } as any);
                                     }}
                                     selectedPreset={audiobookStudioConfig.defaultVoicePreset || 'kokoro_af_heart'}
                                     onSelectPreset={val => {
-                                        saveAudiobookStudioConfig({ defaultVoicePreset: val });
+                                        saveAudiobookStudioConfig({ defaultVoicePreset: val as any });
                                         toast.success('Voice model updated');
                                     }}
-                                    selectedPersonas={audiobookStudioConfig.defaultActivePersonas || ['kokoro_af_heart', 'kokoro_bf_emma']}
+                                    selectedPersonas={(audiobookStudioConfig as any).defaultActivePersonas || ['kokoro_af_heart', 'kokoro_bf_emma']}
                                     onTogglePersona={id => {
-                                        const cur = new Set(audiobookStudioConfig.defaultActivePersonas || ['kokoro_af_heart', 'kokoro_bf_emma']);
+                                        const cur = new Set((audiobookStudioConfig as any).defaultActivePersonas || ['kokoro_af_heart', 'kokoro_bf_emma']);
                                         if (cur.has(id)) cur.delete(id);
                                         else cur.add(id);
                                         const next = Array.from(cur);
-                                        saveAudiobookStudioConfig({ defaultActivePersonas: next.length > 0 ? next : [id], defaultVoicePreset: id });
+                                        saveAudiobookStudioConfig({ defaultActivePersonas: next.length > 0 ? next : [id], defaultVoicePreset: id } as any);
                                         toast.success('Voice models updated');
                                     }}
-                                    selectedTimbres={audiobookStudioConfig.defaultActiveTimbres || ['clear_voice', 'warm_bass']}
+                                    selectedTimbres={(audiobookStudioConfig as any).defaultActiveTimbres || ['clear_voice', 'warm_bass']}
                                     onToggleTimbre={id => {
-                                        const cur = new Set(audiobookStudioConfig.defaultActiveTimbres || ['clear_voice', 'warm_bass']);
+                                        const cur = new Set((audiobookStudioConfig as any).defaultActiveTimbres || ['clear_voice', 'warm_bass']);
                                         if (cur.has(id)) cur.delete(id);
                                         else cur.add(id);
                                         const next = Array.from(cur);
-                                        saveAudiobookStudioConfig({ defaultActiveTimbres: next.length > 0 ? next : [id], defaultVoicePreset: id });
+                                        saveAudiobookStudioConfig({ defaultActiveTimbres: next.length > 0 ? next : [id], defaultVoicePreset: id } as any);
                                         toast.success('Timbre filters updated');
                                     }}
                                 />
