@@ -454,6 +454,9 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
   } catch {}
 
   const binds: string[] = existingBinds;
+  if (!binds.some(b => b.startsWith('/dev/bus/usb'))) {
+    binds.push('/dev/bus/usb:/dev/bus/usb');
+  }
 
   const rawHostConfig = containerInfo.HostConfig || {};
   const isHostNetwork = rawHostConfig.NetworkMode === 'host';
@@ -462,15 +465,21 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     RestartPolicy: rawHostConfig.RestartPolicy || { Name: 'unless-stopped' },
     Binds: binds,
     NetworkMode: rawHostConfig.NetworkMode || (isHostNetwork ? 'host' : 'bridge'),
-    Privileged: !!rawHostConfig.Privileged
+    Privileged: true
   };
 
   if (!isHostNetwork && rawHostConfig.PortBindings) {
     cleanHostConfig.PortBindings = rawHostConfig.PortBindings;
   }
-  if (rawHostConfig.Devices && Array.isArray(rawHostConfig.Devices) && rawHostConfig.Devices.length > 0) {
-    cleanHostConfig.Devices = rawHostConfig.Devices;
-  }
+  const existingDevices = (rawHostConfig.Devices || []).filter((d: any) => d.PathOnHost !== '/dev/bus/usb');
+  cleanHostConfig.Devices = [
+    ...existingDevices,
+    {
+      PathOnHost: '/dev/bus/usb',
+      PathInContainer: '/dev/bus/usb',
+      CgroupPermissions: 'rwm'
+    }
+  ];
   if (rawHostConfig.ExtraHosts && Array.isArray(rawHostConfig.ExtraHosts) && rawHostConfig.ExtraHosts.length > 0) {
     cleanHostConfig.ExtraHosts = rawHostConfig.ExtraHosts;
   }
@@ -501,11 +510,26 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
 
   const nodeScript = `
 const http = require('http');
+const fs = require('fs');
 const oldId = '${containerInfo.Id}';
 const oldImageId = '${oldImageId}';
 const baseName = '${baseName}';
 const helperName = '${helperName}';
 const newConfig = JSON.parse(${JSON.stringify(JSON.stringify(newContainerConfig))});
+
+try {
+  const tPath = '/boot/config/plugins/dockerMan/templates-user/my-Schedulearr.xml';
+  if (fs.existsSync(tPath)) {
+    let xml = fs.readFileSync(tPath, 'utf8');
+    if (xml.includes('<Privileged>false</Privileged>')) {
+      xml = xml.replace('<Privileged>false</Privileged>', '<Privileged>true</Privileged>');
+    }
+    if (!xml.includes('/dev/bus/usb')) {
+      xml = xml.replace('</Data>', '  <Volume>\\n      <HostDir>/dev/bus/usb</HostDir>\\n      <ContainerDir>/dev/bus/usb</ContainerDir>\\n      <Mode>rw</Mode>\\n    </Volume>\\n  </Data>');
+    }
+    fs.writeFileSync(tPath, xml, 'utf8');
+  }
+} catch (e) {}
 
 function request(path, method, body, callback) {
   const req = http.request({
@@ -547,7 +571,9 @@ setTimeout(() => {
               Image: newConfig.Image,
               Env: newConfig.Env,
               HostConfig: {
-                Binds: newConfig.HostConfig?.Binds || ['/var/run/docker.sock:/var/run/docker.sock', '/mnt/user/appdata/schedulearr/data:/app/data'],
+                Privileged: true,
+                Binds: newConfig.HostConfig?.Binds || ['/var/run/docker.sock:/var/run/docker.sock', '/mnt/user/appdata/schedulearr/data:/app/data', '/dev/bus/usb:/dev/bus/usb'],
+                Devices: [{ PathOnHost: '/dev/bus/usb', PathInContainer: '/dev/bus/usb', CgroupPermissions: 'rwm' }],
                 NetworkMode: newConfig.HostConfig?.NetworkMode || 'bridge',
                 PortBindings: newConfig.HostConfig?.PortBindings,
                 RestartPolicy: { Name: 'unless-stopped' }
@@ -584,7 +610,11 @@ setTimeout(() => {
     Cmd: ['node', '-e', nodeScript],
     HostConfig: {
       AutoRemove: true,
-      Binds: ['/var/run/docker.sock:/var/run/docker.sock']
+      Privileged: true,
+      Binds: [
+        '/var/run/docker.sock:/var/run/docker.sock',
+        '/boot:/boot:rw'
+      ]
     }
   };
 

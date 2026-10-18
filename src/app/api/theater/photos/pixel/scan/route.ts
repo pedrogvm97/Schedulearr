@@ -339,6 +339,106 @@ export async function POST(req: Request) {
             return NextResponse.json({ success: true, message: 'Pixel Bridge Node unpaired' });
         }
 
+        // Action: 1-Click Fully Automated Pixel Connect & Pair
+        if (action === 'auto_pair') {
+            const { targetIp } = body;
+            const cleanIp = (targetIp || '192.168.1.141').trim().split(':')[0];
+            const port = 5555;
+            const target = `${cleanIp}:${port}`;
+
+            try {
+                // 1. Try Wi-Fi ADB connection first
+                await execAsync(`adb connect ${target}`, { timeout: 4000 }).catch(() => null);
+                let stateRes = await execAsync(`adb -s ${target} get-state`, { timeout: 2000 }).catch(() => ({ stdout: '' }));
+                let state = stateRes.stdout.trim();
+
+                // 2. If not already active & authorized over Wi-Fi, try USB activation
+                if (state !== 'device') {
+                    // Try local container USB first
+                    const localDevRes = await execAsync('adb devices -l', { timeout: 3000 }).catch(e => ({ stdout: e.message }));
+                    const hasLocalUsb = (localDevRes.stdout || '').split('\n').slice(1).some(l => {
+                        const line = l.trim();
+                        return line.length > 0 && !line.includes('offline') && (line.includes('usb') || line.includes('device') || line.includes('unauthorized'));
+                    });
+
+                    if (hasLocalUsb) {
+                        await execAsync('adb tcpip 5555', { timeout: 6000 }).catch(() => null);
+                    } else if (fs.existsSync('/var/run/docker.sock')) {
+                        // Privileged USB runner on server
+                        await runPrivilegedUsbAdb(cleanIp);
+                    }
+
+                    // Re-attempt Wi-Fi connection
+                    await execAsync(`adb connect ${target}`, { timeout: 5000 }).catch(() => null);
+                    stateRes = await execAsync(`adb -s ${target} get-state`, { timeout: 2000 }).catch(() => ({ stdout: '' }));
+                    state = stateRes.stdout.trim();
+                }
+
+                // 3. Check authorization state
+                if (state === 'unauthorized') {
+                    return NextResponse.json({
+                        success: false,
+                        state: 'unauthorized',
+                        message: 'Pixel detected! Look at phone screen, check "Always allow from this computer", tap Allow, then click this button once more.'
+                    });
+                }
+
+                if (state !== 'device') {
+                    return NextResponse.json({
+                        success: false,
+                        state: 'offline',
+                        message: `Could not reach Pixel at ${target}. Make sure phone is on Wi-Fi (or server USB) and USB Debugging is ON.`
+                    });
+                }
+
+                // 4. Device is authorized & active! Query hardware details
+                const details = await queryDeviceAdb(cleanIp, port);
+                const tier = details.unlimitedTier || 'original_quality';
+                const role: 'upload_bridge' | 'sync_target' = tier !== 'none' ? 'upload_bridge' : 'sync_target';
+
+                setSetting('pixel_bridge_node', JSON.stringify({
+                    ip: cleanIp,
+                    port,
+                    model: details.model || 'Google Pixel 1',
+                    device: details.device || 'sailfish',
+                    androidVersion: details.androidVersion || '10',
+                    unlimitedTier: tier,
+                    role,
+                    isOnline: true,
+                    adbActive: true,
+                    freeStorage: details.freeStorage,
+                    totalStorage: details.totalStorage,
+                    batteryLevel: details.batteryLevel,
+                    isCharging: details.isCharging
+                }));
+
+                saveConnectedDevice({
+                    id: `pixel_${cleanIp.replace(/\./g, '_')}`,
+                    name: `${details.model || 'Google Pixel'} (${cleanIp})`,
+                    target: target,
+                    role,
+                    unlimitedTier: tier,
+                    schedulearrFolder: role === 'upload_bridge' ? '/sdcard/DCIM/SchedulearrSync' : '/sdcard/Schedulearr',
+                    enabled: true,
+                    isOnline: true,
+                    batteryLevel: details.batteryLevel,
+                    isCharging: details.isCharging,
+                    storageFree: details.freeStorage,
+                    storageTotal: details.totalStorage
+                });
+
+                return NextResponse.json({
+                    success: true,
+                    state: 'connected',
+                    model: details.model || 'Google Pixel 1',
+                    ip: cleanIp,
+                    message: `${details.model || 'Google Pixel 1'} connected and paired permanently as ${tier === 'original_quality' ? 'Unlimited Original Quality Upload Bridge' : 'Sync Target'}!`
+                });
+            } catch (err: any) {
+                return NextResponse.json({ error: `Auto-pair failed: ${err.message}` }, { status: 500 });
+            }
+        }
+
         // Action: Pair with Android 11+ Wireless Debugging 6-digit pairing code
         if (action === 'pair_code') {
             const { ip, pairingPort, pairingCode, connectPort } = body;

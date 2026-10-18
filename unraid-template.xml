@@ -5,7 +5,7 @@
   <Registry>https://ghcr.io/</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
-  <Privileged>false</Privileged>
+  <Privileged>true</Privileged>
   <Support>https://github.com/pedrogvm97/Schedulearr/issues</Support>
   <Project>https://github.com/pedrogvm97/Schedulearr</Project>
   <Overview>Schedulearr is a localized Next.js web application that acts as an intelligent scheduler and orchestrator for Radarr, Sonarr, and Prowlarr.</Overview>
@@ -39,6 +39,11 @@
     <Volume>
       <HostDir>/var/run/docker.sock</HostDir>
       <ContainerDir>/var/run/docker.sock</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/dev/bus/usb</HostDir>
+      <ContainerDir>/dev/bus/usb</ContainerDir>
       <Mode>rw</Mode>
     </Volume>
     <Volume>

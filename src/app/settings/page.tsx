@@ -280,6 +280,32 @@ export default function Settings() {
         }
     };
 
+    const [autoPairingPixel, setAutoPairingPixel] = useState(false);
+
+    const handleAutoPairPixel = async () => {
+        setAutoPairingPixel(true);
+        try {
+            const res = await fetch('/api/theater/photos/pixel/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'auto_pair', targetIp: targetPixelIp })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || 'Pixel connected and paired!');
+                fetchPairedPixelNode();
+            } else if (data.state === 'unauthorized') {
+                toast.warning(data.message, { duration: 9000 });
+            } else {
+                toast.error(data.message || data.error || 'Auto-pair failed');
+            }
+        } catch (e: any) {
+            toast.error(e.message || 'Auto-pair failed');
+        } finally {
+            setAutoPairingPixel(false);
+        }
+    };
+
     const handleResetUnverifiedLedger = async () => {
         try {
             const res = await fetch('/api/theater/photos/pixel/bridge', {
@@ -1703,6 +1729,15 @@ export default function Settings() {
                                     className="bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 w-52 font-mono"
                                     title="Pixel IP"
                                 />
+                                <button
+                                    type="button"
+                                    onClick={handleAutoPairPixel}
+                                    disabled={autoPairingPixel}
+                                    title="Auto-Connect & Pair Pixel (1-Click)"
+                                    className="p-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl transition-all shadow-lg flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-50"
+                                >
+                                    <Zap size={20} className={autoPairingPixel ? 'animate-spin' : ''} />
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => setIsPixelSetupGuideOpen(true)}
