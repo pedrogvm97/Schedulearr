@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Smartphone, Folder, Plus, RefreshCw, Trash2, CheckCircle2,
     AlertCircle, HardDrive, Battery, Zap, Edit3, X, Check, ArrowRight,
-    FolderPlus, Send, Disc, Film, BookOpen, Music
+    FolderPlus, Send, Disc, Film, BookOpen, Music, Cloud
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -12,6 +12,7 @@ export interface ConnectedDevice {
     id: string;
     name: string;
     type: 'adb' | 'local_folder';
+    role?: 'upload_bridge' | 'sync_target';
     target: string;
     schedulearrFolder: string;
     enabled: boolean;
@@ -246,12 +247,21 @@ export function ConnectedDevicesPanel() {
                                             {device.type === 'adb' ? <Smartphone size={28} /> : <Folder size={28} />}
                                         </div>
                                         <div className="min-w-0">
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
                                                 <h3 className="text-xl font-black text-white truncate">{device.name}</h3>
-                                                {device.isOnline ? (
-                                                    <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Device Reachable" />
+                                                {device.role === 'upload_bridge' ? (
+                                                    <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                                                        Upload Bridge
+                                                    </span>
                                                 ) : (
-                                                    <span className="w-3 h-3 rounded-full bg-zinc-600 shrink-0" title="Offline" />
+                                                    <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                                        Sync Target
+                                                    </span>
+                                                )}
+                                                {device.isOnline ? (
+                                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Device Reachable" />
+                                                ) : (
+                                                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-600 shrink-0" title="Offline" />
                                                 )}
                                             </div>
                                             <p className="text-xs text-zinc-400 font-mono truncate">{device.target}</p>
@@ -286,14 +296,24 @@ export function ConnectedDevicesPanel() {
                                 </div>
 
                                 {/* Custom Schedulearr Folder on Device */}
-                                <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
-                                    <div className="text-[11px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                                        <FolderPlus size={14} />
-                                        <span>Schedulearr Folder</span>
+                                <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <div className="text-[11px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                                            <FolderPlus size={14} />
+                                            <span>Schedulearr Folder</span>
+                                        </div>
+                                        <span className="text-[10px] text-zinc-500 font-mono">
+                                            {device.role === 'upload_bridge' ? 'Cloud Staging' : 'Provenance Folders'}
+                                        </span>
                                     </div>
                                     <div className="text-sm font-mono font-bold text-white truncate" title={device.schedulearrFolder}>
                                         {device.schedulearrFolder}
                                     </div>
+                                    {device.role !== 'upload_bridge' && (
+                                        <div className="text-[10px] text-zinc-400 font-mono">
+                                            Subfolders: &lt;Category&gt;/&lt;Provenance&gt;
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Telemetry & Headroom */}
@@ -460,6 +480,52 @@ export function ConnectedDevicesPanel() {
                                 />
                             </div>
 
+                            {/* Device Role Distinction */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Device Capability & Role</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingDevice({
+                                            ...editingDevice,
+                                            role: 'sync_target',
+                                            schedulearrFolder: editingDevice.schedulearrFolder?.includes('DCIM') ? '/sdcard/Schedulearr' : (editingDevice.schedulearrFolder || '/sdcard/Schedulearr')
+                                        })}
+                                        className={`p-3.5 rounded-2xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
+                                            (editingDevice.role || 'sync_target') === 'sync_target'
+                                                ? 'bg-amber-500/15 border-amber-500/50 text-white font-bold shadow-md'
+                                                : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <Folder size={20} className={(editingDevice.role || 'sync_target') === 'sync_target' ? 'text-amber-400' : 'text-zinc-500'} />
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-black">Sync Target Node</div>
+                                            <div className="text-[10px] text-zinc-500 font-normal truncate">Offline local media</div>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingDevice({
+                                            ...editingDevice,
+                                            role: 'upload_bridge',
+                                            schedulearrFolder: '/sdcard/DCIM/SchedulearrSync'
+                                        })}
+                                        className={`p-3.5 rounded-2xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
+                                            editingDevice.role === 'upload_bridge'
+                                                ? 'bg-indigo-500/15 border-indigo-500/50 text-white font-bold shadow-md'
+                                                : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <Cloud size={20} className={editingDevice.role === 'upload_bridge' ? 'text-indigo-400' : 'text-zinc-500'} />
+                                        <div className="min-w-0">
+                                            <div className="text-xs font-black">Upload Bridge Node</div>
+                                            <div className="text-[10px] text-zinc-500 font-normal truncate">Google Photos backup</div>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+
                             {/* Connection Type */}
                             <div className="space-y-1.5">
                                 <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Connection Type</label>
@@ -520,6 +586,12 @@ export function ConnectedDevicesPanel() {
                                     placeholder="/sdcard/Schedulearr"
                                     className="w-full px-4 py-3 rounded-2xl bg-zinc-900/80 border border-amber-500/40 text-white font-mono placeholder-zinc-600 focus:outline-none focus:border-amber-500 text-sm font-bold"
                                 />
+
+                                {(editingDevice.role || 'sync_target') === 'sync_target' && (
+                                    <div className="text-[11px] text-zinc-400 bg-zinc-900/50 p-2.5 rounded-xl border border-zinc-800/60 font-mono">
+                                        Subfolders: {editingDevice.schedulearrFolder || '/sdcard/Schedulearr'}/&lt;Category&gt;/&lt;Provenance&gt;/
+                                    </div>
+                                )}
 
                                 {/* Presets */}
                                 <div className="flex flex-wrap gap-1.5 pt-1">

@@ -3,6 +3,7 @@ import { getSetting, setSetting } from '@/lib/db';
 import { exec } from 'child_process';
 import util from 'util';
 import { isStreamGuardActive } from '@/lib/streamGuard';
+import { getPhoneBackupTasksSummary } from '@/lib/pixelBackupSuite';
 
 const execAsync = util.promisify(exec);
 
@@ -36,12 +37,13 @@ export async function GET() {
         const rawNode = getSetting('pixel_bridge_node');
         const node = rawNode ? JSON.parse(rawNode) : null;
         const toggles = getStoredToggles();
+        const backupSummary = await getPhoneBackupTasksSummary().catch(() => null);
 
         const stats = {
-            stagedCount: parseInt(getSetting('pixel_stats_staged') || '0', 10),
-            uploadedCount: parseInt(getSetting('pixel_stats_uploaded') || '0', 10),
-            cleanedCount: parseInt(getSetting('pixel_stats_cleaned') || '0', 10),
-            pendingCount: parseInt(getSetting('pixel_stats_pending') || '0', 10),
+            stagedCount: backupSummary?.counts.staging ?? parseInt(getSetting('pixel_stats_staged') || '0', 10),
+            uploadedCount: backupSummary?.counts.uploaded ?? parseInt(getSetting('pixel_stats_uploaded') || '0', 10),
+            cleanedCount: backupSummary?.counts.cleaned ?? parseInt(getSetting('pixel_stats_cleaned') || '0', 10),
+            pendingCount: backupSummary ? (backupSummary.counts.queued + backupSummary.counts.transferred) : parseInt(getSetting('pixel_stats_pending') || '0', 10),
             lastSyncTime: getSetting('pixel_last_sync_time'),
             lastCleanTime: getSetting('pixel_last_clean_time'),
             lastHealTime: getSetting('pixel_last_heal_time'),
@@ -53,7 +55,8 @@ export async function GET() {
                 paired: false,
                 node: null,
                 toggles,
-                stats
+                stats,
+                backupSummary
             });
         }
 
@@ -115,7 +118,8 @@ export async function GET() {
                 freeStorage: resolvedFree
             },
             toggles,
-            stats
+            stats,
+            backupSummary
         });
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });

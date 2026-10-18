@@ -26,6 +26,7 @@ interface ConnectedDevicesToggleSectionProps {
         path?: string;
         streamUrl?: string;
         sizeBytes?: number;
+        provenance?: string;
     };
     onSyncChange?: (deviceId: string, enabled: boolean) => void;
 }
@@ -119,12 +120,12 @@ export function ConnectedDevicesToggleSection({ media, onSyncChange }: Connected
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between">
-                <label className="text-sm font-black text-zinc-300 uppercase tracking-wider flex items-center gap-2">
-                    <Smartphone size={18} className="text-amber-400" />
-                    <span>Connected Devices & Folders</span>
+                <label className="text-sm font-black text-zinc-300 uppercase tracking-wider flex items-center gap-2" title="Connected Devices & Folders Sync">
+                    <Smartphone size={20} className="text-amber-400" />
+                    <span>Devices</span>
                 </label>
                 <span className="text-xs text-zinc-400 font-mono font-bold">
-                    {Object.values(syncMap).filter(Boolean).length} / {devices.length} marked
+                    {Object.values(syncMap).filter(Boolean).length} / {devices.length}
                 </span>
             </div>
 

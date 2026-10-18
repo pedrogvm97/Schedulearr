@@ -34,6 +34,7 @@ import { MediaGradingModal, HexagonRadarPlot, CATEGORIES_BY_MEDIA_TYPE } from '@
 import { AUDIOBOOK_VOICE_TIMBRE_PRESETS, AUDIOBOOK_VOICE_TONE_PRESETS, getVoicePresetById } from '@/lib/audiobookStudioShared';
 import { AudiobookTranscriptViewerModal } from '@/components/AudiobookTranscriptViewerModal';
 import { UnifiedCleanerModal } from '@/components/UnifiedCleanerModal';
+import { ConnectedDevicesToggleSection } from '@/components/ConnectedDevicesToggleSection';
 
 interface TheaterLibrary {
     id: string;
@@ -747,6 +748,7 @@ function TheaterPageContent() {
     const [videoAudioMode, setVideoAudioMode] = useState<'universal' | 'transcode' | 'direct'>('universal');
     const [videoQuality, setVideoQuality] = useState<'auto' | '1080p-high' | '1080p' | '720p' | '480p'>('auto');
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
+    const [showPhotoMetadata, setShowPhotoMetadata] = useState(true);
 
     // Enhanced Video Player Controls & Container Fullscreen State
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -13265,43 +13267,172 @@ function TheaterPageContent() {
             )}
 
             {/* ── Built-in Photo Lightbox ── */}
-            {viewingPhotoIndex !== null && photoItems[viewingPhotoIndex] && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
-                    <button
-                        onClick={() => setViewingPhotoIndex(null)}
-                        className="absolute top-6 right-6 p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white hover:bg-zinc-800 transition-all z-50"
-                    >
-                        <X size={20} />
-                    </button>
+            {viewingPhotoIndex !== null && photoItems[viewingPhotoIndex] && (() => {
+                const currentPhoto = photoItems[viewingPhotoIndex];
+                const photoSizeFormatted = currentPhoto.sizeBytes
+                    ? currentPhoto.sizeBytes > 1024 * 1024
+                        ? `${(currentPhoto.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                        : `${(currentPhoto.sizeBytes / 1024).toFixed(0)} KB`
+                    : null;
+                const photoDateFormatted = currentPhoto.modifiedAt
+                    ? new Date(currentPhoto.modifiedAt).toLocaleDateString(undefined, {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                    })
+                    : null;
+                const provenance = currentPhoto.source || 'Immich';
 
-                    {viewingPhotoIndex > 0 && (
-                        <button
-                            onClick={() => setViewingPhotoIndex(viewingPhotoIndex - 1)}
-                            className="absolute left-6 top-1/2 -translate-y-1/2 p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white hover:bg-zinc-800 transition-all z-50"
-                        >
-                            <ChevronLeft size={24} />
-                        </button>
-                    )}
+                return (
+                    <div className="fixed inset-0 z-[200] flex bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
+                        {/* Main Stage (Image View) */}
+                        <div className="relative flex-1 flex flex-col h-full overflow-hidden select-none">
+                            {/* Top Control Bar in Stage */}
+                            <div className="absolute top-0 left-0 right-0 p-5 flex items-center justify-between z-30 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
+                                <div className="pointer-events-auto flex items-center gap-3">
+                                    <span className="px-3.5 py-1.5 rounded-xl bg-zinc-900/80 border border-zinc-700/80 text-sm font-bold text-zinc-300">
+                                        {viewingPhotoIndex + 1} / {photoItems.length}
+                                    </span>
+                                </div>
+                                <div className="pointer-events-auto flex items-center gap-3">
+                                    {/* Arrow toggler to hide/show file metadata & individual device sync */}
+                                    <button
+                                        onClick={() => setShowPhotoMetadata(!showPhotoMetadata)}
+                                        className={`p-3.5 rounded-2xl border transition-all ${
+                                            showPhotoMetadata
+                                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
+                                                : 'bg-zinc-900/80 border-zinc-700/80 text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                                        }`}
+                                        title={showPhotoMetadata ? 'Hide Metadata & Device Sync' : 'Show Metadata & Device Sync'}
+                                    >
+                                        {showPhotoMetadata ? <ChevronRight size={26} /> : <ChevronLeft size={26} />}
+                                    </button>
+                                    <button
+                                        onClick={() => setViewingPhotoIndex(null)}
+                                        className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-700/80 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all"
+                                        title="Close"
+                                    >
+                                        <X size={26} />
+                                    </button>
+                                </div>
+                            </div>
 
-                    {viewingPhotoIndex < photoItems.length - 1 && (
-                        <button
-                            onClick={() => setViewingPhotoIndex(viewingPhotoIndex + 1)}
-                            className="absolute right-6 top-1/2 -translate-y-1/2 p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-white hover:bg-zinc-800 transition-all z-50"
-                        >
-                            <ChevronRight size={24} />
-                        </button>
-                    )}
+                            {/* Left Prev Navigation Arrow */}
+                            {viewingPhotoIndex > 0 && (
+                                <button
+                                    onClick={() => setViewingPhotoIndex(viewingPhotoIndex - 1)}
+                                    className="absolute left-6 top-1/2 -translate-y-1/2 p-4 rounded-2xl bg-zinc-900/80 border border-zinc-700/80 text-white hover:bg-zinc-800 transition-all z-20 shadow-xl"
+                                    title="Previous"
+                                >
+                                    <ChevronLeft size={28} />
+                                </button>
+                            )}
 
-                    <div className="max-w-6xl max-h-[85vh] p-4 flex flex-col items-center justify-center">
-                        <img
-                            src={photoItems[viewingPhotoIndex].streamUrl}
-                            alt=""
-                            className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl"
-                        />
-                        <p className="text-sm font-bold text-white mt-3">{photoItems[viewingPhotoIndex].title}</p>
+                            {/* Right Next Navigation Arrow */}
+                            {viewingPhotoIndex < photoItems.length - 1 && (
+                                <button
+                                    onClick={() => setViewingPhotoIndex(viewingPhotoIndex + 1)}
+                                    className="absolute right-6 top-1/2 -translate-y-1/2 p-4 rounded-2xl bg-zinc-900/80 border border-zinc-700/80 text-white hover:bg-zinc-800 transition-all z-20 shadow-xl"
+                                    title="Next"
+                                >
+                                    <ChevronRight size={28} />
+                                </button>
+                            )}
+
+                            {/* Center Canvas */}
+                            <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
+                                <img
+                                    src={currentPhoto.streamUrl}
+                                    alt={currentPhoto.title || ''}
+                                    className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl transition-all"
+                                />
+                            </div>
+
+                            {/* Bottom Subtitle / Filename */}
+                            <div className="p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-center z-10">
+                                <p className="text-base font-bold text-white tracking-wide truncate max-w-2xl mx-auto">
+                                    {currentPhoto.title || currentPhoto.name}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Slide-out / Collapsible Metadata & Device Sync Panel */}
+                        {showPhotoMetadata && (
+                            <aside className="w-96 sm:w-[420px] shrink-0 border-l border-zinc-800/80 bg-zinc-950/95 backdrop-blur-2xl p-6 overflow-y-auto flex flex-col gap-6 z-40 shadow-2xl animate-in slide-in-from-right duration-200">
+                                {/* Panel Header */}
+                                <div className="flex items-center justify-between pb-4 border-b border-zinc-800/80">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-pink-500/15 border border-pink-500/30 flex items-center justify-center text-pink-400">
+                                            <FileImage size={22} />
+                                        </div>
+                                        <span className="text-base font-bold text-white">Info</span>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowPhotoMetadata(false)}
+                                        className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                                        title="Hide Metadata & Device Sync"
+                                    >
+                                        <ChevronRight size={22} />
+                                    </button>
+                                </div>
+
+                                {/* File Name & Core Details */}
+                                <div className="space-y-3">
+                                    <h3 className="text-lg font-bold text-white break-words leading-snug">
+                                        {currentPhoto.title || currentPhoto.name}
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        {photoSizeFormatted && (
+                                            <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/60 flex items-center gap-2">
+                                                <HardDrive size={16} className="text-zinc-400 shrink-0" />
+                                                <span className="text-zinc-200 font-medium">{photoSizeFormatted}</span>
+                                            </div>
+                                        )}
+                                        {currentPhoto.extension && (
+                                            <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/60 flex items-center gap-2">
+                                                <FileText size={16} className="text-zinc-400 shrink-0" />
+                                                <span className="text-zinc-200 font-medium uppercase">{currentPhoto.extension.replace('.', '')}</span>
+                                            </div>
+                                        )}
+                                        {photoDateFormatted && (
+                                            <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/60 flex items-center gap-2 col-span-2">
+                                                <Calendar size={16} className="text-zinc-400 shrink-0" />
+                                                <span className="text-zinc-200 font-medium">{photoDateFormatted}</span>
+                                            </div>
+                                        )}
+                                        <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/60 flex items-center gap-2 col-span-2">
+                                            <FolderSync size={16} className="text-amber-400 shrink-0" />
+                                            <span className="text-zinc-200 font-medium truncate" title={provenance}>
+                                                {provenance}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    {currentPhoto.path && (
+                                        <p className="text-xs text-zinc-500 break-all font-mono bg-zinc-900/30 p-2.5 rounded-lg border border-zinc-800/40" title={currentPhoto.path}>
+                                            {currentPhoto.path}
+                                        </p>
+                                    )}
+                                </div>
+
+                                {/* Connected Devices Sync Section */}
+                                <div className="pt-4 border-t border-zinc-800/80 space-y-3">
+                                    <ConnectedDevicesToggleSection
+                                        media={{
+                                            id: currentPhoto.id,
+                                            title: currentPhoto.title || currentPhoto.name,
+                                            category: 'photo',
+                                            path: currentPhoto.path,
+                                            streamUrl: currentPhoto.streamUrl,
+                                            sizeBytes: currentPhoto.sizeBytes,
+                                            provenance: provenance,
+                                        }}
+                                    />
+                                </div>
+                            </aside>
+                        )}
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
 
             {/* ── VLC Media Player & External Network Stream Modal ── */}

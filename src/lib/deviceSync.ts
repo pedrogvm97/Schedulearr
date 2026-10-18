@@ -13,6 +13,7 @@ export interface ConnectedDevice {
     id: string;
     name: string; // e.g. "Pixel 10", "Pixel 1", "Bedside Tablet"
     type: 'adb' | 'local_folder';
+    role?: 'upload_bridge' | 'sync_target'; // Distinction: upload capabilities vs regular sync device
     target: string; // IP:Port for ADB (e.g. "192.168.1.141:5555") or local directory path
     schedulearrFolder: string; // Custom chosen Schedulearr folder (e.g. "/sdcard/Schedulearr")
     enabled: boolean;
@@ -32,6 +33,7 @@ export interface DeviceSyncItem {
     mediaId: string;
     mediaTitle: string;
     mediaType: 'music' | 'album' | 'audiobook' | 'movie' | 'show' | 'photo';
+    provenance?: string; // Source library or instance name (e.g. Radarr-4K, Radarr-1080p, Immich, etc.)
     sourcePath: string;
     targetPath?: string;
     sizeBytes: number;
@@ -64,6 +66,7 @@ export function getConnectedDevices(): ConnectedDevice[] {
                     id: 'device-pixel-default',
                     name: pixel.model || 'Pixel 1',
                     type: 'adb',
+                    role: 'upload_bridge',
                     target: `${pixel.ip}:${pixel.port || 5555}`,
                     schedulearrFolder: '/sdcard/DCIM/SchedulearrSync',
                     enabled: true,
@@ -88,12 +91,15 @@ export function saveConnectedDevice(device: Partial<ConnectedDevice> & { name: s
     const list = getConnectedDevices();
     const id = device.id || `device-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const schedulearrFolder = (device.schedulearrFolder || '/sdcard/Schedulearr').trim();
+    const role: 'upload_bridge' | 'sync_target' = device.role ||
+        (schedulearrFolder.toLowerCase().includes('dcim') || device.name.toLowerCase().includes('pixel 1') ? 'upload_bridge' : 'sync_target');
 
     const existingIdx = list.findIndex(d => d.id === id);
     const updatedDevice: ConnectedDevice = {
         id,
         name: device.name.trim(),
         type: device.type || 'adb',
+        role,
         target: device.target.trim(),
         schedulearrFolder,
         enabled: device.enabled !== undefined ? device.enabled : true,
@@ -237,6 +243,7 @@ export async function toggleMediaDeviceSync(
         id: string;
         title: string;
         category?: string;
+        provenance?: string;
         path?: string;
         streamUrl?: string;
         sizeBytes?: number;
@@ -275,6 +282,7 @@ export async function toggleMediaDeviceSync(
         mediaId: media.id,
         mediaTitle: media.title,
         mediaType,
+        provenance: media.provenance || (mediaType === 'photo' ? 'Immich' : 'Default'),
         sourcePath,
         sizeBytes: media.sizeBytes || 0,
         status: 'queued',
@@ -326,7 +334,22 @@ export async function processDeviceSyncCycle(): Promise<void> {
         }
 
         const fileName = path.basename(item.sourcePath);
-        const folder = dev.schedulearrFolder || '/sdcard/Schedulearr';
+        const folder = dev.schedulearrFolder || (dev.role === 'upload_bridge' ? '/sdcard/DCIM/SchedulearrSync' : '/sdcard/Schedulearr');
+        const categoryFolder = item.mediaType === 'movie' ? 'Movies'
+            : item.mediaType === 'show' ? 'Shows'
+            : item.mediaType === 'audiobook' ? 'Audiobooks'
+            : item.mediaType === 'photo' ? 'Photos'
+            : 'Music';
+        const rawProvenance = item.provenance || 'Default';
+        const cleanProvenance = rawProvenance.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'Default';
+
+        // Provenance-based folder separation: {schedulearrFolder}/<Category>/<Provenance>
+        let destDir: string;
+        if (dev.role === 'upload_bridge' && item.mediaType === 'photo') {
+            destDir = folder; // Upload bridge photo buffer for Google Photos
+        } else {
+            destDir = `${folder}/${categoryFolder}/${cleanProvenance}`;
+        }
 
         if (dev.type === 'adb') {
             try {
@@ -341,7 +364,6 @@ export async function processDeviceSyncCycle(): Promise<void> {
                 item.status = 'syncing';
                 setSetting('device_sync_queue', JSON.stringify(queue));
 
-                const destDir = `${folder}/${item.mediaType}`;
                 await execAsync(`adb -s ${dev.target} shell "mkdir -p '${destDir}'"`, { timeout: 3000 });
 
                 const destFile = `${destDir}/${fileName}`;
@@ -362,7 +384,7 @@ export async function processDeviceSyncCycle(): Promise<void> {
                 await execAsync(`adb -s ${dev.target} shell "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d 'file://${destFile}'"`, { timeout: 2500 }).catch(() => null);
 
                 setSetting('device_sync_queue', JSON.stringify(queue));
-                console.log(`[DEVICE-SYNC] 📱 Pushed "${item.mediaTitle}" to ${dev.name} ("${destFile}")`);
+                console.log(`[DEVICE-SYNC] 📱 Pushed "${item.mediaTitle}" to ${dev.name} ("${destFile}") [${categoryFolder}/${cleanProvenance}]`);
             } catch (e: any) {
                 item.status = 'failed';
                 item.error = e.message;
@@ -371,9 +393,11 @@ export async function processDeviceSyncCycle(): Promise<void> {
         } else {
             // Local folder sync
             try {
-                const destDir = path.join(folder, item.mediaType);
-                if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-                const destFile = path.join(destDir, fileName);
+                const localDestDir = dev.role === 'upload_bridge' && item.mediaType === 'photo'
+                    ? folder
+                    : path.join(folder, categoryFolder, cleanProvenance);
+                if (!fs.existsSync(localDestDir)) fs.mkdirSync(localDestDir, { recursive: true });
+                const destFile = path.join(localDestDir, fileName);
                 item.targetPath = destFile;
 
                 item.status = 'syncing';
@@ -385,7 +409,7 @@ export async function processDeviceSyncCycle(): Promise<void> {
                 item.progress = 100;
                 item.completedAt = new Date().toISOString();
                 setSetting('device_sync_queue', JSON.stringify(queue));
-                console.log(`[DEVICE-SYNC] 💾 Synced "${item.mediaTitle}" to "${destFile}"`);
+                console.log(`[DEVICE-SYNC] 💾 Synced "${item.mediaTitle}" to "${destFile}" [${categoryFolder}/${cleanProvenance}]`);
             } catch (e: any) {
                 item.status = 'failed';
                 item.error = e.message;

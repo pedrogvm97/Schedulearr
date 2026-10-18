@@ -5,7 +5,8 @@ import {
     Server, Sliders, Shield, Wrench, Heart, Sparkles, Headphones,
     Image as ImageIcon, Mic, RefreshCw, Check, ArrowUp, ArrowDown,
     Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2, Subtitles,
-    Smartphone, Zap, HardDrive, Battery, BatteryCharging, Globe, Cpu
+    Smartphone, Zap, HardDrive, Battery, BatteryCharging, Globe, Cpu,
+    Cloud, Package, CheckCircle2
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
@@ -165,6 +166,7 @@ export default function Settings() {
         batchSize: 25
     });
     const [solvingPixel, setSolvingPixel] = useState(false);
+    const [pixelBackupSummary, setPixelBackupSummary] = useState<any>(null);
 
     const fetchPairedPixelNode = async () => {
         try {
@@ -176,6 +178,9 @@ export default function Settings() {
                     if (data.toggles) setPixelToggles(data.toggles);
                 } else {
                     setPairedPixelNode(null);
+                }
+                if (data.backupSummary) {
+                    setPixelBackupSummary(data.backupSummary);
                 }
             }
         } catch {}
@@ -743,9 +748,12 @@ export default function Settings() {
     };
 
     const formatBytes = (bytes: number): string => {
-        if (!bytes || bytes <= 0) return '0 GB';
+        if (!bytes || bytes <= 0) return '0 B';
         if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`;
-        return `${(bytes / 1e9).toFixed(1)} GB`;
+        if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+        if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+        if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(1)} KB`;
+        return `${bytes} B`;
     };
 
     const instanceSegments = useMemo(() => {
@@ -917,7 +925,11 @@ export default function Settings() {
         };
         pollStudio();
         const studioPollInterval = setInterval(pollStudio, 4000);
-        return () => clearInterval(studioPollInterval);
+        const pixelPollInterval = setInterval(fetchPairedPixelNode, 3500);
+        return () => {
+            clearInterval(studioPollInterval);
+            clearInterval(pixelPollInterval);
+        };
     }, []);
 
     // Sync disk settings from allSettings when loaded
@@ -1752,6 +1764,127 @@ export default function Settings() {
                                         </button>
                                     </div>
                                 </div>
+
+                                {/* Uploaded Photos Overview */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 space-y-1">
+                                        <div className="flex items-center gap-2 text-zinc-400 text-xs font-black uppercase tracking-wider">
+                                            <ImageIcon size={16} className="text-pink-400" />
+                                            <span>Uploaded</span>
+                                        </div>
+                                        <div className="text-xl font-black text-white">
+                                            {pixelBackupSummary?.counts?.uploaded || 0}
+                                        </div>
+                                    </div>
+                                    <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 space-y-1">
+                                        <div className="flex items-center gap-2 text-zinc-400 text-xs font-black uppercase tracking-wider">
+                                            <HardDrive size={16} className="text-emerald-400" />
+                                            <span>Storage Freed</span>
+                                        </div>
+                                        <div className="text-xl font-black text-white">
+                                            {formatBytes(pixelBackupSummary?.counts?.totalBytesCleaned || 0)}
+                                        </div>
+                                    </div>
+                                    <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 space-y-1">
+                                        <div className="flex items-center gap-2 text-zinc-400 text-xs font-black uppercase tracking-wider">
+                                            <Smartphone size={16} className="text-amber-400" />
+                                            <span>Phone Buffer</span>
+                                        </div>
+                                        <div className="text-xl font-black text-white">
+                                            {(pixelBackupSummary?.counts?.queued || 0) + (pixelBackupSummary?.counts?.transferred || 0)}
+                                        </div>
+                                    </div>
+                                    <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 space-y-1">
+                                        <div className="flex items-center gap-2 text-zinc-400 text-xs font-black uppercase tracking-wider">
+                                            <Cloud size={16} className="text-indigo-400" />
+                                            <span>Cloud Tier</span>
+                                        </div>
+                                        <div className="text-base font-black text-indigo-300 truncate" title="Unlimited Lifetime Original Quality">
+                                            {pairedPixelNode.unlimitedTier === 'original_quality' ? 'Original' : 'Saver'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Live Step % Progress of Current Item */}
+                                {pixelBackupSummary?.activeTransferProgress && (
+                                    <div className="p-5 rounded-2xl bg-zinc-950/90 border border-indigo-500/30 space-y-4 shadow-xl">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                                                    <RefreshCw size={22} className="animate-spin text-indigo-400" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-black text-white truncate" title={pixelBackupSummary.activeTransferProgress.item?.filename}>
+                                                        {pixelBackupSummary.activeTransferProgress.item?.filename || 'Media Transfer'}
+                                                    </div>
+                                                    <div className="text-xs text-zinc-400 font-mono flex items-center gap-2">
+                                                        {pixelBackupSummary.activeTransferProgress.item?.sizeBytes ? (
+                                                            <span>{formatBytes(pixelBackupSummary.activeTransferProgress.item.sizeBytes)}</span>
+                                                        ) : null}
+                                                        {pixelBackupSummary.activeTransferProgress.speedBps ? (
+                                                            <>
+                                                                <span>•</span>
+                                                                <span>{formatBytes(pixelBackupSummary.activeTransferProgress.speedBps)}/s</span>
+                                                            </>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                <span className="px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                                                    Step {pixelBackupSummary.activeTransferProgress.stepNumber}/4 • {pixelBackupSummary.activeTransferProgress.percent}%
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                            {pixelBackupSummary.activeTransferProgress.steps.map((st: any) => {
+                                                const isActive = st.status === 'active';
+                                                const isDone = st.status === 'completed';
+
+                                                return (
+                                                    <div
+                                                        key={st.stepNumber}
+                                                        className={`p-3.5 rounded-xl border space-y-2 transition-all ${
+                                                            isActive
+                                                                ? 'bg-indigo-950/40 border-indigo-500/60 shadow-lg shadow-indigo-500/10'
+                                                                : isDone
+                                                                ? 'bg-zinc-900/60 border-emerald-500/30'
+                                                                : 'bg-zinc-900/30 border-zinc-800/60 opacity-60'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider">
+                                                                Step {st.stepNumber}: {st.name}
+                                                            </span>
+                                                            {isDone ? (
+                                                                <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                                                            ) : isActive ? (
+                                                                <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-ping shrink-0" />
+                                                            ) : null}
+                                                        </div>
+                                                        <div className="text-lg font-black text-white font-mono">
+                                                            {st.percent}%
+                                                        </div>
+                                                        <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full transition-all duration-300 rounded-full ${
+                                                                    isDone
+                                                                        ? 'bg-emerald-400'
+                                                                        : isActive
+                                                                        ? 'bg-gradient-to-r from-indigo-500 to-sky-400'
+                                                                        : 'bg-zinc-700'
+                                                                }`}
+                                                                style={{ width: `${st.percent}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Automation Toggles */}
                                 <div className="grid grid-cols-5 gap-3 pt-1">
