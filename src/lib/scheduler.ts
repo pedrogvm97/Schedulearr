@@ -21,6 +21,7 @@ import { runPeriodicCalendarSync } from '@/lib/calendarSync';
 import { getCalendarSyncConfig } from '@/lib/db';
 import { startStreamGuardWatchdog, isStreamGuardActive } from '@/lib/streamGuard';
 import { processDeviceSyncCycle } from '@/lib/deviceSync';
+import { processPhoneBackupCycle } from '@/lib/pixelBackupSuite';
 import fs from 'fs';
 import path from 'path';
 
@@ -201,6 +202,17 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
             setTimeout(runDeviceSyncCycle, 20 * 1000);
         };
         setTimeout(runDeviceSyncCycle, 12000); // Start 12s after boot
+
+        // Automated Pixel Bridge Phone Backup Cycle (continuous batching & upload verification every 25 seconds)
+        const runPhoneBackupCycle = async () => {
+            try {
+                await processPhoneBackupCycle();
+            } catch (err) {
+                console.error('❌ Phone Backup cycle error:', err);
+            }
+            setTimeout(runPhoneBackupCycle, 25 * 1000);
+        };
+        setTimeout(runPhoneBackupCycle, 15000); // Start 15s after boot
     };
 
     startScheduler();
