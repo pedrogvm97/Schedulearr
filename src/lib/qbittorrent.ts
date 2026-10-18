@@ -46,12 +46,15 @@ export const authenticateQbittorrent = async (url: string, credentials: string):
             }
         });
 
-        // The cookie is returned in the set-cookie header
+        // The cookie is returned in the set-cookie header (SID=... or QBT_SID_xxxx=... in newer qBittorrent)
         const setCookieHeader = response.headers['set-cookie'];
         if (setCookieHeader && Array.isArray(setCookieHeader)) {
-            const sidCookie = setCookieHeader.find(c => c.startsWith('SID='));
+            const sidCookie = setCookieHeader.find(c => c.startsWith('SID=') || c.startsWith('QBT_SID'));
             if (sidCookie) {
-                return sidCookie.split(';')[0]; // Return just the "SID=xxxxx" part
+                return sidCookie.split(';')[0]; // Return just the "SID=xxxxx" or "QBT_SID_xxxx=xxxxx" part
+            }
+            if (setCookieHeader.length > 0) {
+                return setCookieHeader[0].split(';')[0];
             }
         }
 

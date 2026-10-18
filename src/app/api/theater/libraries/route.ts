@@ -48,6 +48,23 @@ export async function GET() {
             instance_id: lib.instanceId || lib.instance_id
         }));
 
+        try {
+            const immichInstances = getInstances().filter(i => i.type === 'immich' && i.enabled);
+            for (const immich of immichInstances) {
+                normalizedLibraries.push({
+                    id: `immich-${immich.id}`,
+                    name: immich.name || 'Immich',
+                    type: 'photos',
+                    folders: [immich.url],
+                    instanceId: immich.id,
+                    instance_id: immich.id,
+                    isImmich: true,
+                    plexSectionId: undefined,
+                    plex_section_id: undefined
+                } as any);
+            }
+        } catch {}
+
         return NextResponse.json({ libraries: normalizedLibraries, plexMusicLibraries });
     } catch (error: any) {
         console.error('API /theater/libraries GET error:', error);

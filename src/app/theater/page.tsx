@@ -6949,7 +6949,7 @@ function TheaterPageContent() {
                 ) : (
                     <div className={
                         viewMode === 'grid'
-                            ? activeLibrary?.type === 'photo'
+                            ? activeLibrary?.type === 'photo' || activeLibrary?.type === 'photos' || activeContentTab === 'photos'
                                 ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4'
                                 : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5'
                             : 'space-y-3'
@@ -7015,19 +7015,24 @@ function TheaterPageContent() {
                             }
 
                             // Photo Grid View
-                            if (item.category === 'photo') {
+                            if (item.category === 'photo' || activeContentTab === 'photos') {
                                 return (
                                     <div
                                         key={item.id}
                                         onClick={() => handlePlayItem(item)}
-                                        className="group relative aspect-square rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 hover:border-pink-500/50 transition-all cursor-pointer shadow-lg hover:-translate-y-1"
+                                        className="group relative aspect-square rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 hover:border-sky-500/50 transition-all cursor-pointer shadow-lg hover:-translate-y-1"
                                     >
                                         <img
-                                            src={item.streamUrl}
+                                            src={item.posterUrl || item.streamUrl}
                                             alt={item.title}
                                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                             loading="lazy"
                                         />
+                                        {item.category === 'video' && (
+                                            <div className="absolute top-2.5 right-2.5 p-1.5 rounded-xl bg-black/60 backdrop-blur-md text-white border border-white/20 shadow-md">
+                                                <FileVideo size={16} />
+                                            </div>
+                                        )}
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
                                             <p className="text-xs font-bold text-white truncate">{item.title}</p>
                                         </div>

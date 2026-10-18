@@ -1652,37 +1652,33 @@ export default function Settings() {
                 )}
             </div>
 
-                    {/* Pixel Bridge (Unlimited Google Photos) Hardware Node */}
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-5">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0">
-                                    <Smartphone size={24} />
+                    {/* Pixel Hardware Node */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0">
+                                    <Smartphone size={28} />
                                 </div>
-                                <div>
-                                    <h2 className="text-xl font-black text-white tracking-tight">Pixel Bridge (Unlimited Backup)</h2>
-                                    <p className="text-sm text-zinc-400 font-medium">Auto-detect Google Pixels on LAN or Tailscale with lifetime unlimited backup.</p>
-                                </div>
+                                <h2 className="text-2xl font-black text-white tracking-tight">Pixel</h2>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2.5">
                                 <input
                                     type="text"
-                                    placeholder="Target IP (e.g. 192.168.1.141)"
+                                    placeholder="192.168.1.141"
                                     value={targetPixelIp}
                                     onChange={e => setTargetPixelIp(e.target.value)}
-                                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:ring-2 focus:ring-indigo-500 w-52 font-mono"
-                                    title="Enter local IP (e.g. 192.168.1.141) or leave empty to auto-sweep LAN"
+                                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 w-52 font-mono"
+                                    title="Pixel IP"
                                 />
                                 <button
                                     type="button"
                                     onClick={handleScanPixels}
                                     disabled={scanningPixels}
-                                    title="Scan local network for Pixel devices"
-                                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer shrink-0"
+                                    title="Scan"
+                                    className="p-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl transition-all shadow-lg flex items-center justify-center cursor-pointer shrink-0"
                                 >
-                                    <RefreshCw size={16} className={scanningPixels ? 'animate-spin' : ''} />
-                                    <span>{scanningPixels ? 'Scanning...' : 'Scan'}</span>
+                                    <RefreshCw size={20} className={scanningPixels ? 'animate-spin' : ''} />
                                 </button>
                                 {targetPixelIp.trim() && (
                                     <button
@@ -1696,11 +1692,10 @@ export default function Settings() {
                                             unlimitedTier: 'original_quality',
                                             isOnline: true
                                         })}
-                                        title={`Pair ${targetPixelIp.trim()} directly as Pixel Bridge Node`}
-                                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer shrink-0"
+                                        title="Pair"
+                                        className="p-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition-all shadow-lg flex items-center justify-center cursor-pointer shrink-0"
                                     >
-                                        <Check size={16} />
-                                        <span>Pair</span>
+                                        <Check size={20} />
                                     </button>
                                 )}
                             </div>
@@ -1709,25 +1704,25 @@ export default function Settings() {
                         {/* Current Paired Pixel Node Card & Automation Toggles */}
                         {pairedPixelNode && (
                             <div className="space-y-4">
-                                <div className="p-4 rounded-2xl bg-zinc-950 border border-indigo-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                    <div className="flex items-center gap-3.5">
-                                        <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
-                                            <Smartphone size={22} />
+                                <div className="p-5 rounded-2xl bg-zinc-950 border border-indigo-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                                            <Smartphone size={26} />
                                         </div>
                                         <div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-base font-black text-white">{pairedPixelNode.model || 'Google Pixel'}</span>
+                                            <div className="flex items-center gap-2.5">
+                                                <span className="text-lg font-black text-white">{pairedPixelNode.model || 'Google Pixel'}</span>
                                                 <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                                                     {pairedPixelNode.unlimitedTier === 'original_quality' ? 'Unlimited Original Quality' : 'Unlimited Storage Saver'}
                                                 </span>
-                                                <span className={`w-2 h-2 rounded-full ${pairedPixelNode.isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                                <span className={`w-2.5 h-2.5 rounded-full ${pairedPixelNode.isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
                                             </div>
                                             <div className="flex items-center gap-4 text-xs text-zinc-400 font-medium mt-1">
                                                 <span>IP: <code className="text-zinc-200">{pairedPixelNode.ip}:{pairedPixelNode.port || 5555}</code></span>
                                                 {pairedPixelNode.freeStorage && <span>Storage: <strong className="text-white">{pairedPixelNode.freeStorage}</strong> free</span>}
                                                 {pairedPixelNode.batteryLevel !== undefined && (
                                                     <span className="flex items-center gap-1">
-                                                        {pairedPixelNode.isCharging ? <BatteryCharging size={14} className="text-amber-400" /> : <Battery size={14} />}
+                                                        {pairedPixelNode.isCharging ? <BatteryCharging size={16} className="text-amber-400" /> : <Battery size={16} />}
                                                         {pairedPixelNode.batteryLevel}%
                                                     </span>
                                                 )}
@@ -1739,92 +1734,102 @@ export default function Settings() {
                                             type="button"
                                             onClick={handleAutoSolveSettings}
                                             disabled={solvingPixel}
-                                            title="Auto-Solve / Heal Stalled Pixel Sync"
-                                            className="p-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 transition-all cursor-pointer"
+                                            title="Auto-Solve"
+                                            className="p-3 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 transition-all cursor-pointer"
                                         >
-                                            <Wrench size={16} className={solvingPixel ? 'animate-spin' : ''} />
+                                            <Wrench size={20} className={solvingPixel ? 'animate-spin' : ''} />
                                         </button>
                                         <button
                                             type="button"
                                             onClick={handleUnpairPixelNode}
-                                            title="Unpair this Pixel device"
-                                            className="p-2.5 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 transition-all cursor-pointer"
+                                            title="Unpair"
+                                            className="p-3 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 transition-all cursor-pointer"
                                         >
-                                            <Trash2 size={16} />
+                                            <Trash2 size={20} />
                                         </button>
                                     </div>
                                 </div>
 
                                 {/* Automation Toggles */}
-                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-1">
+                                <div className="grid grid-cols-5 gap-3 pt-1">
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('syncEnabled', !pixelToggles.syncEnabled)}
-                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.syncEnabled
                                                 ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300'
-                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Master switch for syncing photos from Immich to Pixel"
+                                        title="Sync"
                                     >
-                                        <span className="flex items-center gap-1.5"><Zap size={14} /> Sync</span>
-                                        {pixelToggles.syncEnabled && <Check size={14} />}
+                                        <Zap size={22} />
+                                        {pixelToggles.syncEnabled && (
+                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-400" />
+                                        )}
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('autoClean', !pixelToggles.autoClean)}
-                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.autoClean
                                                 ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-300'
-                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Automatically clean uploaded photos from Pixel to free up storage space"
+                                        title="Auto Clean"
                                     >
-                                        <span className="flex items-center gap-1.5"><Trash2 size={14} /> Auto Clean</span>
-                                        {pixelToggles.autoClean && <Check size={14} />}
+                                        <Trash2 size={22} />
+                                        {pixelToggles.autoClean && (
+                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-400" />
+                                        )}
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('autoStage', !pixelToggles.autoStage)}
-                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.autoStage
                                                 ? 'bg-sky-600/20 border-sky-500/50 text-sky-300'
-                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Automatically stage incoming Immich photos to Pixel storage"
+                                        title="Auto Stage"
                                     >
-                                        <span className="flex items-center gap-1.5"><ArrowUp size={14} /> Auto Stage</span>
-                                        {pixelToggles.autoStage && <Check size={14} />}
+                                        <ArrowUp size={22} />
+                                        {pixelToggles.autoStage && (
+                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-sky-400" />
+                                        )}
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('autoHeal', !pixelToggles.autoHeal)}
-                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.autoHeal
                                                 ? 'bg-amber-600/20 border-amber-500/50 text-amber-300'
-                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Auto-Solver watchdog to recover stalled uploads and ADB glitches"
+                                        title="Auto Solver"
                                     >
-                                        <span className="flex items-center gap-1.5"><Wrench size={14} /> Auto Solver</span>
-                                        {pixelToggles.autoHeal && <Check size={14} />}
+                                        <Wrench size={22} />
+                                        {pixelToggles.autoHeal && (
+                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-400" />
+                                        )}
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('chargingOnly', !pixelToggles.chargingOnly)}
-                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.chargingOnly
                                                 ? 'bg-orange-600/20 border-orange-500/50 text-orange-300'
-                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Only sync when Pixel device is connected to a charger"
+                                        title="Charging Only"
                                     >
-                                        <span className="flex items-center gap-1.5"><BatteryCharging size={14} /> Charging Only</span>
-                                        {pixelToggles.chargingOnly && <Check size={14} />}
+                                        <BatteryCharging size={22} />
+                                        {pixelToggles.chargingOnly && (
+                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-orange-400" />
+                                        )}
                                     </button>
                                 </div>
                             </div>
@@ -1833,18 +1838,18 @@ export default function Settings() {
                         {/* Discovered Devices from Scan */}
                         {discoveredPixels.length > 0 && (
                             <div className="space-y-3 pt-2">
-                                <h3 className="text-xs font-black uppercase tracking-wider text-indigo-400">Discovered Pixel Devices</h3>
+                                <h3 className="text-sm font-black uppercase tracking-wider text-indigo-400">Discovered</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     {discoveredPixels.map((dev, idx) => (
                                         <div key={idx} className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
                                             <div>
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="font-bold text-white text-sm">{dev.model}</span>
-                                                    <span className="px-2 py-0.5 rounded-md text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                    <span className="font-bold text-white text-base">{dev.model}</span>
+                                                    <span className="px-2.5 py-0.5 rounded-md text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                                                         {dev.unlimitedTier === 'original_quality' ? 'Unlimited Original' : 'Storage Saver'}
                                                     </span>
                                                     {dev.adbActive === false && (
-                                                        <span className="px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40" title="Device detected on local network. ADB port 5555 is not active yet.">
+                                                        <span className="px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40" title="Port 5555 Inactive">
                                                             Port 5555 Inactive
                                                         </span>
                                                     )}
@@ -1856,10 +1861,10 @@ export default function Settings() {
                                             <button
                                                 type="button"
                                                 onClick={() => handlePairPixelNode(dev)}
-                                                title="Pair this Pixel as the active backup bridge node"
-                                                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer shrink-0"
+                                                title="Pair"
+                                                className="p-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md cursor-pointer shrink-0"
                                             >
-                                                Pair
+                                                <Check size={20} />
                                             </button>
                                         </div>
                                     ))}

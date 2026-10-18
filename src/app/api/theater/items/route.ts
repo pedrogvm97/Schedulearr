@@ -304,9 +304,89 @@ export async function GET(req: Request) {
         // ── 3. Scan / Fetch Items in Library (or Aggregate Across Libraries if libraryId omitted) ──
         const libraries = getTheaterLibraries();
         const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+        const immichInstances = getInstances().filter(i => i.type === 'immich' && i.enabled);
+        for (const immich of immichInstances) {
+            libraries.push({
+                id: `immich-${immich.id}`,
+                name: immich.name || 'Immich',
+                type: 'photos',
+                folders: [immich.url],
+                instanceId: immich.id,
+                instance_id: immich.id,
+                isImmich: true
+            } as any);
+        }
 
         const loadItemsForLibrary = async (lib: any, forceRefresh: boolean): Promise<{ items: any[]; cached: boolean; cachedAt?: string }> => {
             const isAudiobooksLib = lib.type === 'audiobooks' || lib.type === 'audiobook' || /\b(audiobooks?|spoken\s*word)\b/i.test(lib.name || '');
+
+            if (lib.isImmich || lib.id.startsWith('immich-')) {
+                if (!forceRefresh) {
+                    const cached = getCachedTheaterItems(lib.id);
+                    if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
+                        return {
+                            items: cached.items,
+                            cached: true,
+                            cachedAt: cached.updatedAt
+                        };
+                    }
+                }
+
+                try {
+                    const immich = immichInstances.find(i => i.id === lib.instanceId || `immich-${i.id}` === lib.id) || immichInstances[0];
+                    if (immich) {
+                        const cleanUrl = immich.url.replace(/\/$/, '');
+                        const searchRes = await axios.post(`${cleanUrl}/api/search/metadata`, {
+                            isArchived: false,
+                            isTrashed: false,
+                            take: 1000
+                        }, {
+                            headers: { 'x-api-key': immich.api_key, 'Content-Type': 'application/json' },
+                            timeout: 15000
+                        });
+                        const rawItems = searchRes.data?.assets?.items || [];
+                        const visibleItems = rawItems.filter((i: any) => i.visibility !== 'hidden');
+                        const mapped = visibleItems.map((asset: any) => {
+                            const isVideo = asset.type === 'VIDEO';
+                            const title = asset.originalFileName || `Photo ${asset.id.slice(0, 8)}`;
+                            return {
+                                id: `immich-${asset.id}`,
+                                assetId: asset.id,
+                                name: asset.originalFileName,
+                                title: title,
+                                path: asset.originalPath || asset.originalFileName,
+                                folder: asset.originalPath ? path.dirname(asset.originalPath) : 'Immich',
+                                category: isVideo ? 'video' : 'photo',
+                                extension: asset.originalFileName ? path.extname(asset.originalFileName).replace('.', '').toUpperCase() : (isVideo ? 'MP4' : 'JPG'),
+                                sizeBytes: asset.exifInfo?.fileSizeInByte || 0,
+                                width: asset.width,
+                                height: asset.height,
+                                duration: asset.duration,
+                                modifiedAt: asset.fileModifiedAt || asset.updatedAt,
+                                addedAt: asset.fileCreatedAt || asset.createdAt,
+                                posterUrl: `/api/theater/photos/immich/asset?id=${asset.id}&size=preview&instanceId=${immich.id}`,
+                                streamUrl: `/api/theater/photos/immich/asset?id=${asset.id}&size=original&instanceId=${immich.id}`,
+                                libraryId: lib.id,
+                                libraryName: lib.name,
+                                libraryType: 'photos',
+                                source: 'Immich',
+                                isImmich: true
+                            };
+                        });
+
+                        if (mapped.length > 0) {
+                            saveCachedTheaterItems(lib.id, mapped);
+                        }
+                        return {
+                            items: mapped,
+                            cached: false
+                        };
+                    }
+                } catch (e: any) {
+                    console.error('Failed to query Immich assets:', e.message);
+                    return { items: [], cached: false };
+                }
+            }
 
             if (!forceRefresh) {
                 const cached = getCachedTheaterItems(lib.id);
@@ -706,6 +786,9 @@ export async function GET(req: Request) {
                 if (!typeFilter) return true;
                 if (typeFilter === 'audiobooks' || typeFilter === 'audiobook') {
                     return l.type === 'audiobooks' || l.type === 'audiobook' || /\b(audiobooks?|spoken\s*word)\b/i.test(l.name || '');
+                }
+                if (typeFilter === 'photos' || typeFilter === 'photo') {
+                    return l.type === 'photos' || l.type === 'photo';
                 }
                 return l.type === typeFilter;
             });
