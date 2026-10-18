@@ -740,3 +740,193 @@ export async function ensureUnraidPathPermissions(targetPath: string): Promise<{
   return { ok: localSuccess, method: localSuccess ? 'local_fs' : 'none' };
 }
 
+/**
+ * Runs an ephemeral privileged container on the host via /var/run/docker.sock with /dev/bus/usb bound.
+ * This directly transmits the ADB USB handshake from the host to a physical Android phone plugged into the server,
+ * which displays the "Always allow from this computer" dialog on the phone's screen,
+ * and restarts the phone's ADB daemon into TCP mode on port 5555.
+ */
+export async function runPrivilegedUsbAdb(targetIp?: string): Promise<{
+  success: boolean;
+  devicesOutput: string;
+  tcpipOutput: string;
+  connectOutput?: string;
+  message: string;
+}> {
+  if (!fs.existsSync('/var/run/docker.sock')) {
+    return {
+      success: false,
+      devicesOutput: '',
+      tcpipOutput: '',
+      message: 'Docker socket not available on host'
+    };
+  }
+
+  const docker = getDockerClient();
+  const hostname = process.env.HOSTNAME || '';
+  const selfInfo = await findSelfContainer(docker, hostname);
+  const image = selfInfo?.Config?.Image || selfInfo?.Image || 'ghcr.io/pedrogvm97/schedulearr:latest';
+
+  // Discover host path for /app/data so keys persist
+  const binds: string[] = selfInfo?.HostConfig?.Binds || [];
+  let hostDataDir = '/mnt/user/appdata/schedulearr/data';
+  for (const b of binds) {
+    const parts = b.split(':');
+    if (parts[1] === '/app/data' || parts[1]?.startsWith('/app/data')) {
+      hostDataDir = parts[0];
+      break;
+    }
+  }
+
+  // Ensure local /app/data/.android exists
+  const localAndroidDir = '/app/data/.android';
+  try {
+    if (!fs.existsSync(localAndroidDir)) {
+      fs.mkdirSync(localAndroidDir, { recursive: true });
+    }
+    // Also copy existing /root/.android keys to /app/data/.android if present
+    if (fs.existsSync('/root/.android')) {
+      const files = fs.readdirSync('/root/.android');
+      for (const f of files) {
+        const src = `/root/.android/${f}`;
+        const dst = `${localAndroidDir}/${f}`;
+        if (!fs.existsSync(dst)) {
+          try { fs.copyFileSync(src, dst); } catch {}
+        }
+      }
+    }
+  } catch {}
+
+  const helperName = `schedulearr_usb_${Date.now()}`;
+  const script = [
+    'mkdir -p /root/.android',
+    'cp -r /app/data/.android/* /root/.android/ 2>/dev/null || true',
+    'adb start-server',
+    'echo "=== ADB_DEVICES ==="',
+    'adb devices -l',
+    'echo "=== ADB_TCPIP ==="',
+    'adb tcpip 5555 2>&1 || true',
+    'cp -r /root/.android/* /app/data/.android/ 2>/dev/null || true',
+    'chmod -R 777 /app/data/.android 2>/dev/null || true'
+  ].join(' && ');
+
+  let rawLogs = '';
+  try {
+    const createRes = await docker.post(`/containers/create?name=${helperName}`, {
+      Image: image,
+      User: '0:0',
+      Tty: true,
+      Cmd: ['sh', '-c', script],
+      HostConfig: {
+        Privileged: true,
+        Binds: [
+          '/dev/bus/usb:/dev/bus/usb',
+          `${hostDataDir}:/app/data:rw`
+        ]
+      }
+    });
+
+    const helperId = createRes.data?.Id;
+    if (!helperId) {
+      return {
+        success: false,
+        devicesOutput: '',
+        tcpipOutput: '',
+        message: 'Failed to create USB runner container'
+      };
+    }
+
+    // Start container
+    await docker.post(`/containers/${helperId}/start`);
+
+    // Wait up to 10 seconds for completion
+    const startWait = Date.now();
+    while (Date.now() - startWait < 10000) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const inspectRes = await docker.get(`/containers/${helperId}/json`);
+        if (!inspectRes.data?.State?.Running) break;
+      } catch {
+        break;
+      }
+    }
+
+    try {
+      const logRes = await docker.get(`/containers/${helperId}/logs?stdout=true&stderr=true`, {
+        responseType: 'text'
+      });
+      rawLogs = String(logRes.data || '');
+    } catch {}
+
+    // Clean up helper container
+    try {
+      await docker.delete(`/containers/${helperId}?v=true&force=true`);
+    } catch {}
+
+    // Sync newly generated keys back into /root/.android in current container
+    try {
+      if (fs.existsSync(localAndroidDir)) {
+        if (!fs.existsSync('/root/.android')) {
+          fs.mkdirSync('/root/.android', { recursive: true });
+        }
+        const files = fs.readdirSync(localAndroidDir);
+        for (const f of files) {
+          try {
+            fs.copyFileSync(`${localAndroidDir}/${f}`, `/root/.android/${f}`);
+          } catch {}
+        }
+      }
+    } catch {}
+
+    const devSection = rawLogs.includes('=== ADB_DEVICES ===')
+      ? rawLogs.split('=== ADB_DEVICES ===')[1].split('=== ADB_TCPIP ===')[0].trim()
+      : rawLogs;
+    const tcpipSection = rawLogs.includes('=== ADB_TCPIP ===')
+      ? rawLogs.split('=== ADB_TCPIP ===')[1].trim()
+      : '';
+
+    const lowerLogs = rawLogs.toLowerCase();
+    const isSuccess = lowerLogs.includes('restarting in tcp mode') || lowerLogs.includes('restarting in tcpip mode');
+    const isUnauthorized = lowerLogs.includes('unauthorized');
+    const hasDevice = lowerLogs.includes('usb:') || (devSection.split('\n').length > 1 && devSection.split('\n')[1].trim().length > 0);
+
+    let connectOutput = '';
+    if (isSuccess && targetIp && targetIp.trim()) {
+      const cleanIp = targetIp.trim().split(':')[0];
+      try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execP = promisify(exec);
+        const connRes = await execP(`adb connect ${cleanIp}:5555`, { timeout: 6000 }).catch((e: any) => ({ stdout: e.message }));
+        connectOutput = (connRes.stdout || '').trim();
+      } catch {}
+    }
+
+    let message = '';
+    if (isSuccess) {
+      message = 'TCP/IP mode activated on port 5555! Phone is ready for wireless pairing.';
+    } else if (isUnauthorized) {
+      message = 'USB device detected! Look at your phone screen now, check "Always allow from this computer", tap Allow, then click Run again.';
+    } else if (hasDevice) {
+      message = tcpipSection || 'USB device detected on server.';
+    } else {
+      message = 'No USB device detected on server. Make sure the phone is plugged into the server and USB Debugging is ON.';
+    }
+
+    return {
+      success: isSuccess,
+      devicesOutput: devSection,
+      tcpipOutput: tcpipSection || rawLogs,
+      connectOutput: connectOutput || undefined,
+      message
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      devicesOutput: rawLogs,
+      tcpipOutput: err.message,
+      message: `Privileged USB runner error: ${err.message}`
+    };
+  }
+}
+

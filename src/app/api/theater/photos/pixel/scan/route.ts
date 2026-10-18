@@ -6,6 +6,7 @@ import { exec } from 'child_process';
 import util from 'util';
 import { getSetting, setSetting } from '@/lib/db';
 import { saveConnectedDevice } from '@/lib/deviceSync';
+import { runPrivilegedUsbAdb } from '@/lib/docker';
 
 const execAsync = util.promisify(exec);
 
@@ -363,23 +364,44 @@ export async function POST(req: Request) {
         if (action === 'usb_tcpip') {
             const { targetIp } = body;
             try {
-                const devRes = await execAsync('adb devices -l', { timeout: 4000 }).catch(e => ({ stdout: e.message, stderr: '' }));
-                const tcpipRes = await execAsync('adb tcpip 5555', { timeout: 8000 }).catch(e => ({ stdout: e.message, stderr: '' }));
-                let connectOutput = '';
-                if (targetIp && targetIp.trim()) {
-                    const cleanIp = targetIp.trim().split(':')[0];
-                    const connectRes = await execAsync(`adb connect ${cleanIp}:5555`, { timeout: 5000 }).catch(e => ({ stdout: e.message, stderr: '' }));
-                    connectOutput = connectRes.stdout.trim();
+                // 1. Try local container adb devices first (works if Schedulearr container has USB device pass-through)
+                const localDevRes = await execAsync('adb devices -l', { timeout: 4000 }).catch(e => ({ stdout: e.message, stderr: '' }));
+                const hasLocalUsb = (localDevRes.stdout || '').split('\n').slice(1).some(l => {
+                    const line = l.trim();
+                    return line.length > 0 && !line.includes('offline') && (line.includes('usb') || line.includes('device') || line.includes('unauthorized'));
+                });
+
+                if (hasLocalUsb) {
+                    const tcpipRes = await execAsync('adb tcpip 5555', { timeout: 8000 }).catch(e => ({ stdout: e.message, stderr: '' }));
+                    let connectOutput = '';
+                    if (targetIp && targetIp.trim()) {
+                        const cleanIp = targetIp.trim().split(':')[0];
+                        const connectRes = await execAsync(`adb connect ${cleanIp}:5555`, { timeout: 5000 }).catch(e => ({ stdout: e.message, stderr: '' }));
+                        connectOutput = connectRes.stdout.trim();
+                    }
+                    const isSuccess = tcpipRes.stdout.toLowerCase().includes('restarting in tcp mode');
+                    return NextResponse.json({
+                        success: isSuccess,
+                        devicesOutput: localDevRes.stdout.trim(),
+                        tcpipOutput: tcpipRes.stdout.trim(),
+                        connectOutput: connectOutput || null,
+                        message: isSuccess
+                            ? 'TCP/IP mode activated on port 5555! You can now unplug the USB cable.'
+                            : (tcpipRes.stdout.trim() || 'USB device detected in ADB')
+                    });
                 }
-                const isSuccess = tcpipRes.stdout.toLowerCase().includes('restarting in tcp mode');
+
+                // 2. If container doesn't have host USB mapped, execute privileged runner via Docker socket
+                if (fs.existsSync('/var/run/docker.sock')) {
+                    const usbRunnerResult = await runPrivilegedUsbAdb(targetIp);
+                    return NextResponse.json(usbRunnerResult);
+                }
+
                 return NextResponse.json({
-                    success: isSuccess,
-                    devicesOutput: devRes.stdout.trim(),
-                    tcpipOutput: tcpipRes.stdout.trim(),
-                    connectOutput: connectOutput || null,
-                    message: isSuccess
-                        ? 'TCP/IP mode activated on port 5555! You can now unplug the USB cable.'
-                        : (tcpipRes.stdout.trim() || 'No USB device detected in ADB')
+                    success: false,
+                    devicesOutput: localDevRes.stdout.trim(),
+                    tcpipOutput: 'No USB devices found',
+                    message: 'No USB device detected. Please connect your Pixel to the server via USB and ensure USB Debugging is ON.'
                 });
             } catch (err: any) {
                 return NextResponse.json({ error: `Failed to activate TCP/IP: ${err.message}` }, { status: 500 });

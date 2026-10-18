@@ -184,17 +184,10 @@ export function PixelSetupGuideModal({
 
                             <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 flex items-start gap-3.5">
                                 <span className="w-7 h-7 rounded-full bg-indigo-500/20 text-indigo-400 font-black text-xs flex items-center justify-center shrink-0 border border-indigo-500/40">3</span>
-                                <div className="space-y-1">
-                                    <span className="font-bold text-white block">Approve on-screen trust prompt</span>
-                                    <span className="text-zinc-400 text-xs block">Check phone screen for <em>"Always allow from this computer"</em> and tap <strong>Allow</strong>.</span>
-                                </div>
-                            </div>
-
-                            <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 flex items-start gap-3.5">
-                                <span className="w-7 h-7 rounded-full bg-indigo-500/20 text-indigo-400 font-black text-xs flex items-center justify-center shrink-0 border border-indigo-500/40">4</span>
-                                <div className="space-y-2.5 flex-1 min-w-0">
-                                    <span className="font-bold text-white block">Activate Wireless TCP/IP mode</span>
-                                    <div className="flex items-center gap-2.5">
+                                <div className="space-y-2 flex-1 min-w-0">
+                                    <span className="font-bold text-white block">Trigger Server USB Probe</span>
+                                    <span className="text-zinc-400 text-xs block">Click the Zap button to trigger a privileged USB probe from the server. This sends the ADB handshake to wake up the prompt on your phone screen.</span>
+                                    <div className="flex items-center gap-2.5 pt-1">
                                         <input
                                             type="text"
                                             value={ipInput}
@@ -207,12 +200,20 @@ export function PixelSetupGuideModal({
                                             type="button"
                                             onClick={handleRunTcpip}
                                             disabled={isExecuting}
-                                            title="Activate TCP/IP mode on server"
+                                            title="Trigger Server USB Probe / Activate TCP/IP"
                                             className="p-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 transition-all cursor-pointer shrink-0 disabled:opacity-50"
                                         >
                                             <Zap size={20} className={isExecuting ? 'animate-spin' : ''} />
                                         </button>
                                     </div>
+                                </div>
+                            </div>
+
+                            <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 flex items-start gap-3.5">
+                                <span className="w-7 h-7 rounded-full bg-indigo-500/20 text-indigo-400 font-black text-xs flex items-center justify-center shrink-0 border border-indigo-500/40">4</span>
+                                <div className="space-y-1">
+                                    <span className="font-bold text-white block">Check phone screen</span>
+                                    <span className="text-zinc-400 text-xs block">Check <em>"Always allow from this computer"</em> and tap <strong>Allow</strong>. Then click the Zap button once more to switch to TCP mode!</span>
                                 </div>
                             </div>
 
