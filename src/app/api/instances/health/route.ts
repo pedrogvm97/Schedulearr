@@ -48,11 +48,20 @@ export async function GET(req: Request) {
                 if (res.status === 200) isOnline = true;
             } else if (instance.type === 'immich') {
                 const cleanUrl = instance.url.replace(/\/$/, '');
-                const res = await axios.get(`${cleanUrl}/api/server-info/version`, {
-                    headers: { 'x-api-key': instance.api_key, 'Accept': 'application/json' },
-                    timeout: 5000
-                });
-                if (res.status === 200) isOnline = true;
+                const headers = instance.api_key
+                    ? { 'x-api-key': instance.api_key, 'Accept': 'application/json' }
+                    : { 'Accept': 'application/json' };
+                let res;
+                try {
+                    res = await axios.get(`${cleanUrl}/api/server/version`, { headers, timeout: 5000 });
+                } catch {
+                    try {
+                        res = await axios.get(`${cleanUrl}/api/server/ping`, { headers, timeout: 5000 });
+                    } catch {
+                        res = await axios.get(`${cleanUrl}/api/server-info/ping`, { headers, timeout: 5000 });
+                    }
+                }
+                if (res && (res.status === 200 || res.status === 304)) isOnline = true;
             }
         } catch (e: any) {
             // Expected if offline, wrong port, wrong API key, etc.

@@ -136,12 +136,136 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
 /**
  * Sweeps and deletes orphaned / dangling Docker images (<none>:<none>) and unreferenced older image builds.
  */
-export async function cleanupOrphanImages(docker?: any): Promise<{ deletedCount: number; spaceReclaimed: number }> {
+export interface VDiskStats {
+  available: boolean;
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+  usedPercent: number;
+  layersSizeBytes: number;
+  images: {
+    totalCount: number;
+    activeCount: number;
+    unusedCount: number;
+    totalBytes: number;
+    reclaimableBytes: number;
+  };
+  buildCache: {
+    count: number;
+    reclaimableBytes: number;
+  };
+  containers: {
+    totalCount: number;
+    runningCount: number;
+    stoppedCount: number;
+  };
+  volumes: {
+    count: number;
+    totalBytes: number;
+  };
+}
+
+/**
+ * Returns accurate VDisk filesystem metrics and Docker storage breakdown (/system/df).
+ */
+export async function getVDiskStats(): Promise<VDiskStats> {
+  let totalBytes = 0;
+  let freeBytes = 0;
+  let usedBytes = 0;
+  let usedPercent = 0;
+
+  try {
+    if (typeof (fs as any).statfsSync === 'function') {
+      const stats = (fs as any).statfsSync('/');
+      totalBytes = (stats.blocks || 0) * (stats.bsize || 0);
+      freeBytes = (stats.bfree || 0) * (stats.bsize || 0);
+      usedBytes = Math.max(0, totalBytes - freeBytes);
+      usedPercent = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0;
+    }
+  } catch (e) {}
+
+  let available = false;
+  let layersSizeBytes = 0;
+  const images = { totalCount: 0, activeCount: 0, unusedCount: 0, totalBytes: 0, reclaimableBytes: 0 };
+  const buildCache = { count: 0, reclaimableBytes: 0 };
+  const containers = { totalCount: 0, runningCount: 0, stoppedCount: 0 };
+  const volumes = { count: 0, totalBytes: 0 };
+
+  try {
+    if (fs.existsSync('/var/run/docker.sock')) {
+      const client = getDockerClient();
+      const dfRes = await client.get('/system/df');
+      if (dfRes.data) {
+        available = true;
+        const data = dfRes.data;
+        layersSizeBytes = data.LayersSize || 0;
+
+        const rawImgs: any[] = data.Images || [];
+        images.totalCount = rawImgs.length;
+        for (const img of rawImgs) {
+          const sz = img.Size || 0;
+          images.totalBytes += sz;
+          const containerCount = img.Containers ?? 0;
+          if (containerCount > 0) {
+            images.activeCount++;
+          } else {
+            images.unusedCount++;
+            images.reclaimableBytes += sz;
+          }
+        }
+
+        const rawBc: any[] = data.BuildCache || [];
+        buildCache.count = rawBc.length;
+        for (const bc of rawBc) {
+          if (!bc.InUse) {
+            buildCache.reclaimableBytes += bc.Size || 0;
+          }
+        }
+
+        const rawConts: any[] = data.Containers || [];
+        containers.totalCount = rawConts.length;
+        for (const c of rawConts) {
+          if (c.State === 'running') containers.runningCount++;
+          else containers.stoppedCount++;
+        }
+
+        const rawVols: any[] = data.Volumes || [];
+        volumes.count = rawVols.length;
+        for (const v of rawVols) {
+          volumes.totalBytes += v.UsageData?.Size || 0;
+        }
+      }
+    }
+  } catch (e) {
+    // Docker socket not available
+  }
+
+  return {
+    available,
+    totalBytes,
+    usedBytes,
+    freeBytes,
+    usedPercent,
+    layersSizeBytes,
+    images,
+    buildCache,
+    containers,
+    volumes
+  };
+}
+
+/**
+ * Sweeps and deletes orphaned / dangling Docker images, stale Schedulearr versions, and unreferenced build cache.
+ */
+export async function cleanupOrphanImages(
+  docker?: any,
+  options?: { pruneAllUnused?: boolean; pruneBuildCache?: boolean }
+): Promise<{ deletedCount: number; spaceReclaimed: number }> {
   let deletedCount = 0;
   let spaceReclaimed = 0;
   try {
     const client = docker || getDockerClient();
-    
+
     // 1. Docker API Prune Dangling Images
     try {
       const pruneRes = await client.post('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D');
@@ -153,12 +277,12 @@ export async function cleanupOrphanImages(docker?: any): Promise<{ deletedCount:
       console.warn('[Docker Cleanup] Prune dangling images request failed:', e.message);
     }
 
-    // 2. Identify and delete untagged (<none>:<none>) or stale schedulearr images
+    // 2. Identify and delete untagged (<none>:<none>), stale schedulearr versions, and unused images
     try {
       const imgRes = await client.get('/images/json?all=true');
-      const images = imgRes.data || [];
-      
-      // Determine image currently used by running containers so we NEVER delete active ones
+      const allImages = imgRes.data || [];
+
+      // Determine images currently used by running containers so we NEVER delete active ones
       const contRes = await client.get('/containers/json?all=false');
       const runningContainers = contRes.data || [];
       const activeImageIds = new Set<string>();
@@ -167,31 +291,89 @@ export async function cleanupOrphanImages(docker?: any): Promise<{ deletedCount:
         if (c.Image) activeImageIds.add(c.Image);
       }
 
-      for (const img of images) {
+      for (const img of allImages) {
         const id = img.Id || '';
         if (activeImageIds.has(id)) continue;
 
         const repoTags: string[] = img.RepoTags || [];
         const isUntagged = repoTags.length === 0 || repoTags.every((t: string) => t.includes('<none>'));
+        // Old superseded schedulearr releases that fill up the vdisk
+        const isStaleSchedulearr = repoTags.some(
+          (t: string) => t.toLowerCase().includes('schedulearr') && !t.endsWith(':latest')
+        );
+        const isUnused = options?.pruneAllUnused && (img.Containers === 0 || img.Containers === undefined);
 
-        if (isUntagged) {
+        if (isUntagged || isStaleSchedulearr || isUnused) {
           try {
             await client.delete(`/images/${encodeURIComponent(id)}?force=false`);
             deletedCount++;
             spaceReclaimed += img.Size || 0;
-            console.log(`[Docker Cleanup] Removed orphaned/stale image: ${repoTags.join(', ') || id}`);
+            console.log(`[Docker Cleanup] Removed stale/unused image: ${repoTags.join(', ') || id}`);
           } catch (e) {
             // In use by another stopped container or layer dependency — safe to skip
           }
         }
       }
     } catch (e: any) {
-      console.warn('[Docker Cleanup] Stale image sweep error:', e.message);
+      console.warn('[Docker Cleanup] Image sweep error:', e.message);
+    }
+
+    // 3. Prune Build Cache if requested
+    if (options?.pruneBuildCache) {
+      try {
+        const bcRes = await client.post('/build/prune');
+        if (bcRes.data) {
+          spaceReclaimed += bcRes.data.SpaceReclaimed || 0;
+        }
+      } catch (e: any) {
+        console.warn('[Docker Cleanup] Build cache prune failed:', e.message);
+      }
     }
   } catch (e: any) {
     // Docker socket not available or permission error
   }
   return { deletedCount, spaceReclaimed };
+}
+
+/**
+ * Dedicated VDisk cleaning action handler.
+ */
+export async function cleanVDisk(
+  action: 'images' | 'build_cache' | 'dangling' | 'deep_clean'
+): Promise<{ deletedCount: number; spaceReclaimed: number; details: string }> {
+  const client = getDockerClient();
+  let deletedCount = 0;
+  let spaceReclaimed = 0;
+  let details = '';
+
+  if (action === 'dangling') {
+    const res = await cleanupOrphanImages(client, { pruneAllUnused: false, pruneBuildCache: false });
+    deletedCount = res.deletedCount;
+    spaceReclaimed = res.spaceReclaimed;
+    details = `Pruned ${deletedCount} dangling images`;
+  } else if (action === 'build_cache') {
+    try {
+      const bcRes = await client.post('/build/prune');
+      spaceReclaimed = bcRes.data?.SpaceReclaimed || 0;
+      deletedCount = (bcRes.data?.CachesDeleted || []).length;
+      details = `Pruned ${deletedCount} build cache layers`;
+    } catch (e: any) {
+      details = `Build cache prune: ${e.message}`;
+    }
+  } else if (action === 'images') {
+    const res = await cleanupOrphanImages(client, { pruneAllUnused: true, pruneBuildCache: false });
+    deletedCount = res.deletedCount;
+    spaceReclaimed = res.spaceReclaimed;
+    details = `Cleaned ${deletedCount} unused and stale images`;
+  } else if (action === 'deep_clean') {
+    const res = await cleanupOrphanImages(client, { pruneAllUnused: true, pruneBuildCache: true });
+    const contCount = await cleanupOrphanContainers(client);
+    deletedCount = res.deletedCount + contCount;
+    spaceReclaimed = res.spaceReclaimed;
+    details = `Deep clean: removed ${res.deletedCount} images, ${contCount} stale containers, and pruned build cache`;
+  }
+
+  return { deletedCount, spaceReclaimed, details };
 }
 
 export async function performStartupContainerCleanup(): Promise<void> {

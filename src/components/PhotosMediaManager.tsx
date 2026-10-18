@@ -18,7 +18,8 @@ import {
     ArrowUpRight,
     Zap,
     Check,
-    Radio
+    Radio,
+    Cpu
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -352,7 +353,10 @@ export function PhotosMediaManager() {
             {/* ── GRANULAR TOGGLES & AUTOMATION CONTROLS ── */}
             <div className="p-6 sm:p-8 bg-zinc-950/80 rounded-3xl border border-zinc-900 shadow-xl space-y-6">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-2xl font-black text-white">Automation</h3>
+                    <div className="flex items-center gap-3">
+                        <Cpu size={26} className="text-emerald-400 shrink-0" />
+                        <h3 className="text-2xl font-black text-white">Automation</h3>
+                    </div>
                     <div className="flex items-center gap-2">
                         <button
                             onClick={handleSyncBatch}

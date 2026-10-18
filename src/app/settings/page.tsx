@@ -5,7 +5,7 @@ import {
     Server, Sliders, Shield, Wrench, Heart, Sparkles, Headphones,
     Image as ImageIcon, Mic, RefreshCw, Check, ArrowUp, ArrowDown,
     Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2, Subtitles,
-    Smartphone, Zap, HardDrive, Battery, BatteryCharging, Globe
+    Smartphone, Zap, HardDrive, Battery, BatteryCharging, Globe, Cpu
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
@@ -44,7 +44,7 @@ export default function Settings() {
     const [isAuthorModalOpen, setIsAuthorModalOpen] = useState(false);
     const [activeTroubleshootModal, setActiveTroubleshootModal] = useState<'socket' | 'perms' | null>(null);
     const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'cleaners' | 'ai' | 'subtitles' | 'system'>('instances');
-    const [aiMediaCategory, setAiMediaCategory] = useState<'general' | 'audiobooks' | 'video'>('general');
+    const [aiMediaCategory, setAiMediaCategory] = useState<'general' | 'audiobooks' | 'video' | 'subtitles'>('general');
     const [voiceNarrationMode, setVoiceNarrationMode] = useState<'timbre_filter' | 'neural_tts'>('timbre_filter');
     const [selectedVoiceModel, setSelectedVoiceModel] = useState<string>('morgan_freeman');
     const [imageProvidersList, setImageProvidersList] = useState<Array<{
@@ -288,7 +288,8 @@ export default function Settings() {
             } else if (subtopicParam === 'system') {
                 setSettingsSubtopic('system');
             } else if (subtopicParam === 'subtitles' || subtopicParam === 'subtitle' || subtopicParam === 'captions') {
-                setSettingsSubtopic('subtitles');
+                setSettingsSubtopic('ai');
+                setAiMediaCategory('subtitles');
             } else if (subtopicParam === 'instances') {
                 setSettingsSubtopic('instances');
             }
@@ -305,8 +306,8 @@ export default function Settings() {
             }
 
             const mediaParam = (params.get('media') || '').toLowerCase();
-            if (mediaParam === 'audiobooks' || mediaParam === 'video' || mediaParam === 'general') {
-                setAiMediaCategory(mediaParam);
+            if (mediaParam === 'audiobooks' || mediaParam === 'video' || mediaParam === 'general' || mediaParam === 'subtitles') {
+                setAiMediaCategory(mediaParam as any);
             }
         }
     }, []);
@@ -1361,7 +1362,7 @@ export default function Settings() {
                                 : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
                         }`}
                     >
-                        <Shield size={20} className={settingsSubtopic === 'automation' ? 'text-white' : 'text-emerald-400'} />
+                        <Cpu size={20} className={settingsSubtopic === 'automation' ? 'text-white' : 'text-emerald-400'} />
                         <span>Automation</span>
                     </button>
                     <button
@@ -1387,18 +1388,6 @@ export default function Settings() {
                     >
                         <Sparkles size={20} className={settingsSubtopic === 'ai' ? 'text-black' : 'text-amber-400'} />
                         <span>AI Settings</span>
-                    </button>
-                    <button
-                        onClick={() => setSettingsSubtopic('subtitles')}
-                        title="Dedicated Subtitle Appearance: font size, weight, backdrop, color & positioning"
-                        className={`flex-1 min-w-[120px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                            settingsSubtopic === 'subtitles'
-                                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
-                        }`}
-                    >
-                        <Subtitles size={20} className={settingsSubtopic === 'subtitles' ? 'text-white' : 'text-purple-400'} />
-                        <span>Subtitles</span>
                     </button>
                     <button
                         onClick={() => setSettingsSubtopic('system')}
@@ -2162,10 +2151,23 @@ export default function Settings() {
                                         ? 'bg-amber-500 text-black shadow'
                                         : 'text-zinc-400 hover:text-white'
                                 }`}
-                                title="Subtitles, Speech Sync & Visual Scene Tagging"
+                                title="Speech Sync & Visual Scene Tagging"
                             >
                                 <Film size={14} />
                                 <span>Video</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setAiMediaCategory('subtitles')}
+                                className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                                    aiMediaCategory === 'subtitles'
+                                        ? 'bg-amber-500 text-black shadow'
+                                        : 'text-zinc-400 hover:text-white'
+                                }`}
+                                title="Subtitle Appearance & Auto-Translation Languages"
+                            >
+                                <Subtitles size={14} />
+                                <span>Subtitles</span>
                             </button>
                         </div>
                     </div>
@@ -2173,6 +2175,11 @@ export default function Settings() {
                     {/* VIDEO SPECIFIC VIEW */}
                     {aiMediaCategory === 'video' && (
                         <VideoAiToolsPanel />
+                    )}
+
+                    {/* SUBTITLES SPECIFIC VIEW */}
+                    {aiMediaCategory === 'subtitles' && (
+                        <SubtitleSettingsPanel />
                     )}
 
                     {/* GENERAL OR AUDIOBOOKS: 1. AI ENGINE & API KEYS */}
@@ -3129,12 +3136,6 @@ export default function Settings() {
                 </div>
             )}
 
-            {/* ═══════════════════════════════════════════════════════════════════
-               SUBTOPIC: SUBTITLE & KARAOKE APPEARANCE
-               ═══════════════════════════════════════════════════════════════════ */}
-            {settingsSubtopic === 'subtitles' && (
-                <SubtitleSettingsPanel />
-            )}
 
             {/* ═══════════════════════════════════════════════════════════════════
                SUBTOPIC 4: SYSTEM & DIAGNOSTICS

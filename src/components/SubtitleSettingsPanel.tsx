@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Subtitles, Sparkles, Check, RotateCcw, Eye, Film, BookOpen } from 'lucide-react';
+import { Subtitles, Sparkles, Check, RotateCcw, Eye, Film, BookOpen, Languages, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 
 export interface SubtitleAppearanceConfig {
@@ -19,6 +19,20 @@ export const DEFAULT_SUBTITLE_APPEARANCE: SubtitleAppearanceConfig = {
     highlightColor: 'amber',
     position: 'bottom'
 };
+
+const DEFAULT_SUPPORTED_LANGUAGES = [
+    { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+    { code: 'en', name: 'English', flag: '🇬🇧' },
+    { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+    { code: 'fr', name: 'French', flag: '🇫🇷' },
+    { code: 'de', name: 'German', flag: '🇩🇪' },
+    { code: 'it', name: 'Italian', flag: '🇮🇹' },
+    { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
+    { code: 'pl', name: 'Polish', flag: '🇵🇱' },
+    { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+    { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+    { code: 'zh', name: 'Chinese', flag: '🇨🇳' }
+];
 
 export function applySubtitleCssVariables(config: SubtitleAppearanceConfig) {
     if (typeof window === 'undefined') return;
@@ -69,6 +83,9 @@ export function getStoredSubtitleAppearance(): SubtitleAppearanceConfig {
 export function SubtitleSettingsPanel() {
     const [config, setConfig] = useState<SubtitleAppearanceConfig>(DEFAULT_SUBTITLE_APPEARANCE);
     const [saving, setSaving] = useState(false);
+    const [targetLanguages, setTargetLanguages] = useState<string[]>(['en', 'pt']);
+    const [supportedLanguages, setSupportedLanguages] = useState<Array<{ code: string; name: string; flag: string }>>(DEFAULT_SUPPORTED_LANGUAGES);
+    const [updatingLang, setUpdatingLang] = useState<string | null>(null);
 
     useEffect(() => {
         // Load initial config from localStorage or API
@@ -90,7 +107,53 @@ export function SubtitleSettingsPanel() {
                 }
             })
             .catch(() => {});
+
+        // Fetch configured auto-translation languages
+        fetch('/api/ai/video')
+            .then(r => r.ok ? r.json() : {})
+            .then((data: any) => {
+                if (data?.targetLanguages && Array.isArray(data.targetLanguages)) {
+                    setTargetLanguages(data.targetLanguages);
+                }
+                if (data?.supportedLanguages && Array.isArray(data.supportedLanguages)) {
+                    setSupportedLanguages(data.supportedLanguages);
+                }
+            })
+            .catch(() => {});
     }, []);
+
+    const handleToggleLanguage = async (code: string) => {
+        const clean = code.toLowerCase().trim();
+        let next: string[];
+        if (targetLanguages.includes(clean)) {
+            if (targetLanguages.length <= 1) {
+                toast.warning('At least one target language must remain active');
+                return;
+            }
+            next = targetLanguages.filter(l => l !== clean);
+        } else {
+            next = [...targetLanguages, clean];
+        }
+
+        setTargetLanguages(next);
+        setUpdatingLang(clean);
+        try {
+            const res = await fetch('/api/ai/video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'set_target_languages', languages: next })
+            });
+            if (res.ok) {
+                toast.success('Auto-translation target languages updated');
+            } else {
+                toast.error('Failed to update language');
+            }
+        } catch {
+            toast.error('Network error saving languages');
+        } finally {
+            setUpdatingLang(null);
+        }
+    };
 
     const updateConfig = async (patch: Partial<SubtitleAppearanceConfig>) => {
         const next = { ...config, ...patch };
@@ -227,6 +290,42 @@ export function SubtitleSettingsPanel() {
                 </div>
             </div>
 
+            {/* Auto-Translation Target Languages Picker */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                    <span className="text-sm font-black uppercase text-purple-400 tracking-wider flex items-center gap-2">
+                        <Languages size={20} /> Languages
+                    </span>
+                    <span className="text-xs font-mono font-bold text-zinc-400">{targetLanguages.length} Active</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {supportedLanguages.map(lang => {
+                        const active = targetLanguages.includes(lang.code.toLowerCase());
+                        const isUpdating = updatingLang === lang.code.toLowerCase();
+                        return (
+                            <button
+                                key={lang.code}
+                                onClick={() => handleToggleLanguage(lang.code)}
+                                disabled={isUpdating}
+                                title={`Toggle Auto-Translation into ${lang.name} (${lang.code.toUpperCase()})`}
+                                className={`p-4 rounded-xl text-center transition-all flex flex-col items-center justify-center gap-2 cursor-pointer border ${
+                                    active
+                                        ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30 ring-1 ring-purple-400/50'
+                                        : 'bg-zinc-950 text-zinc-400 hover:text-white border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/40'
+                                } ${isUpdating ? 'opacity-50 animate-pulse' : ''}`}
+                            >
+                                <span className="text-3xl select-none">{lang.flag}</span>
+                                <div className="flex items-center gap-1.5 font-bold text-sm">
+                                    {active && <Check size={16} className="text-white shrink-0" />}
+                                    <span>{lang.name}</span>
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
             {/* Controls Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* 1. Font Size Selector */}
@@ -249,7 +348,7 @@ export function SubtitleSettingsPanel() {
                                     }`}
                                 >
                                     <span>{opt.label}</span>
-                                    <span className="text-[10px] font-mono opacity-60">{opt.sample}</span>
+                                    <span className="text-xs font-mono opacity-70">{opt.sample}</span>
                                 </button>
                             );
                         })}

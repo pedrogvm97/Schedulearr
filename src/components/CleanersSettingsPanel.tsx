@@ -9,7 +9,7 @@ import {
 import { toast } from 'sonner';
 import { twColorToHex } from '@/lib/instanceColor';
 
-export type CleanerSubtab = 'torrents' | 'media' | 'audiobooks' | 'database';
+export type CleanerSubtab = 'torrents' | 'media' | 'audiobooks' | 'database' | 'vdisk';
 
 export interface CleanersSettingsPanelProps {
     diskInfo: any;
@@ -122,10 +122,99 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     // Media Auto-Clean Master Toggle
     const [mediaAutoCleanEnabled, setMediaAutoCleanEnabled] = useState(true);
 
+    // VDisk / Docker Storage Watchdog State
+    const [vdiskStats, setVDiskStats] = useState<{
+        totalBytes: number;
+        usedBytes: number;
+        freeBytes: number;
+        usedPercent: number;
+        imagesCount: number;
+        imagesSizeBytes: number;
+        imagesReclaimableBytes: number;
+        containersCount: number;
+        buildCacheSizeBytes: number;
+        buildCacheReclaimableBytes: number;
+        volumesSizeBytes: number;
+        volumesReclaimableBytes: number;
+        isVDisk: boolean;
+        autoPruneEnabled: boolean;
+        autoPruneThreshold: number;
+    } | null>(null);
+    const [loadingVDisk, setLoadingVDisk] = useState(false);
+    const [cleaningVDisk, setCleaningVDisk] = useState<string | null>(null);
+    const [vdiskAutoPruneEnabled, setVDiskAutoPruneEnabled] = useState(true);
+    const [vdiskAutoPruneThreshold, setVDiskAutoPruneThreshold] = useState(85);
+
     const safeCandidates = Array.isArray(candidates) ? candidates : [];
     const safeLibraryLimits = Array.isArray(libraryLimits) ? libraryLimits : [];
     const safeInstances = Array.isArray(instances) ? instances : [];
     const safeInstanceSegments = Array.isArray(instanceSegments) ? instanceSegments : [];
+
+    const displayBytes = (bytes?: number) => {
+        if (typeof bytes !== 'number' || isNaN(bytes)) return '0 B';
+        if (typeof formatBytes === 'function') return formatBytes(bytes);
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const dm = 1;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    };
+
+    const fetchVDiskInfo = async () => {
+        setLoadingVDisk(true);
+        try {
+            const res = await fetch('/api/system/vdisk');
+            if (res.ok) {
+                const data = await res.json();
+                setVDiskStats(data);
+                if (data.autoPruneEnabled !== undefined) setVDiskAutoPruneEnabled(data.autoPruneEnabled);
+                if (data.autoPruneThreshold !== undefined) setVDiskAutoPruneThreshold(data.autoPruneThreshold);
+            }
+        } catch {
+            toast.error('Failed to load VDisk information');
+        } finally {
+            setLoadingVDisk(false);
+        }
+    };
+
+    const handleCleanVDisk = async (target: 'images' | 'build_cache' | 'dangling' | 'deep_clean') => {
+        setCleaningVDisk(target);
+        try {
+            const res = await fetch('/api/system/vdisk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: target })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                toast.success(data.message || 'VDisk cleanup completed');
+                await fetchVDiskInfo();
+                refreshDiskInfo();
+            } else {
+                toast.error(data.error || 'Failed to clean VDisk');
+            }
+        } catch {
+            toast.error('Network error executing VDisk clean');
+        } finally {
+            setCleaningVDisk(null);
+        }
+    };
+
+    const handleSaveVDiskSettings = async (enabled: boolean, threshold: number) => {
+        setVDiskAutoPruneEnabled(enabled);
+        setVDiskAutoPruneThreshold(threshold);
+        try {
+            await fetch('/api/system/vdisk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'save_settings', autoPruneEnabled: enabled, autoPruneThreshold: threshold })
+            });
+            toast.success('VDisk auto-clean settings saved');
+        } catch {
+            toast.error('Failed to save settings');
+        }
+    };
 
     // Parse URL subTab on mount
     useEffect(() => {
@@ -140,9 +229,18 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                 setCleanerSubtab('audiobooks');
             } else if (sub === 'database' || sub === 'db') {
                 setCleanerSubtab('database');
+            } else if (sub === 'vdisk' || sub === 'docker' || sub === 'images') {
+                setCleanerSubtab('vdisk');
+                fetchVDiskInfo();
             }
         }
     }, []);
+
+    useEffect(() => {
+        if (cleanerSubtab === 'vdisk' && !vdiskStats) {
+            fetchVDiskInfo();
+        }
+    }, [cleanerSubtab]);
 
     useEffect(() => {
         fetch('/api/system/settings')
@@ -290,7 +388,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     return (
         <div className="space-y-6 animate-in fade-in duration-200">
             {/* ── Subtabs Navigation Grid (Zero Scrollbars Ever, Squared) ── */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 pb-4 border-b border-zinc-800">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 pb-4 border-b border-zinc-800">
                 <button
                     type="button"
                     onClick={() => setCleanerSubtab('torrents')}
@@ -350,6 +448,23 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                 >
                     <Database size={20} className="shrink-0" />
                     <span className="truncate">Database</span>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => {
+                        setCleanerSubtab('vdisk');
+                        fetchVDiskInfo();
+                    }}
+                    title="VDisk: Docker rootfs & container vdisk usage, dangling images, build cache, and deep image prune"
+                    className={`p-3.5 rounded-xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                        cleanerSubtab === 'vdisk'
+                            ? 'bg-sky-500 text-black shadow-lg shadow-sky-500/20'
+                            : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
+                    }`}
+                >
+                    <HardDrive size={20} className="shrink-0" />
+                    <span className="truncate">VDisk</span>
                 </button>
             </div>
 
@@ -1435,6 +1550,241 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                         <span className="text-xs font-black text-white font-mono">{table.count.toLocaleString()}</span>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════════════
+                SUBTAB 5: VDISK & DOCKER IMAGES CLEANER
+               ═══════════════════════════════════════════════════════════════════ */}
+            {cleanerSubtab === 'vdisk' && (
+                <div className="space-y-6">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-7 shadow-2xl">
+                        {/* Header Row */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 pb-5 border-b border-zinc-800">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3.5 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-md">
+                                    <HardDrive size={28} />
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-2xl font-black text-white tracking-tight">VDisk Cleaner</h2>
+                                    {vdiskStats && (
+                                        <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wider ${
+                                            vdiskStats.usedPercent >= vdiskAutoPruneThreshold
+                                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                                                : vdiskStats.usedPercent >= 75
+                                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                        }`}>
+                                            {vdiskStats.usedPercent}% Used
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={fetchVDiskInfo}
+                                    disabled={loadingVDisk}
+                                    title="Refresh VDisk and Docker Storage Usage"
+                                    className="p-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold transition-colors cursor-pointer"
+                                >
+                                    <RefreshCw size={18} className={loadingVDisk ? 'animate-spin' : ''} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleCleanVDisk('deep_clean')}
+                                    disabled={!!cleaningVDisk}
+                                    title="Deep Clean: Prune all obsolete Schedulearr versions, dangling image layers & build cache"
+                                    className="px-5 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+                                >
+                                    {cleaningVDisk === 'deep_clean' ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                                    <span>Deep Clean</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* VDisk Capacity Bar */}
+                        <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-5 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <HardDrive size={18} className="text-sky-400" />
+                                    <span className="text-sm font-black text-white">Docker VDisk Storage</span>
+                                </div>
+                                {vdiskStats && (
+                                    <div className="flex items-center gap-3 text-xs font-mono font-bold">
+                                        <span className="text-zinc-400">Used: <strong className="text-white">{displayBytes(vdiskStats.usedBytes)}</strong></span>
+                                        <span className="text-zinc-600">/</span>
+                                        <span className="text-zinc-400">Total: <strong className="text-white">{displayBytes(vdiskStats.totalBytes)}</strong></span>
+                                        <span className="text-zinc-600">/</span>
+                                        <span className="text-emerald-400">Free: <strong>{displayBytes(vdiskStats.freeBytes)}</strong></span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Gauge bar with threshold marker */}
+                            <div className="relative w-full h-4 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                <div
+                                    className={`h-full transition-all duration-500 rounded-full ${
+                                        (vdiskStats?.usedPercent || 0) >= vdiskAutoPruneThreshold
+                                            ? 'bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.6)]'
+                                            : (vdiskStats?.usedPercent || 0) >= 75
+                                                ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.5)]'
+                                                : 'bg-sky-500 shadow-[0_0_12px_rgba(14,165,233,0.5)]'
+                                    }`}
+                                    style={{ width: `${Math.min(100, Math.max(0, vdiskStats?.usedPercent || 0))}%` }}
+                                />
+                                <div
+                                    className="absolute top-0 bottom-0 w-0.5 bg-rose-400 z-10 pointer-events-none"
+                                    style={{ left: `${vdiskAutoPruneThreshold}%` }}
+                                    title={`Auto-Prune Threshold: ${vdiskAutoPruneThreshold}%`}
+                                />
+                            </div>
+
+                            <div className="flex items-center justify-between text-xs text-zinc-500 font-mono">
+                                <span>0%</span>
+                                <span className="text-rose-400 font-bold">Threshold: {vdiskAutoPruneThreshold}%</span>
+                                <span>100%</span>
+                            </div>
+                        </div>
+
+                        {/* Storage Breakdown Cards Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Card 1: Images */}
+                            <div className="p-5 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 flex flex-col justify-between gap-4">
+                                <div>
+                                    <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
+                                        <span className="text-sm font-black text-white flex items-center gap-2">
+                                            <Layers size={18} className="text-sky-400" /> Images
+                                        </span>
+                                        <span className="text-xs font-mono font-bold text-zinc-400">
+                                            {vdiskStats?.imagesCount ?? 0} total
+                                        </span>
+                                    </div>
+                                    <div className="mt-3 space-y-1">
+                                        <div className="text-2xl font-black text-white font-mono">
+                                            {displayBytes(vdiskStats?.imagesSizeBytes)}
+                                        </div>
+                                        <div className="text-xs font-bold text-rose-400">
+                                            {displayBytes(vdiskStats?.imagesReclaimableBytes)} reclaimable
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleCleanVDisk('images')}
+                                    disabled={!!cleaningVDisk}
+                                    title="Prune older Schedulearr image tags and unreferenced layers"
+                                    className="w-full py-2.5 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                                >
+                                    {cleaningVDisk === 'images' ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                    <span>Prune Images</span>
+                                </button>
+                            </div>
+
+                            {/* Card 2: Build Cache */}
+                            <div className="p-5 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 flex flex-col justify-between gap-4">
+                                <div>
+                                    <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
+                                        <span className="text-sm font-black text-white flex items-center gap-2">
+                                            <Sparkles size={18} className="text-amber-400" /> Build Cache
+                                        </span>
+                                    </div>
+                                    <div className="mt-3 space-y-1">
+                                        <div className="text-2xl font-black text-white font-mono">
+                                            {displayBytes(vdiskStats?.buildCacheSizeBytes)}
+                                        </div>
+                                        <div className="text-xs font-bold text-rose-400">
+                                            {displayBytes(vdiskStats?.buildCacheReclaimableBytes)} reclaimable
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleCleanVDisk('build_cache')}
+                                    disabled={!!cleaningVDisk}
+                                    title="Clear Docker build cache"
+                                    className="w-full py-2.5 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                                >
+                                    {cleaningVDisk === 'build_cache' ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                    <span>Clear Cache</span>
+                                </button>
+                            </div>
+
+                            {/* Card 3: Dangling Layers */}
+                            <div className="p-5 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 flex flex-col justify-between gap-4">
+                                <div>
+                                    <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
+                                        <span className="text-sm font-black text-white flex items-center gap-2">
+                                            <Layers size={18} className="text-purple-400" /> Dangling Layers
+                                        </span>
+                                    </div>
+                                    <div className="mt-3 space-y-1">
+                                        <div className="text-2xl font-black text-white font-mono">
+                                            {displayBytes(vdiskStats?.volumesReclaimableBytes)}
+                                        </div>
+                                        <div className="text-xs font-bold text-zinc-400">
+                                            Untagged intermediates
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleCleanVDisk('dangling')}
+                                    disabled={!!cleaningVDisk}
+                                    title="Prune untagged dangling layers and orphan volumes"
+                                    className="w-full py-2.5 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                                >
+                                    {cleaningVDisk === 'dangling' ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                    <span>Prune Dangling</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Automation & Safety Card */}
+                        <div className="p-5 sm:p-6 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                                <div>
+                                    <span className="text-base font-black text-white block">Auto-Prune Watchdog</span>
+                                    <span className="text-xs text-zinc-400">Automatically prune unused layers when VDisk exceeds limit</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSaveVDiskSettings(!vdiskAutoPruneEnabled, vdiskAutoPruneThreshold)}
+                                    className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all border cursor-pointer ${
+                                        vdiskAutoPruneEnabled
+                                            ? 'bg-sky-500 hover:bg-sky-400 text-black border-sky-400 shadow-lg shadow-sky-500/20'
+                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                                    }`}
+                                    title={vdiskAutoPruneEnabled ? 'Disable Auto-Prune Watchdog' : 'Enable Auto-Prune Watchdog'}
+                                >
+                                    {vdiskAutoPruneEnabled ? 'Active' : 'Disabled'}
+                                </button>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div>
+                                    <span className="text-sm font-bold text-white block">Auto-Prune Trigger Threshold</span>
+                                    <span className="text-xs text-zinc-400">Trigger automatic cleanup when VDisk usage exceeds percentage</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="number"
+                                        min={50}
+                                        max={98}
+                                        value={vdiskAutoPruneThreshold}
+                                        onChange={e => {
+                                            const val = Math.max(50, Math.min(98, parseInt(e.target.value) || 85));
+                                            handleSaveVDiskSettings(vdiskAutoPruneEnabled, val);
+                                        }}
+                                        className="w-20 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-base font-black text-sky-400 text-center outline-none"
+                                        title="VDisk percent threshold before auto-clean triggers"
+                                    />
+                                    <span className="text-xs font-bold text-zinc-400">%</span>
+                                </div>
                             </div>
                         </div>
                     </div>
