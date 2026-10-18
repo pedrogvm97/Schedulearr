@@ -359,6 +359,33 @@ export async function POST(req: Request) {
             }
         }
 
+        // Action: Run 'adb tcpip 5555' for USB-connected device (e.g. Pixel 1)
+        if (action === 'usb_tcpip') {
+            const { targetIp } = body;
+            try {
+                const devRes = await execAsync('adb devices -l', { timeout: 4000 }).catch(e => ({ stdout: e.message, stderr: '' }));
+                const tcpipRes = await execAsync('adb tcpip 5555', { timeout: 8000 }).catch(e => ({ stdout: e.message, stderr: '' }));
+                let connectOutput = '';
+                if (targetIp && targetIp.trim()) {
+                    const cleanIp = targetIp.trim().split(':')[0];
+                    const connectRes = await execAsync(`adb connect ${cleanIp}:5555`, { timeout: 5000 }).catch(e => ({ stdout: e.message, stderr: '' }));
+                    connectOutput = connectRes.stdout.trim();
+                }
+                const isSuccess = tcpipRes.stdout.toLowerCase().includes('restarting in tcp mode');
+                return NextResponse.json({
+                    success: isSuccess,
+                    devicesOutput: devRes.stdout.trim(),
+                    tcpipOutput: tcpipRes.stdout.trim(),
+                    connectOutput: connectOutput || null,
+                    message: isSuccess
+                        ? 'TCP/IP mode activated on port 5555! You can now unplug the USB cable.'
+                        : (tcpipRes.stdout.trim() || 'No USB device detected in ADB')
+                });
+            } catch (err: any) {
+                return NextResponse.json({ error: `Failed to activate TCP/IP: ${err.message}` }, { status: 500 });
+            }
+        }
+
         // Action 3: Scan network for Pixels (ADB connected list, wireless debugging ports & local ARP)
         const discovered: DiscoveredPixel[] = [];
 

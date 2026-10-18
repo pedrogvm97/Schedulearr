@@ -6,7 +6,7 @@ import {
     Image as ImageIcon, Mic, RefreshCw, Check, ArrowUp, ArrowDown,
     Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2, Subtitles,
     Smartphone, Zap, HardDrive, Battery, BatteryCharging, Globe, Cpu,
-    Cloud, Package, CheckCircle2, RotateCcw
+    Cloud, Package, CheckCircle2, RotateCcw, HelpCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
@@ -19,6 +19,7 @@ import { AudiobookVoiceSelector } from "@/components/AudiobookVoiceSelector";
 import { SchedulerQueuePanel } from "@/components/SchedulerQueuePanel";
 import { StreamGuardSettingsPanel } from "@/components/StreamGuardSettingsPanel";
 import { SubtitleSettingsPanel } from "@/components/SubtitleSettingsPanel";
+import { PixelSetupGuideModal } from "@/components/PixelSetupGuideModal";
 import { twColorToHex } from "@/lib/instanceColor";
 
 export default function Settings() {
@@ -154,6 +155,7 @@ export default function Settings() {
     // Pixel Bridge (Unlimited Uploads) state
     const [scanningPixels, setScanningPixels] = useState(false);
     const [targetPixelIp, setTargetPixelIp] = useState('');
+    const [isPixelSetupGuideOpen, setIsPixelSetupGuideOpen] = useState(false);
     const [discoveredPixels, setDiscoveredPixels] = useState<any[]>([]);
     const [pairedPixelNode, setPairedPixelNode] = useState<any>(null);
     const [pixelToggles, setPixelToggles] = useState({
@@ -1701,6 +1703,14 @@ export default function Settings() {
                                     className="bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 w-52 font-mono"
                                     title="Pixel IP"
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPixelSetupGuideOpen(true)}
+                                    title="Setup Guide"
+                                    className="p-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-xl transition-all shadow-lg flex items-center justify-center cursor-pointer shrink-0"
+                                >
+                                    <HelpCircle size={20} />
+                                </button>
                                 <button
                                     type="button"
                                     onClick={handleScanPixels}
@@ -4013,6 +4023,17 @@ export default function Settings() {
                     }}
                 />
             )}
+
+            {/* Pixel ADB Setup Guide Modal */}
+            <PixelSetupGuideModal
+                isOpen={isPixelSetupGuideOpen}
+                onClose={() => setIsPixelSetupGuideOpen(false)}
+                targetIp={targetPixelIp || pairedPixelNode?.ip || '192.168.1.141'}
+                onSuccess={() => {
+                    fetchPairedPixelNode();
+                    handleScanPixels();
+                }}
+            />
         </div>
     );
 }
