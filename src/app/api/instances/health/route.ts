@@ -46,6 +46,13 @@ export async function GET(req: Request) {
                     timeout: 5000
                 });
                 if (res.status === 200) isOnline = true;
+            } else if (instance.type === 'immich') {
+                const cleanUrl = instance.url.replace(/\/$/, '');
+                const res = await axios.get(`${cleanUrl}/api/server-info/version`, {
+                    headers: { 'x-api-key': instance.api_key, 'Accept': 'application/json' },
+                    timeout: 5000
+                });
+                if (res.status === 200) isOnline = true;
             }
         } catch (e: any) {
             // Expected if offline, wrong port, wrong API key, etc.

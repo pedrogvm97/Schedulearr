@@ -34,7 +34,7 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
-RUN apk add --no-cache ffmpeg python3 py3-pip libc6-compat libstdc++ && pip3 install --no-cache-dir --break-system-packages -U yt-dlp
+RUN apk add --no-cache ffmpeg android-tools python3 py3-pip libc6-compat libstdc++ && pip3 install --no-cache-dir --break-system-packages -U yt-dlp
 COPY --from=deps /usr/local/bin/whisper-cli /usr/local/bin/whisper-cli
 
 ENV NODE_ENV=production

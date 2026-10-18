@@ -681,7 +681,7 @@ export interface Setting {
 
 export interface Instance {
     id: string;
-    type: 'radarr' | 'sonarr' | 'lidarr' | 'prowlarr' | 'qbittorrent' | 'plex';
+    type: 'radarr' | 'sonarr' | 'lidarr' | 'prowlarr' | 'qbittorrent' | 'plex' | 'immich';
     name: string;
     url: string;
     api_key: string;

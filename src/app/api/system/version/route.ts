@@ -8,6 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.42] Immich Container Integration, Network Pixel Finder for Unlimited Backup, and Android ADB Bridge Support',
+  '  - Add first-class Immich instance support with health verification against /api/server-info/version and step-by-step API key guidance',
+  '  - Introduce Network Pixel Finder scanner probing port 5555 over LAN and Tailscale to automatically discover authentic Pixel hardware',
+  '  - Automatically detect hardware model (sailfish / marlin) and classify unlimited Google Photos backup tier (Original Quality vs Storage Saver)',
+  '  - Include android-tools in Docker runner container for native ADB shell, push, and media scanner capabilities',
+  '  - Support 1-click device pairing as active Pixel Bridge node with real-time storage meter and battery telemetry',
   '• [v0.6.41] Mobile UI Responsiveness Overhaul, Player Fullscreen Mode, Custom Subtitle Appearance Settings, and Immersive Audiobook Playback',
   '  - Overhaul mobile layout responsiveness across Schedule tab, bottom navigation bar, and media cards with horizontal scroll strips and squared borders',
   '  - Eliminate microscopic text in mobile navigation; convert controls to pure large 24px symbols with descriptive tooltips and include Schedule (/), Theater, Media, Tasks, and Transfers',
@@ -111,7 +117,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.40';
+    let currentVersion = '0.6.42';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo } from "react";
 import {
     Server, Sliders, Shield, Wrench, Heart, Sparkles, Headphones,
     Image as ImageIcon, Mic, RefreshCw, Check, ArrowUp, ArrowDown,
-    Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2, Subtitles
+    Play, Pause, Trash2, Key, Film, SlidersHorizontal, Layers, Wand2, Subtitles,
+    Smartphone, Zap, HardDrive, Battery, BatteryCharging, Globe
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
@@ -147,6 +148,85 @@ export default function Settings() {
     // 1-Click Plex PIN Auth state
     const [plexPairing, setPlexPairing] = useState(false);
     const [plexPairingStatus, setPlexPairingStatus] = useState<string | null>(null);
+
+    // Pixel Bridge (Unlimited Uploads) state
+    const [scanningPixels, setScanningPixels] = useState(false);
+    const [targetPixelIp, setTargetPixelIp] = useState('');
+    const [discoveredPixels, setDiscoveredPixels] = useState<any[]>([]);
+    const [pairedPixelNode, setPairedPixelNode] = useState<any>(null);
+
+    const fetchPairedPixelNode = async () => {
+        try {
+            const res = await fetch('/api/theater/photos/pixel/scan');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.paired && data.node) {
+                    setPairedPixelNode(data.node);
+                } else {
+                    setPairedPixelNode(null);
+                }
+            }
+        } catch {}
+    };
+
+    const handleScanPixels = async () => {
+        setScanningPixels(true);
+        setDiscoveredPixels([]);
+        try {
+            const res = await fetch('/api/theater/photos/pixel/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetIp: targetPixelIp })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setDiscoveredPixels(data.discovered || []);
+                if ((data.discovered || []).length === 0) {
+                    toast.info('No Pixel devices responding on port 5555 found.');
+                } else {
+                    toast.success(`Found ${data.discovered.length} device(s)!`);
+                }
+            } else {
+                toast.error('Network scan failed');
+            }
+        } catch (e: any) {
+            toast.error(e.message || 'Scan error');
+        } finally {
+            setScanningPixels(false);
+        }
+    };
+
+    const handlePairPixelNode = async (node: any) => {
+        try {
+            const res = await fetch('/api/theater/photos/pixel/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'pair', nodeData: node })
+            });
+            if (res.ok) {
+                toast.success('Pixel Bridge Node paired successfully!');
+                fetchPairedPixelNode();
+            }
+        } catch {
+            toast.error('Failed to pair Pixel node');
+        }
+    };
+
+    const handleUnpairPixelNode = async () => {
+        try {
+            const res = await fetch('/api/theater/photos/pixel/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'unpair' })
+            });
+            if (res.ok) {
+                toast.success('Pixel Bridge Node unpaired');
+                setPairedPixelNode(null);
+            }
+        } catch {
+            toast.error('Failed to unpair Pixel node');
+        }
+    };
 
 
 
@@ -761,6 +841,7 @@ export default function Settings() {
         fetchVersionInfo();
         fetchSelfInfo();
         fetchCandidates();
+        fetchPairedPixelNode();
         // Fetch disk info on mount
         fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
         // Fetch Audiobook AI Studio & Artwork Quota config & live status
@@ -1312,7 +1393,8 @@ export default function Settings() {
                                 { id: 'lidarr', name: 'Lidarr (Music)' },
                                 { id: 'prowlarr', name: 'Prowlarr' },
                                 { id: 'qbittorrent', name: 'qBittorrent' },
-                                { id: 'plex', name: 'Plex' }
+                                { id: 'plex', name: 'Plex' },
+                                { id: 'immich', name: 'Immich (Photos)' }
                             ]}
                         />
                     </div>
@@ -1321,7 +1403,7 @@ export default function Settings() {
                         <label className="text-sm font-medium text-zinc-300">Name</label>
                         <input
                             type="text"
-                            placeholder={type === 'lidarr' ? "e.g. Lidarr Music FLAC" : type === 'radarr' ? "e.g. Radarr Movies 4K" : "e.g. Sonarr TV Series"}
+                            placeholder={type === 'immich' ? "e.g. Immich Unraid" : type === 'lidarr' ? "e.g. Lidarr Music FLAC" : type === 'radarr' ? "e.g. Radarr Movies 4K" : "e.g. Sonarr TV Series"}
                             value={name}
                             onChange={e => setName(e.target.value)}
                             className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -1332,7 +1414,7 @@ export default function Settings() {
                         <label className="text-sm font-medium text-zinc-300">URL</label>
                         <input
                             type="url"
-                            placeholder={type === 'plex' ? "http://192.168.1.125:32400" : type === 'lidarr' ? "http://192.168.1.125:8686" : type === 'sonarr' ? "http://192.168.1.125:8989" : "http://192.168.1.125:7878"}
+                            placeholder={type === 'immich' ? "http://192.168.1.125:2283" : type === 'plex' ? "http://192.168.1.125:32400" : type === 'lidarr' ? "http://192.168.1.125:8686" : type === 'sonarr' ? "http://192.168.1.125:8989" : "http://192.168.1.125:7878"}
                             value={url}
                             onChange={e => setUrl(e.target.value)}
                             className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -1342,7 +1424,7 @@ export default function Settings() {
                     <div className="space-y-1">
                         <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-zinc-300">
-                                {type === 'qbittorrent' ? 'Credentials (username:password)' : type === 'plex' ? 'X-Plex-Token' : 'API Key'}
+                                {type === 'qbittorrent' ? 'Credentials (username:password)' : type === 'plex' ? 'X-Plex-Token' : type === 'immich' ? 'Immich API Key' : 'API Key'}
                             </label>
                             {type === 'plex' && (
                                 <a
@@ -1354,6 +1436,16 @@ export default function Settings() {
                                     Plex Token Guide ↗
                                 </a>
                             )}
+                            {type === 'immich' && (
+                                <a
+                                    href="https://immich.app/docs/features/command-line-interface/#obtain-the-api-key"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] font-bold text-teal-400 hover:text-teal-300 underline"
+                                >
+                                    Immich API Guide ↗
+                                </a>
+                            )}
                         </div>
                         <input
                             type="password"
@@ -1363,6 +1455,27 @@ export default function Settings() {
                             className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                         />
                     </div>
+
+                    {type === 'immich' && (
+                        <div className="md:col-span-2 p-4 bg-teal-500/10 border border-teal-500/20 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div>
+                                <span className="text-xs font-black uppercase text-teal-400 tracking-wider block">
+                                    🔑 Obtaining Your Immich API Key
+                                </span>
+                                <p className="text-xs text-zinc-300 mt-1">
+                                    In Immich Web: Click your Profile Avatar (top-right) → Account Settings → API Keys → New API Key. Copy and paste it here.
+                                </p>
+                            </div>
+                            <a
+                                href="https://immich.app/docs/features/command-line-interface/#obtain-the-api-key"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 bg-teal-500 hover:bg-teal-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex-shrink-0 flex items-center gap-2 cursor-pointer"
+                            >
+                                Immich Docs ↗
+                            </a>
+                        </div>
+                    )}
 
                     {type === 'plex' && (
                         <div className="md:col-span-2 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -1494,6 +1607,112 @@ export default function Settings() {
                     </div>
                 )}
             </div>
+
+                    {/* Pixel Bridge (Unlimited Google Photos) Hardware Node */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0">
+                                    <Smartphone size={24} />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black text-white tracking-tight">Pixel Bridge (Unlimited Backup)</h2>
+                                    <p className="text-sm text-zinc-400 font-medium">Auto-detect Google Pixels on LAN or Tailscale with lifetime unlimited backup.</p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="Target IP / Subnet (e.g. 100.x.y.z)"
+                                    value={targetPixelIp}
+                                    onChange={e => setTargetPixelIp(e.target.value)}
+                                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2 text-xs text-white outline-none focus:ring-2 focus:ring-indigo-500 w-48 font-mono"
+                                    title="Leave empty to auto-sweep all local subnets & Tailscale, or enter a specific IP"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleScanPixels}
+                                    disabled={scanningPixels}
+                                    title="Scan local network and Tailscale for Pixel devices on port 5555"
+                                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center gap-2 cursor-pointer shrink-0"
+                                >
+                                    <RefreshCw size={16} className={scanningPixels ? 'animate-spin' : ''} />
+                                    <span>{scanningPixels ? 'Scanning...' : 'Scan'}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Current Paired Pixel Node Card */}
+                        {pairedPixelNode && (
+                            <div className="p-4 rounded-2xl bg-zinc-950 border border-indigo-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="flex items-center gap-3.5">
+                                    <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                                        <Smartphone size={22} />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-base font-black text-white">{pairedPixelNode.model || 'Google Pixel'}</span>
+                                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                {pairedPixelNode.unlimitedTier === 'original_quality' ? 'Unlimited Original Quality' : 'Unlimited Storage Saver'}
+                                            </span>
+                                            <span className={`w-2 h-2 rounded-full ${pairedPixelNode.isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                        </div>
+                                        <div className="flex items-center gap-4 text-xs text-zinc-400 font-medium mt-1">
+                                            <span>IP: <code className="text-zinc-200">{pairedPixelNode.ip}:{pairedPixelNode.port || 5555}</code></span>
+                                            {pairedPixelNode.freeStorage && <span>Storage: <strong className="text-white">{pairedPixelNode.freeStorage}</strong> free</span>}
+                                            {pairedPixelNode.batteryLevel !== undefined && (
+                                                <span className="flex items-center gap-1">
+                                                    {pairedPixelNode.isCharging ? <BatteryCharging size={14} className="text-amber-400" /> : <Battery size={14} />}
+                                                    {pairedPixelNode.batteryLevel}%
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleUnpairPixelNode}
+                                    title="Unpair this Pixel device"
+                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 transition-all cursor-pointer self-start sm:self-center"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Discovered Devices from Scan */}
+                        {discoveredPixels.length > 0 && (
+                            <div className="space-y-3 pt-2">
+                                <h3 className="text-xs font-black uppercase tracking-wider text-indigo-400">Discovered Pixel Devices</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {discoveredPixels.map((dev, idx) => (
+                                        <div key={idx} className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-white text-sm">{dev.model}</span>
+                                                    <span className="px-2 py-0.5 rounded-md text-[11px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                        {dev.unlimitedTier === 'original_quality' ? 'Unlimited Original' : 'Storage Saver'}
+                                                    </span>
+                                                </div>
+                                                <div className="text-xs text-zinc-400 font-mono mt-1">
+                                                    {dev.ip}:{dev.port} {dev.freeStorage ? `• ${dev.freeStorage} Free` : ''}
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handlePairPixelNode(dev)}
+                                                title="Pair this Pixel as the active backup bridge node"
+                                                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer shrink-0"
+                                            >
+                                                Pair
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {/* General Settings (TMDB / Plex) & Scheduler Config */}
                                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
