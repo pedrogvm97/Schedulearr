@@ -5221,7 +5221,7 @@ function TheaterPageContent() {
                         <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
                         <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Loading Theater...</span>
                     </div>
-                ) : libraries.length === 0 ? (
+                ) : libraries.length === 0 && activeContentTab !== 'photos' && activeContentTab !== 'live' ? (
                     <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
                         <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 mx-auto">
                             <FolderPlus size={38} />
@@ -5933,6 +5933,24 @@ function TheaterPageContent() {
                                     className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg cursor-pointer"
                                 >
                                     <RadioTower size={15} /> Add IPTV Provider in Media Tab
+                                </Link>
+                            </div>
+                        </div>
+                    ) : activeContentTab === 'photos' ? (
+                        <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-sky-500/20 text-center space-y-5 max-w-xl mx-auto my-12 shadow-2xl animate-in fade-in">
+                            <div className="w-24 h-24 rounded-3xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 mx-auto">
+                                <ImageIcon size={48} />
+                            </div>
+                            <div>
+                                <h2 className="text-3xl font-black text-white">Immich</h2>
+                            </div>
+                            <div className="pt-2 flex justify-center">
+                                <Link
+                                    href="/settings?subtopic=instances&addType=immich"
+                                    title="Connect Immich Instance in Settings"
+                                    className="p-4 rounded-2xl bg-sky-500 hover:bg-sky-400 text-black shadow-lg transition-transform hover:scale-105 flex items-center justify-center cursor-pointer"
+                                >
+                                    <Plus size={28} />
                                 </Link>
                             </div>
                         </div>

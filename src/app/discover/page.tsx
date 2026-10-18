@@ -24,6 +24,7 @@ import { DeleteMediaModal } from '@/components/DeleteMediaModal';
 import { MusicInspectorModal } from '@/components/MusicInspectorModal';
 import { IptvDvrManager } from '@/components/IptvDvrManager';
 import { AudiobooksMediaManager } from '@/components/AudiobooksMediaManager';
+import { PhotosMediaManager } from '@/components/PhotosMediaManager';
 import { ManageLibrariesModal } from '@/components/ManageLibrariesModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
 
@@ -671,15 +672,17 @@ function UnifiedMediaCard({
 // ──────────────────────────────────────────────
 function DiscoverPageContent() {
     const searchParams = useSearchParams();
-    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'audiobooks' | 'iptv_dvr'>('movie');
+    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'audiobooks' | 'iptv_dvr' | 'photos'>('movie');
     const [isManageLibrariesOpen, setIsManageLibrariesOpen] = useState(false);
 
     useEffect(() => {
-        const tabParam = searchParams.get('tab') || searchParams.get('type');
+        const tabParam = searchParams.get('tab') || searchParams.get('type') || searchParams.get('media');
         if (tabParam === 'iptv' || tabParam === 'live' || tabParam === 'dvr' || tabParam === 'iptv_dvr') {
             setMediaType('iptv_dvr');
         } else if (tabParam === 'audiobooks' || tabParam === 'audiobook' || tabParam === 'books') {
             setMediaType('audiobooks');
+        } else if (tabParam === 'photos' || tabParam === 'photo' || tabParam === 'immich') {
+            setMediaType('photos');
         } else if (tabParam === 'movie' || tabParam === 'movies') {
             setMediaType('movie');
         } else if (tabParam === 'tv' || tabParam === 'series' || tabParam === 'shows') {
@@ -1796,7 +1799,7 @@ function DiscoverPageContent() {
                                 <span>Libraries &amp; Folders</span>
                             </button>
 
-                            {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
+                            {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && mediaType !== 'photos' && (
                                 <button
                                     onClick={() => loadLibrary()}
                                     title="Refresh Media Cache"
@@ -1837,6 +1840,12 @@ function DiscoverPageContent() {
                                 className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
                             >
                                 <BookOpen size={16} className="shrink-0" /> Audiobooks
+                            </button>
+                            <button
+                                onClick={() => setMediaType('photos')}
+                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'photos' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                            >
+                                <ImageIcon size={16} className="shrink-0" /> Photos
                             </button>
                             <button
                                 onClick={() => setMediaType('iptv_dvr')}
@@ -2159,7 +2168,7 @@ function DiscoverPageContent() {
                     )}
 
                     {/* Row 3: Status Filter (Left) + Search & Filters (Right) */}
-                    {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
+                    {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && mediaType !== 'photos' && (
                         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-3 border-t border-zinc-900/70">
                             {/* Status Filter: All | In Library | Not in Library */}
                             <div className="flex flex-wrap items-center bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner gap-1.5 self-start">
@@ -2411,7 +2420,7 @@ function DiscoverPageContent() {
                 )}
 
                 {/* ── Sub-bar: Sort & Views ── */}
-                {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
+                {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && mediaType !== 'photos' && (
                     <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                         <div className="flex items-center gap-2">
                             <span className="text-base font-bold text-white">
@@ -2492,6 +2501,8 @@ function DiscoverPageContent() {
                     </IptvErrorBoundary>
                 ) : mediaType === 'audiobooks' ? (
                     <AudiobooksMediaManager />
+                ) : mediaType === 'photos' ? (
+                    <PhotosMediaManager />
                 ) : mediaType === 'music' ? (
                     musicLoading || libraryLoading ? (
                         <div className="flex flex-col items-center justify-center py-40 gap-3">

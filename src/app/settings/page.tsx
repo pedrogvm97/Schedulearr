@@ -154,19 +154,63 @@ export default function Settings() {
     const [targetPixelIp, setTargetPixelIp] = useState('');
     const [discoveredPixels, setDiscoveredPixels] = useState<any[]>([]);
     const [pairedPixelNode, setPairedPixelNode] = useState<any>(null);
+    const [pixelToggles, setPixelToggles] = useState({
+        syncEnabled: true,
+        autoClean: true,
+        autoStage: true,
+        autoHeal: true,
+        chargingOnly: false,
+        minFreeGb: 2,
+        batchSize: 25
+    });
+    const [solvingPixel, setSolvingPixel] = useState(false);
 
     const fetchPairedPixelNode = async () => {
         try {
-            const res = await fetch('/api/theater/photos/pixel/scan');
+            const res = await fetch('/api/theater/photos/pixel/bridge');
             if (res.ok) {
                 const data = await res.json();
                 if (data.paired && data.node) {
                     setPairedPixelNode(data.node);
+                    if (data.toggles) setPixelToggles(data.toggles);
                 } else {
                     setPairedPixelNode(null);
                 }
             }
         } catch {}
+    };
+
+    const handleUpdatePixelToggle = async (key: string, value: any) => {
+        const updated = { ...pixelToggles, [key]: value };
+        setPixelToggles(updated);
+        try {
+            await fetch('/api/theater/photos/pixel/bridge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'update_toggles', toggles: updated })
+            });
+            toast.success('Updated');
+        } catch {
+            toast.error('Failed to update toggle');
+        }
+    };
+
+    const handleAutoSolveSettings = async () => {
+        setSolvingPixel(true);
+        try {
+            const res = await fetch('/api/theater/photos/pixel/heal', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                toast.success('Auto-Solver completed successfully');
+                fetchPairedPixelNode();
+            } else {
+                toast.error(data.error || 'Auto-Solver issue');
+            }
+        } catch {
+            toast.error('Auto-Solver failed');
+        } finally {
+            setSolvingPixel(false);
+        }
     };
 
     const handleScanPixels = async () => {
@@ -230,7 +274,7 @@ export default function Settings() {
 
 
 
-    // Check URL parameters for direct deep-linking (e.g. /settings?subtopic=ai or ?tab=ai)
+    // Check URL parameters for direct deep-linking (e.g. /settings?subtopic=ai or ?tab=ai or ?addType=immich)
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
@@ -247,6 +291,17 @@ export default function Settings() {
                 setSettingsSubtopic('subtitles');
             } else if (subtopicParam === 'instances') {
                 setSettingsSubtopic('instances');
+            }
+
+            const addTypeParam = (params.get('addType') || params.get('instanceType') || params.get('type') || '').toLowerCase();
+            if (addTypeParam) {
+                setSettingsSubtopic('instances');
+                if (['immich', 'plex', 'radarr', 'sonarr', 'lidarr', 'prowlarr', 'qbittorrent'].includes(addTypeParam)) {
+                    setType(addTypeParam);
+                    if (addTypeParam === 'immich') {
+                        setName(prev => prev || 'Immich Photos');
+                    }
+                }
             }
 
             const mediaParam = (params.get('media') || '').toLowerCase();
@@ -1643,41 +1698,127 @@ export default function Settings() {
                             </div>
                         </div>
 
-                        {/* Current Paired Pixel Node Card */}
+                        {/* Current Paired Pixel Node Card & Automation Toggles */}
                         {pairedPixelNode && (
-                            <div className="p-4 rounded-2xl bg-zinc-950 border border-indigo-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                <div className="flex items-center gap-3.5">
-                                    <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
-                                        <Smartphone size={22} />
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-base font-black text-white">{pairedPixelNode.model || 'Google Pixel'}</span>
-                                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                                                {pairedPixelNode.unlimitedTier === 'original_quality' ? 'Unlimited Original Quality' : 'Unlimited Storage Saver'}
-                                            </span>
-                                            <span className={`w-2 h-2 rounded-full ${pairedPixelNode.isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                            <div className="space-y-4">
+                                <div className="p-4 rounded-2xl bg-zinc-950 border border-indigo-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="flex items-center gap-3.5">
+                                        <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                                            <Smartphone size={22} />
                                         </div>
-                                        <div className="flex items-center gap-4 text-xs text-zinc-400 font-medium mt-1">
-                                            <span>IP: <code className="text-zinc-200">{pairedPixelNode.ip}:{pairedPixelNode.port || 5555}</code></span>
-                                            {pairedPixelNode.freeStorage && <span>Storage: <strong className="text-white">{pairedPixelNode.freeStorage}</strong> free</span>}
-                                            {pairedPixelNode.batteryLevel !== undefined && (
-                                                <span className="flex items-center gap-1">
-                                                    {pairedPixelNode.isCharging ? <BatteryCharging size={14} className="text-amber-400" /> : <Battery size={14} />}
-                                                    {pairedPixelNode.batteryLevel}%
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-base font-black text-white">{pairedPixelNode.model || 'Google Pixel'}</span>
+                                                <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                    {pairedPixelNode.unlimitedTier === 'original_quality' ? 'Unlimited Original Quality' : 'Unlimited Storage Saver'}
                                                 </span>
-                                            )}
+                                                <span className={`w-2 h-2 rounded-full ${pairedPixelNode.isOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                            </div>
+                                            <div className="flex items-center gap-4 text-xs text-zinc-400 font-medium mt-1">
+                                                <span>IP: <code className="text-zinc-200">{pairedPixelNode.ip}:{pairedPixelNode.port || 5555}</code></span>
+                                                {pairedPixelNode.freeStorage && <span>Storage: <strong className="text-white">{pairedPixelNode.freeStorage}</strong> free</span>}
+                                                {pairedPixelNode.batteryLevel !== undefined && (
+                                                    <span className="flex items-center gap-1">
+                                                        {pairedPixelNode.isCharging ? <BatteryCharging size={14} className="text-amber-400" /> : <Battery size={14} />}
+                                                        {pairedPixelNode.batteryLevel}%
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleAutoSolveSettings}
+                                            disabled={solvingPixel}
+                                            title="Auto-Solve / Heal Stalled Pixel Sync"
+                                            className="p-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 transition-all cursor-pointer"
+                                        >
+                                            <Wrench size={16} className={solvingPixel ? 'animate-spin' : ''} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleUnpairPixelNode}
+                                            title="Unpair this Pixel device"
+                                            className="p-2.5 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 transition-all cursor-pointer"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
                                     </div>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={handleUnpairPixelNode}
-                                    title="Unpair this Pixel device"
-                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 transition-all cursor-pointer self-start sm:self-center"
-                                >
-                                    <Trash2 size={16} />
-                                </button>
+
+                                {/* Automation Toggles */}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdatePixelToggle('syncEnabled', !pixelToggles.syncEnabled)}
+                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                            pixelToggles.syncEnabled
+                                                ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        }`}
+                                        title="Master switch for syncing photos from Immich to Pixel"
+                                    >
+                                        <span className="flex items-center gap-1.5"><Zap size={14} /> Sync</span>
+                                        {pixelToggles.syncEnabled && <Check size={14} />}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdatePixelToggle('autoClean', !pixelToggles.autoClean)}
+                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                            pixelToggles.autoClean
+                                                ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-300'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        }`}
+                                        title="Automatically clean uploaded photos from Pixel to free up storage space"
+                                    >
+                                        <span className="flex items-center gap-1.5"><Trash2 size={14} /> Auto Clean</span>
+                                        {pixelToggles.autoClean && <Check size={14} />}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdatePixelToggle('autoStage', !pixelToggles.autoStage)}
+                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                            pixelToggles.autoStage
+                                                ? 'bg-sky-600/20 border-sky-500/50 text-sky-300'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        }`}
+                                        title="Automatically stage incoming Immich photos to Pixel storage"
+                                    >
+                                        <span className="flex items-center gap-1.5"><ArrowUp size={14} /> Auto Stage</span>
+                                        {pixelToggles.autoStage && <Check size={14} />}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdatePixelToggle('autoHeal', !pixelToggles.autoHeal)}
+                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                            pixelToggles.autoHeal
+                                                ? 'bg-amber-600/20 border-amber-500/50 text-amber-300'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        }`}
+                                        title="Auto-Solver watchdog to recover stalled uploads and ADB glitches"
+                                    >
+                                        <span className="flex items-center gap-1.5"><Wrench size={14} /> Auto Solver</span>
+                                        {pixelToggles.autoHeal && <Check size={14} />}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdatePixelToggle('chargingOnly', !pixelToggles.chargingOnly)}
+                                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                            pixelToggles.chargingOnly
+                                                ? 'bg-orange-600/20 border-orange-500/50 text-orange-300'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500'
+                                        }`}
+                                        title="Only sync when Pixel device is connected to a charger"
+                                    >
+                                        <span className="flex items-center gap-1.5"><BatteryCharging size={14} /> Charging Only</span>
+                                        {pixelToggles.chargingOnly && <Check size={14} />}
+                                    </button>
+                                </div>
                             </div>
                         )}
 

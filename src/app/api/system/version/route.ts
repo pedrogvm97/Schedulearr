@@ -8,6 +8,13 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.44] Photos Media Manager, Pixel Bridge Automation Toggles, Auto-Solver Watchdog & Immich Deep-Linking',
+  '  - Fix empty state navigation in Theater and Media tabs: route directly to /settings?subtopic=instances&addType=immich instead of local folder modal',
+  '  - Pre-select Immich in Settings instance dropdown when accessed with addType=immich or type=immich with prefilled instance name',
+  '  - Add dedicated Photos tab in Media mode (/discover?tab=photos) featuring the PhotosMediaManager dashboard and telemetry overview',
+  '  - Introduce granular automation toggles for Pixel Bridge: Sync to Pixel on/off, Auto Clean Space on/off, Auto Stage on/off, Auto-Solver Watchdog on/off, and Charging Only on/off',
+  '  - Implement robust Auto-Solver protocol (/api/theater/photos/pixel/heal) with multi-step diagnostics: transport reconnect, purging temporary transfer locks, MediaStore rescan broadcast, Google Photos wake, and low headroom auto-free space',
+  '  - Provide 1-click manual action buttons for pushing next batch to Pixel and cleaning verified photos',
   '• [v0.6.43] Fix Unraid Docker Dashboard Left-Click WebUI Option, Bake Unraid Container Metadata Labels & Trailing Slash',
   '  - Add net.unraid.docker.webui and net.unraid.docker.shell labels directly into Docker runner image to guarantee left-click WebUI menu binding',
   '  - Expand unraid-template.xml with complete container Labels and normalized WebUI URL with trailing slash for Unraid dashboard discovery',
@@ -120,7 +127,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.43';
+    let currentVersion = '0.6.44';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

@@ -95,7 +95,7 @@ const mobileCoreNavItems = [
 export function Navigation() {
     const pathname = usePathname();
     const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
-    const [appVersion, setAppVersion] = useState('0.6.43');
+    const [appVersion, setAppVersion] = useState('0.6.44');
     const [activeMusicCount, setActiveMusicCount] = useState(0);
     const [ongoingTasks, setOngoingTasks] = useState<Array<{
         id: string;
