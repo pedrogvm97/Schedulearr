@@ -30,6 +30,7 @@ import {
     removeStudioApiKey,
     triggerAudiobookQueueWorker,
     getAudiobookArtDir,
+    getAudiobookEnhancedDir,
     detectAndVerifyAiApiKey,
     getAudiobookCollectionsState,
     saveAudiobookCollectionsState,

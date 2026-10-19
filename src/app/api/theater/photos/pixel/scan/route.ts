@@ -356,14 +356,14 @@ export async function POST(req: Request) {
                 if (state !== 'device') {
                     // Try local container USB first
                     const localDevRes = await execAsync('adb devices -l', { timeout: 3000 }).catch(e => ({ stdout: e.message }));
-                    const hasLocalUsb = (localDevRes.stdout || '').split('\n').slice(1).some(l => {
+                    const hasLocalUsb = (localDevRes.stdout || '').split('\n').slice(1).some((l: string) => {
                         const line = l.trim();
                         return line.length > 0 && !line.includes('offline') && (line.includes('usb') || line.includes('device') || line.includes('unauthorized'));
                     });
 
                     if (hasLocalUsb) {
                         const lines = (localDevRes.stdout || '').split('\n').slice(1);
-                        const usbDeviceLine = lines.find(l => l.includes('usb:'));
+                        const usbDeviceLine = lines.find((l: string) => l.includes('usb:'));
                         const usbSerial = usbDeviceLine ? usbDeviceLine.trim().split(/\s+/)[0] : '';
                         await execAsync(`adb disconnect ${target}`).catch(() => null);
                         await execAsync(usbSerial ? `adb -s ${usbSerial} tcpip 5555` : 'adb tcpip 5555', { timeout: 6000 }).catch(() => null);
@@ -470,14 +470,14 @@ export async function POST(req: Request) {
             try {
                 // 1. Try local container adb devices first (works if Schedulearr container has USB device pass-through)
                 const localDevRes = await execAsync('adb devices -l', { timeout: 4000 }).catch(e => ({ stdout: e.message, stderr: '' }));
-                const hasLocalUsb = (localDevRes.stdout || '').split('\n').slice(1).some(l => {
+                const hasLocalUsb = (localDevRes.stdout || '').split('\n').slice(1).some((l: string) => {
                     const line = l.trim();
                     return line.length > 0 && !line.includes('offline') && (line.includes('usb') || line.includes('device') || line.includes('unauthorized'));
                 });
 
                 if (hasLocalUsb) {
                     const lines = (localDevRes.stdout || '').split('\n').slice(1);
-                    const usbDeviceLine = lines.find(l => l.includes('usb:'));
+                    const usbDeviceLine = lines.find((l: string) => l.includes('usb:'));
                     const usbSerial = usbDeviceLine ? usbDeviceLine.trim().split(/\s+/)[0] : '';
                     if (targetIp && targetIp.trim()) {
                         const cleanIp = targetIp.trim().split(':')[0];

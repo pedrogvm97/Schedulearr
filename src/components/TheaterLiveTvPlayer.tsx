@@ -1069,7 +1069,7 @@ export default function TheaterLiveTvPlayer({
                         {!currentChannel ? (
                             <div className="w-full h-full bg-gradient-to-br from-zinc-950 via-[#0d0d10] to-black flex flex-col items-center justify-center p-6 sm:p-10 text-center space-y-6">
                                 <div className="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-2xl shadow-amber-500/10">
-                                    <Tv2 size={40} className="animate-pulse" />
+                                    <Tv size={40} className="animate-pulse" />
                                 </div>
                                 <div className="max-w-md space-y-2">
                                     <h3 className="text-2xl font-black text-white tracking-tight">Select Channel</h3>

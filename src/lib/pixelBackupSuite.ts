@@ -243,7 +243,7 @@ async function downloadImmichAssetToTemp(assetId: string): Promise<string | null
         response.data.pipe(writer);
 
         await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
+            writer.on('finish', () => resolve(true));
             writer.on('error', reject);
         });
 
@@ -468,7 +468,7 @@ export async function getPhoneBackupTasksSummary(): Promise<PhoneBackupSuiteSumm
         backedUpCount: uploaded,
         cloudSyncState,
         statusDetail: cloudStatusMessage,
-        lastCloudScanTime: getSetting('pixel_last_clean_time') || getSetting('pixel_last_sync_time')
+        lastCloudScanTime: (getSetting('pixel_last_clean_time') || getSetting('pixel_last_sync_time')) ?? undefined
     };
 
     // Calculate Active Step Progress with live percentages across each of the 4 steps
@@ -591,9 +591,9 @@ export async function getPhoneBackupTasksSummary(): Promise<PhoneBackupSuiteSumm
         },
         cloudTelemetry,
         items: ledger,
-        lastSyncTime: getSetting('pixel_last_sync_time'),
-        lastCleanTime: getSetting('pixel_last_clean_time'),
-        lastHealTime: getSetting('pixel_last_heal_time')
+        lastSyncTime: getSetting('pixel_last_sync_time') ?? undefined,
+        lastCleanTime: getSetting('pixel_last_clean_time') ?? undefined,
+        lastHealTime: getSetting('pixel_last_heal_time') ?? undefined
     };
 }
 
@@ -740,7 +740,7 @@ export async function processPhoneBackupCycle(): Promise<boolean> {
         await execAsync(`adb connect ${target}`, { timeout: 3000 }).catch(() => null);
         const stateRes = await execAsync(`adb -s ${target} get-state`, { timeout: 2000 }).catch(() => ({ stdout: '' }));
         if (stateRes.stdout.trim() !== 'device') {
-            return;
+            return false;
         }
 
         // 2. Battery & Charging check
@@ -748,7 +748,7 @@ export async function processPhoneBackupCycle(): Promise<boolean> {
             const battOut = await execAsync(`adb -s ${target} shell dumpsys battery`, { timeout: 2500 }).catch(() => ({ stdout: '' }));
             const statusMatch = battOut.stdout.match(/status:\s*(\d+)/i);
             const isCharging = statusMatch ? (statusMatch[1] === '2' || statusMatch[1] === '5') : false;
-            if (!isCharging) return;
+            if (!isCharging) return false;
         }
 
         // 3. Check and clean verified uploads
@@ -785,7 +785,7 @@ export async function processPhoneBackupCycle(): Promise<boolean> {
             if (autoClean) {
                 await triggerGooglePhotosCleanup();
             }
-            return;
+            return false;
         }
 
         // If buffer on phone already has more than 2x batchSize awaiting cloud upload, wait for Google Photos to drain
@@ -795,7 +795,7 @@ export async function processPhoneBackupCycle(): Promise<boolean> {
                 `adb -s ${target} shell am start -n com.google.android.apps.photos/.home.HomeActivity`,
                 { timeout: 2500 }
             ).catch(() => null);
-            return;
+            return false;
         }
 
         // 5. Auto Stage if enabled

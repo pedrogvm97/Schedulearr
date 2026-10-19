@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     BookOpen, Sparkles, Sliders, FolderPlus, Edit3, Trash2, Check,
     RefreshCw, Play, Pause, Zap, FileText, Image as ImageIcon, Mic2,

@@ -6075,23 +6075,13 @@ function TheaterPageContent() {
                                 </p>
                             </div>
                             <div className="pt-2 flex justify-center">
-                                {activeContentTab === 'photos' ? (
-                                    <Link
-                                        href="/settings?subtopic=instances&addType=immich"
-                                        title="Connect Immich Instance in Settings"
-                                        className="p-4 rounded-2xl bg-sky-500 hover:bg-sky-400 text-black shadow-lg transition-transform hover:scale-105 flex items-center justify-center cursor-pointer"
-                                    >
-                                        <Plus size={26} />
-                                    </Link>
-                                ) : (
-                                    <Link
-                                        href="/discover?manage=libraries"
-                                        title="Manage Libraries in Media Tab"
-                                        className="p-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg transition-transform hover:scale-105 flex items-center justify-center cursor-pointer"
-                                    >
-                                        <FolderPlus size={26} />
-                                    </Link>
-                                )}
+                                <Link
+                                    href="/discover?manage=libraries"
+                                    title="Manage Libraries in Media Tab"
+                                    className="p-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg transition-transform hover:scale-105 flex items-center justify-center cursor-pointer"
+                                >
+                                    <FolderPlus size={26} />
+                                </Link>
                             </div>
                         </div>
                     )
@@ -7327,7 +7317,7 @@ function TheaterPageContent() {
                 ) : (
                     <div className={
                         viewMode === 'grid'
-                            ? activeLibrary?.type === 'photo' || activeLibrary?.type === 'photos' || activeContentTab === 'photos'
+                            ? activeLibrary?.type === 'photo'
                                 ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4'
                                 : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5'
                             : 'space-y-3'
@@ -7393,7 +7383,7 @@ function TheaterPageContent() {
                             }
 
                             // Photo Grid View
-                            if (item.category === 'photo' || activeContentTab === 'photos') {
+                            if (item.category === 'photo') {
                                 return (
                                     <div
                                         key={item.id}
@@ -7406,11 +7396,6 @@ function TheaterPageContent() {
                                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                             loading="lazy"
                                         />
-                                        {item.category === 'video' && (
-                                            <div className="absolute top-2.5 right-2.5 p-1.5 rounded-xl bg-black/60 backdrop-blur-md text-white border border-white/20 shadow-md">
-                                                <FileVideo size={16} />
-                                            </div>
-                                        )}
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
                                             <p className="text-xs font-bold text-white truncate">{item.title}</p>
                                         </div>

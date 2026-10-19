@@ -18,6 +18,7 @@ export interface ConnectedDevice {
     schedulearrFolder: string; // Custom chosen Schedulearr folder (e.g. "/sdcard/Schedulearr")
     enabled: boolean;
     isOnline?: boolean;
+    unlimitedTier?: string;
     batteryLevel?: number;
     isCharging?: boolean;
     storageFree?: string;
