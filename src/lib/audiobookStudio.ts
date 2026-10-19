@@ -4085,6 +4085,7 @@ export const generateDynamicScenePrompt = async (params: {
  * from disk and SQLite (`audiobooks_meta` and `audiobook_chapters_meta`), recalculating book totals.
  */
 let hasPurgedFakeSvgArt = false;
+const chapterScenedCooldownMap = new Map<string, number>();
 export const purgeAllFakeSvgArtFromDbAndDisk = (force = false): {
     deletedFiles: number;
     cleanedChapters: number;
@@ -4145,7 +4146,10 @@ export const purgeAllFakeSvgArtFromDbAndDisk = (force = false): {
             for (const ch of chapters) {
                 const origImages = Array.isArray(ch.images) ? ch.images : [];
                 const validImages = origImages.filter(img => {
-                    if (!img?.url || img.url.toLowerCase().includes('.svg')) return false;
+                    if (!img) return false;
+                    // Preserve unpainted scenes awaiting Stage 3 imaging
+                    if (!img.url || typeof img.url !== 'string' || !img.url.trim()) return true;
+                    if (img.url.toLowerCase().includes('.svg')) return false;
                     // Purge legacy empty-room fallback prompts caused by the old attempt=1 guardrail rewrite
                     if (
                         typeof img.prompt === 'string' &&
@@ -6030,7 +6034,10 @@ export const runSingleSceningOrImagingStep = async (
                 (hasCompleteTranscript && validScenes.length < 2 && (latestChapter.duration_sec || 0) > 480 && maxSceneStartSec < (latestChapter.duration_sec || 600) - 480) ||
                 (!hasCompleteTranscript && hasEnoughPartialTranscript && maxSceneStartSec < maxTranscribedSec - 480);
 
-            if (bookSceningOn && (hasCompleteTranscript || hasEnoughPartialTranscript) && needsMoreScening) {
+            const lastScened = chapterScenedCooldownMap.get(latestChapter.chapter_key);
+            const isCoolingDown = !forceChapterKey && lastScened !== undefined && (Date.now() - lastScened < 60000);
+            if (bookSceningOn && (hasCompleteTranscript || hasEnoughPartialTranscript) && needsMoreScening && !isCoolingDown) {
+                chapterScenedCooldownMap.set(latestChapter.chapter_key, Date.now());
                 try {
                     g.__audiobookStudioStatus.activeSceningBookKey = book.book_key;
                     if (!latestBook.real_structure_json) {

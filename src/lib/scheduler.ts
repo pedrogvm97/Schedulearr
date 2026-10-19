@@ -192,25 +192,29 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
         };
         setTimeout(runCalendarSyncCycle, 8000); // Start 8s after boot
 
-        // Connected Devices & Folders Offline Media Sync Worker (checks every 20 seconds)
+        // Connected Devices & Folders Offline Media Sync Worker (adaptive: 20s when active, 90s when idle)
         const runDeviceSyncCycle = async () => {
+            let didWork = false;
             try {
-                await processDeviceSyncCycle();
+                didWork = await processDeviceSyncCycle();
             } catch (err) {
                 console.error('❌ Device sync cycle error:', err);
             }
-            setTimeout(runDeviceSyncCycle, 20 * 1000);
+            const nextDelayMs = didWork ? 20 * 1000 : 90 * 1000;
+            setTimeout(runDeviceSyncCycle, nextDelayMs);
         };
         setTimeout(runDeviceSyncCycle, 12000); // Start 12s after boot
 
-        // Automated Pixel Bridge Phone Backup Cycle (continuous batching & upload verification every 25 seconds)
+        // Automated Pixel Bridge Phone Backup Cycle (adaptive: 25s when transferring, 90s when standby)
         const runPhoneBackupCycle = async () => {
+            let didWork = false;
             try {
-                await processPhoneBackupCycle();
+                didWork = await processPhoneBackupCycle();
             } catch (err) {
                 console.error('❌ Phone Backup cycle error:', err);
             }
-            setTimeout(runPhoneBackupCycle, 25 * 1000);
+            const nextDelayMs = didWork ? 25 * 1000 : 90 * 1000;
+            setTimeout(runPhoneBackupCycle, nextDelayMs);
         };
         setTimeout(runPhoneBackupCycle, 15000); // Start 15s after boot
     };

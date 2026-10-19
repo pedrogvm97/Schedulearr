@@ -310,14 +310,14 @@ export async function toggleMediaDeviceSync(
 /**
  * Processes pending device sync items when devices are connected.
  */
-export async function processDeviceSyncCycle(): Promise<void> {
+export async function processDeviceSyncCycle(): Promise<boolean> {
     if (isStreamGuardActive()) {
-        return; // Preserves bandwidth and disk I/O while Plex stream is active
+        return false; // Preserves bandwidth and disk I/O while Plex stream is active
     }
 
     const queue = getDeviceSyncQueue();
     const pending = queue.filter(q => q.status === 'queued');
-    if (pending.length === 0) return;
+    if (pending.length === 0) return false;
 
     const devices = getConnectedDevices();
 
@@ -417,6 +417,7 @@ export async function processDeviceSyncCycle(): Promise<void> {
             }
         }
     }
+    return true;
 }
 
 /**

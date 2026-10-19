@@ -8,6 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.63] Mitigate 100% CPU lock with scene mapping preservation, loop circuit-breaker & adaptive background throttling',
+  '  - Fix database row mapper stripping unpainted scene definitions with empty URLs, which previously caused Audiobook Studio queue worker to re-run scene detection in an infinite tight loop every 1.2s',
+  '  - Fix fake SVG purge filter discarding unpainted scenes awaiting Stage 3 imaging',
+  '  - Add 60-second scening cooldown circuit-breaker per chapter to prevent rapid repetitive worker spinning',
+  '  - Throttle Immich photo metadata search to at most once per 5 minutes instead of every 25 seconds',
+  '  - Implement adaptive sleep intervals for Pixel Bridge (25s when transferring, 90s when idle) and Device Sync (20s when active, 90s when idle) to reduce server CPU interrupts to near 0%',
   '• [v0.6.51] Unified Multi-Source Download Counter, Connected Devices Custom Folders, and Offline Device Sync Toggles',
   '  - Add live aggregated download counter badge on Transfers tab in Navigation across desktop, tablet, and mobile that pulses whenever anything is downloading (qBittorrent active downloads, direct media downloads, and connected device syncs)',
   '  - Introduce Connected Devices & Folders panel (/downloads?tab=devices) allowing users to pair Pixel phones, tablets, or local folders and configure custom Schedulearr directories of their choosing (e.g. /sdcard/Schedulearr, /sdcard/Music/Schedulearr)',

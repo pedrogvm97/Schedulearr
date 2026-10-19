@@ -153,10 +153,17 @@ export function savePhoneBackupLedger(ledger: PhoneBackupItem[]): void {
     }
 }
 
+let lastImmichSyncTimestamp = 0;
+
 /**
  * Syncs real assets from Immich if connected, updating or populating the ledger.
  */
-export async function syncImmichAssetsToLedger(): Promise<void> {
+export async function syncImmichAssetsToLedger(force: boolean = false): Promise<void> {
+    const nowMs = Date.now();
+    if (!force && (nowMs - lastImmichSyncTimestamp < 5 * 60 * 1000)) {
+        return;
+    }
+    lastImmichSyncTimestamp = nowMs;
     try {
         const instances = getInstances();
         const immich = instances.find(i => i.type === 'immich' && i.enabled);
@@ -709,16 +716,16 @@ let isPhoneBackupRunning = false;
 /**
  * Continuous automated background sync cycle running in Schedulearr orchestrator.
  */
-export async function processPhoneBackupCycle(): Promise<void> {
-    if (isPhoneBackupRunning) return;
-    if (isStreamGuardActive()) return;
+export async function processPhoneBackupCycle(): Promise<boolean> {
+    if (isPhoneBackupRunning) return false;
+    if (isStreamGuardActive()) return false;
 
     const syncEnabled = getSetting('pixel_sync_enabled') !== 'false';
-    if (!syncEnabled) return;
+    if (!syncEnabled) return false;
 
     const rawNode = getSetting('pixel_bridge_node');
     const node = rawNode ? JSON.parse(rawNode) : null;
-    if (!node || !node.ip) return;
+    if (!node || !node.ip) return false;
 
     const target = `${node.ip}:${node.port || 5555}`;
     const autoClean = getSetting('pixel_auto_clean') !== 'false';
@@ -799,14 +806,16 @@ export async function processPhoneBackupCycle(): Promise<void> {
         // 6. Push next pending batch
         const ledger = getPhoneBackupLedger();
         const pending = ledger.filter(i => i.status === 'queued' || i.status === 'staging');
-        if (pending.length === 0) return;
+        if (pending.length === 0) return false;
 
         await execAsync(`adb -s ${target} shell mkdir -p /sdcard/DCIM/SchedulearrSync`, { timeout: 3000 }).catch(() => null);
 
+        let pushedCount = 0;
         const batch = pending.slice(0, batchSize);
         for (const item of batch) {
             if (isStreamGuardActive()) break;
-            await pushSingleItemToPixel(target, item);
+            const ok = await pushSingleItemToPixel(target, item);
+            if (ok) pushedCount++;
         }
 
         // 7. Awaken Google Photos to start background cloud backup
@@ -816,8 +825,10 @@ export async function processPhoneBackupCycle(): Promise<void> {
         ).catch(() => null);
 
         setSetting('pixel_last_sync_time', new Date().toISOString());
+        return pushedCount > 0;
     } catch (e) {
         console.error('[PHONE-BACKUP] Error in phone backup cycle:', e);
+        return false;
     } finally {
         isPhoneBackupRunning = false;
     }

@@ -2819,7 +2819,11 @@ const mapChapterRow = (r: any): AudiobookChapterMeta => {
     let parsedImages: AudiobookChapterSceneImage[] = [];
     try {
         const raw = JSON.parse(r.images_json || '[]');
-        parsedImages = (Array.isArray(raw) ? raw : []).filter(img => img && img.url && !String(img.url).toLowerCase().includes('.svg'));
+        parsedImages = (Array.isArray(raw) ? raw : []).filter(img => {
+            if (!img) return false;
+            if (img.url && String(img.url).toLowerCase().includes('.svg')) return false;
+            return true;
+        });
     } catch {
         parsedImages = [];
     }

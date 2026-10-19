@@ -617,8 +617,10 @@ export async function POST(request: Request) {
                 await resetAndRedoAudiobookAssets({ bookKey, target, redoNow: true });
                 return NextResponse.json({ ok: true, message: `Reset ${target} for "${existing.title}" and queued regeneration.` });
             }
+        }
+
         if (action === 'retry_all_failed_tasks') {
-            const queuedBooksRaw = getAudiobooksMeta().filter(b => b.is_queued === 1);
+            const queuedBooksRaw = getAllAudiobooksMeta().filter(b => b.queue_enabled);
             let retriedCount = 0;
             for (const book of queuedBooksRaw) {
                 const chapters = getAudiobookChaptersMeta(book.book_key);
@@ -642,12 +644,12 @@ export async function POST(request: Request) {
                     triggerAudiobookQueueWorker(book.book_key, undefined, true);
                 }
             }
-            logSystemEvent('STT', `Retried ${retriedCount} failed tasks across audiobooks`, 'info');
+            console.log(`[TASKS] Retried ${retriedCount} failed tasks across audiobooks`);
             return NextResponse.json({ ok: true, message: `Retrying ${retriedCount} failed task(s) now.` });
         }
 
         if (action === 'clear_failed_tasks') {
-            const queuedBooksRaw = getAudiobooksMeta().filter(b => b.is_queued === 1);
+            const queuedBooksRaw = getAllAudiobooksMeta().filter(b => b.queue_enabled);
             let clearedCount = 0;
             for (const book of queuedBooksRaw) {
                 const chapters = getAudiobookChaptersMeta(book.book_key);
@@ -666,7 +668,7 @@ export async function POST(request: Request) {
                 }
                 recalculateAudiobookTotals(book.book_key);
             }
-            logSystemEvent('STT', `Cleared error flags on ${clearedCount} tasks`, 'info');
+            console.log(`[TASKS] Cleared error flags on ${clearedCount} tasks`);
             return NextResponse.json({ ok: true, message: `Cleared ${clearedCount} error(s).` });
         }
 
@@ -686,7 +688,7 @@ export async function POST(request: Request) {
                     });
                     recalculateAudiobookTotals(bookKey);
                     triggerAudiobookQueueWorker(bookKey, undefined, true);
-                    logSystemEvent('STT', `Retried chapter task "${targetCh.title || chapterKey}"`, 'info');
+                    console.log(`[TASKS] Retried chapter task "${targetCh.title || chapterKey}"`);
                     return NextResponse.json({ ok: true, message: `Retrying "${targetCh.title || chapterKey}".` });
                 }
             }
