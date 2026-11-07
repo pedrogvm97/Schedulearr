@@ -2641,7 +2641,7 @@ export function AudiobooksMediaManager({
                                     value={selectedGenreFilter}
                                     onChange={v => setSelectedGenreFilter(v)}
                                     options={[
-                                        { id: 'ALL', label: All Genres () },
+                                        { id: 'ALL', label: `All Genres (${allBooks.length})` },
                                         ...availableGenres.map(g => ({ id: g, label: g }))
                                     ]}
                                     colorScheme="amber"
@@ -2656,8 +2656,8 @@ export function AudiobooksMediaManager({
                                     value={selectedAuthorFilter}
                                     onChange={v => setSelectedAuthorFilter(v)}
                                     options={[
-                                        { id: 'ALL', label: All Authors () },
-                                        ...availableAuthors.map(a => ({ id: a.name, label: ${a.name} () }))
+                                        { id: 'ALL', label: `All Authors (${availableAuthors.length})` },
+                                        ...availableAuthors.map(a => ({ id: a.name, label: `${a.name} (${a.count})` }))
                                     ]}
                                     colorScheme="amber"
                                     size="md"
@@ -2899,10 +2899,7 @@ export function AudiobooksMediaManager({
                                 const coverPreviews = seriesBooks.slice(0, 4);
 
                                 return (
-                                    <div
-                                        key={series.id}
                                     <div key={series.id} className="h-[520px] p-6 rounded-3xl bg-zinc-900/70 border-2 border-zinc-800/90 hover:border-amber-500/50 flex flex-col justify-start gap-4 shadow-xl transition-all">
-                                    >
                                         {/* Series Top Header: Fanned Book Covers + Title + Author + Controls */}
                                         <div className="flex items-start justify-between gap-4">
                                             <div className="flex items-start gap-4 min-w-0">
@@ -4077,31 +4074,33 @@ export function AudiobooksMediaManager({
                             </div>
                             <button
                                 onClick={() => handleSaveConfig({ autoGroupSeriesEnabled: studioConfig?.autoGroupSeriesEnabled === false ? true : false })}
-                                className={px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer }
+                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer ${studioConfig?.autoGroupSeriesEnabled !== false ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}
                             >
                                 {studioConfig?.autoGroupSeriesEnabled !== false ? 'ON' : 'OFF'}
                             </button>
                         </div>
+                    </div>
 
-                        {/* Central Settings Link for AI Keys & Telemetry */}
-                        <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3">
-                            <div className="space-y-1">
-                                <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
-                                    <Sliders size={18} className="text-amber-400" />
-                                    <span>AI Provider Keys &amp; Telemetry</span>
-                                </h4>
-                                <p className="text-xs text-zinc-400 font-medium">Manage API keys (Gemini, Claude, OpenAI, Groq), rate limits, and quota telemetry in Central Settings.</p>
-                            </div>
-                            <a
-                                href="/settings?subtopic=ai"
-                                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer shrink-0 shadow-lg"
-                            >
-                                <span>Open Settings</span>
-                                <ArrowRight size={14} />
-                            </a>
+                    {/* Central Settings Link for AI Keys & Telemetry */}
+                    <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3">
+                        <div className="space-y-1">
+                            <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                <Sliders size={18} className="text-amber-400" />
+                                <span>AI Provider Keys &amp; Telemetry</span>
+                            </h4>
+                            <p className="text-xs text-zinc-400 font-medium">Manage API keys (Gemini, Claude, OpenAI, Groq), rate limits, and quota telemetry in Central Settings.</p>
                         </div>
-                );
-            })()}
+                        <a
+                            href="/settings?subtopic=ai"
+                            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer shrink-0 shadow-lg"
+                        >
+                            <span>Open Settings</span>
+                            <ArrowRight size={14} />
+                        </a>
+                    </div>
+                </div>
+            );
+        })()}
 
             {/* ══════════════════════════════════════════════════════════════════════════════
                 BOOK & AI MODAL:
@@ -4195,7 +4194,7 @@ export function AudiobooksMediaManager({
                                             </>
                                         )}
                                     </div>
-
+                                </div>
                             </div>
 
                             {/* Main Modal Switcher: [Book] vs [AI] + Close */}
@@ -4267,6 +4266,7 @@ export function AudiobooksMediaManager({
                                 const displayAuthorBio = editAuthorBio || currentModalBook.savedAuthorBio || fetchedDetails.authorBio || '';
 
                                 return (
+                                    <>
                                         {/* â”€â”€ 1-CLICK AVAILABLE COVER ARTWORKS STRIP â”€â”€ */}
                                         <div className="p-5 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-3">
                                             <div className="flex items-center justify-between gap-3">
@@ -4290,10 +4290,12 @@ export function AudiobooksMediaManager({
                                                         const isSelected = activeCoverDisplayUrl === cov.url;
                                                         return (
                                                             <div
-                                                                key={${cov.url}-}
+                                                                key={`${cov.url}-${cIdx}`}
                                                                 onClick={() => handleSelectBookCover(cov.url, cov.label)}
-                                                                className={w-24 h-36 rounded-xl overflow-hidden border-2 transition-all cursor-pointer flex-shrink-0 relative group }
-                                                                title={Select }
+                                                                className={`w-24 h-36 rounded-xl overflow-hidden border-2 transition-all cursor-pointer flex-shrink-0 relative group ${
+                                                                    isSelected ? 'border-amber-400 ring-4 ring-amber-500/30' : 'border-zinc-800 hover:border-zinc-600'
+                                                                }`}
+                                                                title={`Select ${cov.label}`}
                                                             >
                                                                 <img src={cov.url} alt={cov.label} className="w-full h-full object-cover" />
                                                                 {isSelected && (
@@ -4437,7 +4439,7 @@ export function AudiobooksMediaManager({
                                                 })}
                                             </div>
                                         </div>
-                                    </div>
+                                    </>
                                 );
                             })()}
 
@@ -4583,6 +4585,7 @@ export function AudiobooksMediaManager({
                                                 <span>Clean Assets</span>
                                             </button>
                                         </div>
+                                    </div>
 
                                     {/* ── THE 4 AI SUBTABS (PIPELINE ORDER: 1. TRANSCRIPTION -> 2. SCENING -> 3. ILLUSTRATION -> 4. VOICE) ── */}
                                     {(() => {
@@ -5134,17 +5137,15 @@ export function AudiobooksMediaManager({
                                                                             {chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`}
                                                                         </h5>
                                                                         <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 flex-wrap mt-0.5">
-                                                                        <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 flex-wrap mt-0.5">
                                                                             <span className="font-mono">{formatMMSS(durSec)}</span>
-                                                                            <span>â€¢</span>
+                                                                            <span>&bull;</span>
                                                                             <span className={isTranscribed ? 'text-amber-300 font-black' : 'text-zinc-500'}>
                                                                                 {transcriptLinesCount} Lines
                                                                             </span>
-                                                                            <span>â€¢</span>
+                                                                            <span>&bull;</span>
                                                                             <span className={detectedScenes.length > 0 ? 'text-purple-300 font-black' : 'text-zinc-500'}>
                                                                                 {detectedScenes.length} {detectedScenes.length === 1 ? 'Scene' : 'Scenes'}
                                                                             </span>
-                                                                        </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -5941,7 +5942,6 @@ export function AudiobooksMediaManager({
                                                                                     className="w-full max-w-sm h-8 rounded-lg"
                                                                                 />
                                                                                 {voiceEntries.length > 0 && (
-                                                                                {voiceEntries.length > 0 && (
                                                                                     <div className="flex items-center gap-2 shrink-0">
                                                                                         <SleekSelect
                                                                                             icon={<Volume2 size={13} />}
@@ -5962,7 +5962,6 @@ export function AudiobooksMediaManager({
                                                                                             title="Select active voice version"
                                                                                         />
                                                                                     </div>
-                                                                                )}
                                                                                 )}
                                                                             </div>
                                                                         </div>

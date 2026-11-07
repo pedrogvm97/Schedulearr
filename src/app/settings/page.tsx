@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useMemo } from "react";
 import {
@@ -867,10 +867,6 @@ export default function Settings() {
                 const mBytes = inst.mediaBytes || 0;
                 const pct = (mBytes / totalBytes) * 100;
                 const colorHex = inst.colorHex || twColorToHex(inst.color);
-import { CollapsibleNavSidebar, CollapsibleSidebarItem } from "@/components/CollapsibleNavSidebar";
-import { AiFeaturesMatrix } from "@/components/AiFeaturesMatrix";
-import { AiDiagnosticsPanel } from "@/components/AiDiagnosticsPanel";
-import { Activity } from "lucide-react";
                 return {
                     id: inst.id,
                     name: inst.name,
@@ -904,10 +900,6 @@ import { Activity } from "lucide-react";
                 bytes: 0,
                 percent: slice,
                 colorHex: inst.colorHex || twColorToHex(inst.color)
-import { CollapsibleNavSidebar, CollapsibleSidebarItem } from "@/components/CollapsibleNavSidebar";
-import { AiFeaturesMatrix } from "@/components/AiFeaturesMatrix";
-import { AiDiagnosticsPanel } from "@/components/AiDiagnosticsPanel";
-import { Activity } from "lucide-react";
             }));
         }
     }, [diskInfo]);
@@ -1475,6 +1467,8 @@ import { Activity } from "lucide-react";
                         </button>
                     </div>
                 </div>
+            </div>
+
             {/* ═══════════════════════════════════════════════════════════════════
                SUBTOPIC 1: INSTANCES & INTEGRATIONS
                ═══════════════════════════════════════════════════════════════════ */}

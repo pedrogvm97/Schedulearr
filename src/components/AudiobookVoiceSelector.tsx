@@ -20,30 +20,52 @@ export interface AudiobookVoiceSelectorProps {
     disabled?: boolean;
     onSave?: (settings: { enabled: boolean; styles: string[]; persons: string[] }) => void;
     isSaving?: boolean;
+
+    // Legacy backwards-compatibility props
+    engineMode?: string;
+    onChangeEngineMode?: (mode: any) => void;
+    selectedPreset?: string;
+    onSelectPreset?: (val: any) => void;
+    selectedPersonas?: any;
+    onTogglePersona?: (id: any) => void;
+    selectedTimbres?: any;
+    onToggleTimbre?: (id: any) => void;
 }
 
 export function AudiobookVoiceSelector({
     enabled = true,
     onToggleEnabled,
-    selectedStyles = ['warm'],
+    selectedStyles,
     onToggleStyle,
-    selectedPersons = ['original'],
+    selectedPersons,
     onTogglePerson,
     disabled = false,
     onSave,
-    isSaving = false
+    isSaving = false,
+    engineMode,
+    onChangeEngineMode,
+    selectedPreset,
+    onSelectPreset,
+    selectedPersonas,
+    onTogglePersona,
+    selectedTimbres,
+    onToggleTimbre
 }: AudiobookVoiceSelectorProps) {
+    const effectiveStyles = selectedStyles || (selectedPreset ? [selectedPreset] : ['warm']);
+    const effectivePersons = selectedPersons || (Array.isArray(selectedPersonas) ? selectedPersonas : ['original']);
+    const effectiveToggleStyle = onToggleStyle || onSelectPreset;
+    const effectiveTogglePerson = onTogglePerson || onTogglePersona;
     const [localEnabled, setLocalEnabled] = useState(enabled);
-    const [localStyles, setLocalStyles] = useState<string[]>(selectedStyles.length > 0 ? selectedStyles : ['warm']);
-    const [localPersons, setLocalPersons] = useState<string[]>(selectedPersons.length > 0 ? selectedPersons : ['original']);
+    const [localStyles, setLocalStyles] = useState<string[]>(effectiveStyles.length > 0 ? effectiveStyles : ['warm']);
+    const [localPersons, setLocalPersons] = useState<string[]>(effectivePersons.length > 0 ? effectivePersons : ['original']);
 
     const isVoiceActive = onToggleEnabled ? enabled : localEnabled;
-    const currentStyles = onToggleStyle ? selectedStyles : localStyles;
-    const currentPersons = onTogglePerson ? selectedPersons : localPersons;
+    const currentStyles = effectiveToggleStyle ? effectiveStyles : localStyles;
+    const currentPersons = effectiveTogglePerson ? effectivePersons : localPersons;
 
     const toggleStyle = (id: string) => {
-        if (onToggleStyle) {
-            onToggleStyle(id);
+        if (effectiveToggleStyle) {
+            effectiveToggleStyle(id);
         } else {
             setLocalStyles(prev => {
                 const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
@@ -53,8 +75,8 @@ export function AudiobookVoiceSelector({
     };
 
     const togglePerson = (id: string) => {
-        if (onTogglePerson) {
-            onTogglePerson(id);
+        if (effectiveTogglePerson) {
+            effectiveTogglePerson(id);
         } else {
             setLocalPersons(prev => {
                 const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];

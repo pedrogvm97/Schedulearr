@@ -145,8 +145,8 @@ export async function POST(request: Request) {
                         upsertAudiobookChapterMeta({
                             chapter_key: ch.chapter_key,
                             book_key: bookKey,
-                            illustration_status: 'scenes_detected',
-                            error_message: null
+                            illustration_status: 'queued',
+                            error_message: undefined
                         });
                     }
                 });

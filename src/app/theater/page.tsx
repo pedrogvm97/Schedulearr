@@ -33,6 +33,8 @@ import { AuthorDetailsModal } from '@/components/AuthorDetailsModal';
 import { MediaGradingModal, HexagonRadarPlot, CATEGORIES_BY_MEDIA_TYPE } from '@/components/MediaGradingModal';
 import { AUDIOBOOK_VOICE_TIMBRE_PRESETS, AUDIOBOOK_VOICE_TONE_PRESETS, getVoicePresetById } from '@/lib/audiobookStudioShared';
 import { AudiobookTranscriptViewerModal } from '@/components/AudiobookTranscriptViewerModal';
+import { CollapsibleNavSidebar, CollapsibleSidebarItem } from '@/components/CollapsibleNavSidebar';
+import { SleekSelect } from '@/components/SleekSelect';
 import { UnifiedCleanerModal } from '@/components/UnifiedCleanerModal';
 import { ConnectedDevicesToggleSection } from '@/components/ConnectedDevicesToggleSection';
 
@@ -5058,11 +5060,10 @@ function TheaterPageContent() {
                     items={theaterSidebarItems}
                     activeItemId={activeContentTab}
                     activeSubItemId={activeLibrary?.id}
-                    onSelectItem={(itemId, subItemId) => {
+                    onSelectItem={(itemId: string, subItemId?: string) => {
                         setActiveContentTab(itemId as any);
                         if (subItemId) {
-                            const lib = libraries.find(l => l.id === subItemId);
-                            if (lib) handleSelectLibrary(lib);
+                            setActiveLibraryId(subItemId);
                         }
                     }}
                     storageKey="schedulearr_theater_sidebar_collapsed"
