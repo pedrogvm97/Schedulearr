@@ -36,13 +36,190 @@ export interface CuratedVoiceProfile {
     name: string;
     subtitle: string;
     gender: 'male' | 'female' | 'neutral';
-    category: 'tone' | 'timbre' | 'iconic' | 'classic' | 'intimate' | 'broadcast';
+    category: 'tone' | 'timbre' | 'iconic' | 'classic' | 'intimate' | 'broadcast' | 'person';
     type: 'tone' | 'timbre';
     description: string;
     tags: string[];
     pitchOffset: number;
     color: string;
     modelName?: string;
+    avatarUrl?: string;
+}
+
+// ── Real Iconic Person Voices (Known Real Human Models) ──
+export interface RealPersonVoice {
+    id: string;
+    name: string;
+    subtitle: string;
+    description: string;
+    isOriginal?: boolean;
+    color: string;
+    tags: string[];
+}
+
+export const REAL_PERSON_VOICES: RealPersonVoice[] = [
+    {
+        id: 'original',
+        name: 'Original Narrator',
+        subtitle: 'Keep Original Voice',
+        description: 'Preserve authentic book reader voice, applying selected acoustic style mastering.',
+        isOriginal: true,
+        color: 'from-zinc-700 to-zinc-900',
+        tags: ['Original Actor', 'Style Adaptive', 'Pure Narration']
+    },
+    {
+        id: 'morgan_freeman',
+        name: 'Morgan Freeman',
+        subtitle: 'Reverent Cinematic Depth',
+        description: 'Commanding baritone gravitas, measured storytelling cadence and iconic depth.',
+        color: 'from-amber-600 to-amber-950',
+        tags: ['Celebrity', 'Epic Depth', 'Baritone', 'US']
+    },
+    {
+        id: 'david_attenborough',
+        name: 'David Attenborough',
+        subtitle: 'Iconic Nature & Wonder',
+        description: 'Warm British storytelling cadence, articulate pacing and timeless wisdom.',
+        color: 'from-emerald-600 to-teal-950',
+        tags: ['Celebrity', 'British Heritage', 'Documentary', 'UK']
+    },
+    {
+        id: 'nelson_mandela',
+        name: 'Nelson Mandela',
+        subtitle: 'Warm Dignified Gravitas',
+        description: 'Distinguished, resonant, slow deliberate cadence full of historical warmth.',
+        color: 'from-orange-600 to-yellow-950',
+        tags: ['Celebrity', 'Dignified', 'Warm Bass', 'Global']
+    },
+    {
+        id: 'sydney_sweeney',
+        name: 'Sydney Sweeney',
+        subtitle: 'Intimate Soft Contemporary',
+        description: 'Gentle, expressive youthful vocal timbre with natural contemporary flow.',
+        color: 'from-rose-500 to-pink-900',
+        tags: ['Celebrity', 'Female', 'Intimate', 'US']
+    },
+    {
+        id: 'scarlett_johansson',
+        name: 'Scarlett Johansson',
+        subtitle: 'Warm Velvet Storyteller',
+        description: 'Rich husky undertones, cinematic presence and soothing bedtime warmth.',
+        color: 'from-purple-600 to-fuchsia-950',
+        tags: ['Celebrity', 'Female', 'Velvet', 'US']
+    },
+    {
+        id: 'alan_watts',
+        name: 'Alan Watts',
+        subtitle: 'Philosophical Storyteller',
+        description: 'Calm, contemplative British cadence with gentle fireside chuckles.',
+        color: 'from-sky-600 to-indigo-950',
+        tags: ['Celebrity', 'Philosophical', 'Calm', 'UK']
+    },
+    {
+        id: 'neil_degrasse_tyson',
+        name: 'Neil deGrasse Tyson',
+        subtitle: 'Cosmic Science Energy',
+        description: 'Passionate, energetic delivery, perfect for hard sci-fi and cosmic epics.',
+        color: 'from-blue-600 to-cyan-950',
+        tags: ['Celebrity', 'Cosmic Sci-Fi', 'Energetic', 'US']
+    }
+];
+
+export interface VoiceStylePreset {
+    id: string;
+    label: string;
+    subtitle: string;
+    description: string;
+    color: string;
+}
+
+export const VOICE_STYLE_PRESETS: VoiceStylePreset[] = [
+    {
+        id: 'warm',
+        label: 'Warm Storyteller',
+        subtitle: 'Fireside Warmth & Zero Fatigue',
+        description: 'Smooth lower-mid presence, cozy dynamics, zero harshness.',
+        color: 'border-amber-500/50 text-amber-300'
+    },
+    {
+        id: 'bright',
+        label: 'Bright & Articulate',
+        subtitle: 'Vocal Clarity & Modern EQ',
+        description: 'Airy highs, articulate consonants, modern audiobook broadcast fidelity.',
+        color: 'border-sky-500/50 text-sky-300'
+    },
+    {
+        id: 'cheerful',
+        label: 'Cheerful & Vibrant',
+        subtitle: 'Uplifting Pace & Dynamic Energy',
+        description: 'Lively narrative cadence with buoyant dialogue phrasing.',
+        color: 'border-emerald-500/50 text-emerald-300'
+    },
+    {
+        id: 'deep',
+        label: 'Deep Baritone',
+        subtitle: 'Cinematic Sub-Harmonics & Gravitas',
+        description: 'Resonant low-frequency presence suited for epic sagas.',
+        color: 'border-purple-500/50 text-purple-300'
+    },
+    {
+        id: 'studio',
+        label: 'Studio Neutral',
+        subtitle: 'Clean Acoustic Normalization',
+        description: 'Balanced uncolored mastering with pure studio dynamic control.',
+        color: 'border-zinc-500/50 text-zinc-300'
+    }
+];
+
+export function calculateVoiceCombinations(
+    styles: string[],
+    persons: string[]
+): {
+    totalExtraIterations: number;
+    summaryText: string;
+    combinations: Array<{ styleId: string; personId: string; label: string }>;
+} {
+    const validStyles = styles.length > 0 ? styles : ['warm'];
+    const validPersons = persons.length > 0 ? persons : ['original'];
+
+    const hasOriginal = validPersons.includes('original');
+    const extraPersons = validPersons.filter(p => p !== 'original');
+
+    const combinations: Array<{ styleId: string; personId: string; label: string }> = [];
+
+    // Combinations of styles with original voice
+    if (hasOriginal) {
+        validStyles.forEach(s => {
+            const stObj = VOICE_STYLE_PRESETS.find(x => x.id === s);
+            combinations.push({
+                styleId: s,
+                personId: 'original',
+                label: `Original Voice (${stObj?.label || s})`
+            });
+        });
+    }
+
+    // Combinations of styles with extra personas
+    extraPersons.forEach(p => {
+        const pObj = REAL_PERSON_VOICES.find(x => x.id === p);
+        validStyles.forEach(s => {
+            const stObj = VOICE_STYLE_PRESETS.find(x => x.id === s);
+            combinations.push({
+                styleId: s,
+                personId: p,
+                label: `${pObj?.name || p} (${stObj?.label || s})`
+            });
+        });
+    });
+
+    const totalExtraIterations = combinations.length;
+    const summaryText = `1 + ${totalExtraIterations} Available (Original + ${totalExtraIterations} Generated Iterations)`;
+
+    return {
+        totalExtraIterations,
+        summaryText,
+        combinations
+    };
 }
 
 // ── Column 1: Tone (Acoustic Clarity & Studio Mastering) ──

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import Link from 'next/link';
@@ -4970,6 +4970,76 @@ function TheaterPageContent() {
         }
     };
 
+    const theaterSidebarItems: CollapsibleSidebarItem[] = useMemo(() => {
+        return [
+            {
+                id: 'movie',
+                label: 'Movies',
+                icon: <Film size={22} className="text-indigo-400" />,
+                count: libraries.filter(l => matchesTabType(l.type, 'movie')).length,
+                subItems: libraries.filter(l => matchesTabType(l.type, 'movie')).map(l => ({
+                    id: l.id,
+                    label: l.name,
+                    icon: <Folder size={14} className="text-indigo-400" />
+                }))
+            },
+            {
+                id: 'show',
+                label: 'Series',
+                icon: <Tv size={22} className="text-emerald-400" />,
+                count: libraries.filter(l => matchesTabType(l.type, 'show')).length,
+                subItems: libraries.filter(l => matchesTabType(l.type, 'show')).map(l => ({
+                    id: l.id,
+                    label: l.name,
+                    icon: <Folder size={14} className="text-emerald-400" />
+                }))
+            },
+            {
+                id: 'live',
+                label: 'Live TV',
+                icon: <RadioTower size={22} className="text-red-400" />,
+                count: libraries.filter(l => matchesTabType(l.type, 'live')).length,
+                subItems: libraries.filter(l => matchesTabType(l.type, 'live')).map(l => ({
+                    id: l.id,
+                    label: l.name,
+                    icon: <Tv2 size={14} className="text-red-400" />
+                }))
+            },
+            {
+                id: 'music',
+                label: 'Music',
+                icon: <Music size={22} className="text-amber-400" />,
+                count: libraries.filter(l => matchesTabType(l.type, 'music')).length,
+                subItems: libraries.filter(l => matchesTabType(l.type, 'music')).map(l => ({
+                    id: l.id,
+                    label: l.name,
+                    icon: <Disc size={14} className="text-amber-400" />
+                }))
+            },
+            {
+                id: 'audiobooks',
+                label: 'Audiobooks',
+                icon: <BookOpen size={22} className="text-orange-400" />,
+                count: libraries.filter(l => matchesTabType(l.type, 'audiobooks')).length,
+                subItems: libraries.filter(l => matchesTabType(l.type, 'audiobooks')).map(l => ({
+                    id: l.id,
+                    label: l.name,
+                    icon: <BookOpen size={14} className="text-orange-400" />
+                }))
+            },
+            {
+                id: 'photos',
+                label: 'Photos',
+                icon: <ImageIcon size={22} className="text-sky-400" />,
+                count: libraries.filter(l => matchesTabType(l.type, 'photo')).length,
+                subItems: libraries.filter(l => matchesTabType(l.type, 'photo')).map(l => ({
+                    id: l.id,
+                    label: l.name,
+                    icon: <ImageIcon size={14} className="text-sky-400" />
+                }))
+            }
+        ];
+    }, [libraries, matchesTabType]);
     const getLibIcon = (type: string, size = 18) => {
         if (type === 'movie') return <Film size={size} className="text-indigo-400" />;
         if (type === 'show') return <Tv size={size} className="text-emerald-400" />;
@@ -4983,97 +5053,30 @@ function TheaterPageContent() {
         <>
             <Toaster position="top-right" theme="dark" richColors />
 
-            <div className="space-y-6 pb-36">
-                {/* ══════════════════════════════════════════════════════════════
-                    TOP HEADER — Title left, Search + Actions right
-                    ══════════════════════════════════════════════════════════════ */}
-                <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl space-y-4">
-                    {/* Row 1: Title + Action controls */}
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div>
-                            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
-                                <Film size={26} className="text-emerald-400" /> Theater
-                            </h1>
-                            <p className="text-sm text-zinc-500 mt-0.5 font-medium">
-                                Movies, Series, Live TV, Music Studio, and Photos
-                            </p>
-                        </div>
+            <div className="flex items-start gap-6 pb-36">
+                <CollapsibleNavSidebar
+                    items={theaterSidebarItems}
+                    activeItemId={activeContentTab}
+                    activeSubItemId={activeLibrary?.id}
+                    onSelectItem={(itemId, subItemId) => {
+                        setActiveContentTab(itemId as any);
+                        if (subItemId) {
+                            const lib = libraries.find(l => l.id === subItemId);
+                            if (lib) handleSelectLibrary(lib);
+                        }
+                    }}
+                    storageKey="schedulearr_theater_sidebar_collapsed"
+                    colorScheme="emerald"
+                />
 
-                        <div className="flex items-center gap-2 flex-wrap">
-                            {/* 1. Reload Theater View (fetches latest media items from database/cache into the UI) */}
-                            {activeLibrary && (
-                                <button
-                                    onClick={() => handleRescanLibrary(activeLibrary)}
-                                    title={activeContentTab === 'live' ? 'Reload Theater View: Fetch latest channels from database' : `Reload Theater View: Fetch latest items for "${activeLibrary.name}" from database`}
-                                    className="p-3.5 rounded-2xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 text-zinc-300 hover:text-emerald-400 transition-all shadow-sm active:scale-95 cursor-pointer shrink-0"
-                                >
-                                    <RefreshCw size={20} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
-                                </button>
-                            )}
-
-                            {/* 2. Scan Current Library in Plex (tells Plex Media Server to scan disk for this library) */}
-                            {activeLibrary && activeContentTab !== 'live' && (
-                                <button
-                                    onClick={() => handlePlexScan(activeLibrary.id, false)}
-                                    disabled={scanningPlex}
-                                    title={`Scan Library in Plex: Tells Plex Media Server to scan disk for new files in "${activeLibrary.name}"`}
-                                    className="p-3.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 hover:text-amber-300 border border-amber-500/40 transition-all shadow-sm active:scale-95 cursor-pointer shrink-0 disabled:opacity-40"
-                                >
-                                    <FolderSync size={20} className={scanningPlex ? 'animate-spin' : ''} />
-                                </button>
-                            )}
-
-                            {/* 3. Scan All Libraries in Plex (tells Plex Media Server to scan disk across ALL libraries) */}
-                            {activeContentTab !== 'live' && (
-                                <button
-                                    onClick={() => handlePlexScan(undefined, true)}
-                                    disabled={scanningPlex}
-                                    title="Scan All Plex: Tells Plex Media Server to scan disk for new files across ALL libraries"
-                                    className="p-3.5 rounded-2xl bg-zinc-950 hover:bg-zinc-900 text-amber-400 hover:text-amber-300 border border-zinc-800 hover:border-amber-500/40 transition-all shadow-sm active:scale-95 cursor-pointer shrink-0 disabled:opacity-40"
-                                >
-                                    <Layers size={20} className={scanningPlex ? 'animate-pulse' : ''} />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Row 2: Content-type tabs (Left) + Search Bar (Right) */}
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner overflow-x-auto flex-nowrap max-w-full">
-                            {([
-                                { id: 'movie', label: 'Movies', icon: <Film size={15} />, color: 'text-indigo-400', activeBg: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' },
-                                { id: 'show', label: 'Series', icon: <Tv size={15} />, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' },
-                                { id: 'live', label: 'Live TV', icon: <RadioTower size={15} />, color: 'text-red-400', activeBg: 'bg-red-500/20 text-red-300 border border-red-500/40' },
-                                { id: 'music', label: 'Music', icon: <Music size={15} />, color: 'text-amber-400', activeBg: 'bg-amber-500/20 text-amber-300 border border-amber-500/40' },
-                                { id: 'audiobooks', label: 'Audiobooks', icon: <BookOpen size={15} />, color: 'text-orange-400', activeBg: 'bg-orange-500/20 text-orange-300 border border-orange-500/40' },
-                                { id: 'photos', label: 'Photos', icon: <ImageIcon size={15} />, color: 'text-sky-400', activeBg: 'bg-sky-500/20 text-sky-300 border border-sky-500/40' },
-                            ] as const).map(tab => {
-                                const isActive = activeContentTab === tab.id;
-                                const count = libraries.filter(l => matchesTabType(l.type, tab.id)).length;
-                                return (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => setActiveContentTab(tab.id as any)}
-                                        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                                            isActive ? tab.activeBg : 'text-zinc-500 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        {tab.icon}
-                                        <span>{tab.label}</span>
-                                        {count > 0 && (
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg font-bold ${isActive ? 'bg-white/10' : 'bg-zinc-900'}`}>
-                                                {count}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        <div className="relative flex-1 min-w-[280px] max-w-md">
-                            {/* Search */}
-                            <div className="relative flex-1">
-                                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                <div className="flex-1 min-w-0 space-y-6">
+                    {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+                        TOP HEADER â€” Search Bar + Library Actions
+                        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+                    <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="relative flex-1 min-w-[280px]">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                                 <input
                                     type="text"
                                     placeholder={
@@ -5083,20 +5086,52 @@ function TheaterPageContent() {
                                     }
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-8 py-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-500 transition-colors"
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-11 pr-10 py-3 text-sm sm:text-base text-white placeholder-zinc-500 outline-none focus:border-emerald-500 transition-colors"
                                 />
                                 {searchQuery && (
                                     <button
                                         onClick={() => setSearchQuery('')}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 cursor-pointer"
                                     >
-                                        <X size={14} />
+                                        <X size={16} />
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {activeLibrary && (
+                                    <button
+                                        onClick={() => handleRescanLibrary(activeLibrary)}
+                                        title={activeContentTab === 'live' ? 'Reload Theater View: Fetch latest channels from database' : "Reload Theater View: Fetch latest items from database"}
+                                        className="p-3.5 rounded-2xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 text-zinc-300 hover:text-emerald-400 transition-all shadow-sm active:scale-95 cursor-pointer shrink-0"
+                                    >
+                                        <RefreshCw size={20} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
+                                    </button>
+                                )}
+
+                                {activeLibrary && activeContentTab !== 'live' && (
+                                    <button
+                                        onClick={() => handlePlexScan(activeLibrary.id, false)}
+                                        disabled={scanningPlex}
+                                        title="Scan Library in Plex: Tells Plex Media Server to scan disk for new files"
+                                        className="p-3.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 hover:text-amber-300 border border-amber-500/40 transition-all shadow-sm active:scale-95 cursor-pointer shrink-0 disabled:opacity-40"
+                                    >
+                                        <FolderSync size={20} className={scanningPlex ? 'animate-spin' : ''} />
+                                    </button>
+                                )}
+
+                                {activeContentTab !== 'live' && (
+                                    <button
+                                        onClick={() => handlePlexScan(undefined, true)}
+                                        disabled={scanningPlex}
+                                        title="Scan All Plex: Tells Plex Media Server to scan disk across ALL libraries"
+                                        className="p-3.5 rounded-2xl bg-zinc-950 hover:bg-zinc-900 text-amber-400 hover:text-amber-300 border border-zinc-800 hover:border-amber-500/40 transition-all shadow-sm active:scale-95 cursor-pointer shrink-0 disabled:opacity-40"
+                                    >
+                                        <Layers size={20} className={scanningPlex ? 'animate-pulse' : ''} />
                                     </button>
                                 )}
                             </div>
                         </div>
-                    </div>
-
                     {/* Row 3: Per-tab library toggles */}
                     {activeTabLibraries.length > 1 && (
                         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -7582,6 +7617,7 @@ function TheaterPageContent() {
                         ) : null}
                     </div>
                 )}
+                </div>
             </div>
 
             {/* ── Album Detail Modal (Full Discography, Metadata, Fix Match & Track Downloads) ── */}

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
@@ -15,6 +15,7 @@ import { AudiobookTranscriptViewerModal } from '@/components/AudiobookTranscript
 import { UnifiedCleanerModal } from '@/components/UnifiedCleanerModal';
 import { AudiobookVoiceSelector } from '@/components/AudiobookVoiceSelector';
 import { AudiobookExportModal } from '@/components/AudiobookExportModal';
+import { SleekSelect } from '@/components/SleekSelect';
 import {
     CURATED_VOICE_PROFILES,
     CuratedVoiceProfile,
@@ -274,8 +275,21 @@ function formatMMSS(sec: number): string {
     return `${mm}:${ss}`;
 }
 
-export function AudiobooksMediaManager() {
-    const [activeSubTab, setActiveSubTab] = useState<'books' | 'collections' | 'renamer' | 'ai' | 'queue_settings'>('books');
+export interface AudiobooksMediaManagerProps {
+    controlledSubTab?: 'books' | 'collections' | 'renamer' | 'ai' | 'queue_settings';
+    onControlledSubTabChange?: (tab: 'books' | 'collections' | 'renamer' | 'ai' | 'queue_settings') => void;
+}
+
+export function AudiobooksMediaManager({
+    controlledSubTab,
+    onControlledSubTabChange
+}: AudiobooksMediaManagerProps = {}) {
+    const [internalActiveSubTab, setInternalActiveSubTab] = useState<'books' | 'collections' | 'renamer' | 'ai' | 'queue_settings'>('books');
+    const activeSubTab = controlledSubTab || internalActiveSubTab;
+    const setActiveSubTab = (tab: 'books' | 'collections' | 'renamer' | 'ai' | 'queue_settings') => {
+        if (onControlledSubTabChange) onControlledSubTabChange(tab);
+        else setInternalActiveSubTab(tab);
+    };
     const [aiMainSubTab, setAiMainSubTab] = useState<'queue' | 'settings'>('queue');
     const [draggedBookKey, setDraggedBookKey] = useState<string | null>(null);
     const [dragOverBookKey, setDragOverBookKey] = useState<string | null>(null);
@@ -2490,6 +2504,7 @@ export function AudiobooksMediaManager() {
     return (
         <div className="space-y-6">
             {/* ── Top Bar: Simple Big Symbols + Single-Word Labels ── */}
+{!controlledSubTab && (
             <div className="p-5 rounded-3xl bg-zinc-900/60 border border-zinc-800/80 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="flex items-center gap-3 flex-wrap">
                     <button
@@ -2502,7 +2517,7 @@ export function AudiobooksMediaManager() {
                         }`}
                     >
                         <BookOpen size={20} />
-                        <span>Books</span>
+                        <span>Audiobooks</span>
                         <span className={`px-2.5 py-0.5 rounded-lg text-xs font-mono font-black ${
                             activeSubTab === 'books' ? 'bg-black/20 text-black' : 'bg-zinc-800 text-amber-400'
                         }`}>
@@ -2610,87 +2625,82 @@ export function AudiobooksMediaManager() {
                     </button>
                 </div>
             </div>
+            )}
 
             {/* ── TAB 1: BOOKS (WITH GENRE, AUTHOR, SORT & SEARCH) ── */}
             {activeSubTab === 'books' && (
                 <div className="space-y-5">
                     {/* Filter & Sort Toolbar (Identical to Theater, wrapping Genre pills with zero horizontal scrollbar) */}
                     <div className="p-5 rounded-3xl bg-zinc-900/50 border border-zinc-800/80 space-y-4">
-                        <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4">
-                            {/* Genre Pills */}
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <button
-                                    onClick={() => setSelectedGenreFilter('ALL')}
-                                    className={`px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wider whitespace-nowrap cursor-pointer transition-all ${
-                                        selectedGenreFilter === 'ALL'
-                                            ? 'bg-amber-400 text-black shadow'
-                                            : 'bg-zinc-950 text-zinc-300 hover:text-white border border-zinc-800'
-                                    }`}
-                                >
-                                    All ({allBooks.length})
-                                </button>
-                                {availableGenres.map(g => (
-                                    <button
-                                        key={g}
-                                        onClick={() => setSelectedGenreFilter(prev => prev === g ? 'ALL' : g)}
-                                        className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap cursor-pointer transition-all ${
-                                            selectedGenreFilter === g
-                                                ? 'bg-amber-400 text-black font-black shadow'
-                                                : 'bg-zinc-950 text-zinc-300 hover:text-white border border-zinc-800'
-                                        }`}
-                                    >
-                                        {g}
-                                    </button>
-                                ))}
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            {/* Left: Sleek Custom Dropdowns */}
+                            <div className="flex flex-wrap items-center gap-3">
+                                {/* Genre Custom Dropdown */}
+                                <SleekSelect
+                                    icon={<BookOpen size={16} />}
+                                    value={selectedGenreFilter}
+                                    onChange={v => setSelectedGenreFilter(v)}
+                                    options={[
+                                        { id: 'ALL', label: All Genres () },
+                                        ...availableGenres.map(g => ({ id: g, label: g }))
+                                    ]}
+                                    colorScheme="amber"
+                                    size="md"
+                                    minWidth="200px"
+                                    title="Filter by Genre"
+                                />
+
+                                {/* Author Custom Dropdown */}
+                                <SleekSelect
+                                    icon={<User size={16} />}
+                                    value={selectedAuthorFilter}
+                                    onChange={v => setSelectedAuthorFilter(v)}
+                                    options={[
+                                        { id: 'ALL', label: All Authors () },
+                                        ...availableAuthors.map(a => ({ id: a.name, label: ${a.name} () }))
+                                    ]}
+                                    colorScheme="amber"
+                                    size="md"
+                                    minWidth="220px"
+                                    title="Filter by Author"
+                                />
+
+                                {/* Sort Custom Dropdown */}
+                                <SleekSelect
+                                    icon={<Layers size={16} />}
+                                    value={sortBy}
+                                    onChange={v => setSortBy(v)}
+                                    options={[
+                                        { id: 'title', label: 'Sort: Title' },
+                                        { id: 'author', label: 'Sort: Author' },
+                                        { id: 'year', label: 'Sort: Year' },
+                                        { id: 'duration', label: 'Sort: Duration' }
+                                    ]}
+                                    colorScheme="amber"
+                                    size="md"
+                                    minWidth="160px"
+                                    title="Sort Audiobooks"
+                                />
                             </div>
 
-                            {/* Author Filter, Sort By & Search */}
-                            <div className="flex flex-wrap items-center gap-3">
-                                {/* Author Dropdown */}
-                                <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-zinc-950 border border-zinc-800">
-                                    <User size={16} className="text-amber-400 shrink-0" />
-                                    <select
-                                        value={selectedAuthorFilter}
-                                        onChange={e => setSelectedAuthorFilter(e.target.value)}
-                                        title="Filter by Author"
-                                        className="bg-transparent text-sm font-bold text-white focus:outline-none cursor-pointer"
+                            {/* Search Box */}
+                            <div className="relative flex-1 min-w-[240px] max-w-md">
+                                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    placeholder="Search audiobooks, authors..."
+                                    className="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm sm:text-base text-white focus:outline-none focus:border-amber-500 transition-colors"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 cursor-pointer"
                                     >
-                                        <option value="ALL" className="bg-zinc-900 text-white">All Authors ({availableAuthors.length})</option>
-                                        {availableAuthors.map(a => (
-                                            <option key={a.name} value={a.name} className="bg-zinc-900 text-white">
-                                                {a.name} ({a.count})
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Sort Dropdown */}
-                                <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-zinc-950 border border-zinc-800">
-                                    <Layers size={16} className="text-amber-400 shrink-0" />
-                                    <select
-                                        value={sortBy}
-                                        onChange={e => setSortBy(e.target.value as any)}
-                                        title="Sort Books"
-                                        className="bg-transparent text-sm font-bold text-white focus:outline-none cursor-pointer"
-                                    >
-                                        <option value="title" className="bg-zinc-900 text-white">Sort: Title</option>
-                                        <option value="author" className="bg-zinc-900 text-white">Sort: Author</option>
-                                        <option value="year" className="bg-zinc-900 text-white">Sort: Year</option>
-                                        <option value="duration" className="bg-zinc-900 text-white">Sort: Duration</option>
-                                    </select>
-                                </div>
-
-                                {/* Search Box */}
-                                <div className="relative flex-1 min-w-[220px]">
-                                    <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                                    <input
-                                        type="text"
-                                        value={searchQuery}
-                                        onChange={e => setSearchQuery(e.target.value)}
-                                        placeholder="Search..."
-                                        className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-white focus:outline-none focus:border-amber-500"
-                                    />
-                                </div>
+                                        <X size={15} />
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -2891,7 +2901,7 @@ export function AudiobooksMediaManager() {
                                 return (
                                     <div
                                         key={series.id}
-                                        className="p-6 rounded-3xl bg-zinc-900/70 border-2 border-zinc-800/90 hover:border-amber-500/50 flex flex-col justify-between gap-5 shadow-xl transition-all"
+                                    <div key={series.id} className="h-[520px] p-6 rounded-3xl bg-zinc-900/70 border-2 border-zinc-800/90 hover:border-amber-500/50 flex flex-col justify-start gap-4 shadow-xl transition-all">
                                     >
                                         {/* Series Top Header: Fanned Book Covers + Title + Author + Controls */}
                                         <div className="flex items-start justify-between gap-4">
@@ -2949,20 +2959,18 @@ export function AudiobooksMediaManager() {
                                                 >
                                                     <Edit3 size={18} />
                                                 </button>
-                                                {series.source === 'manual' && (
-                                                    <button
-                                                        onClick={() => handleDeleteCollection(series.id)}
-                                                        title="Delete Saved Series"
-                                                        className="p-2.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
-                                                    >
-                                                        <Trash2 size={18} />
-                                                    </button>
-                                                )}
+                                                <button
+                                                    onClick={() => handleDeleteCollection(series.id)}
+                                                    title="Delete Series"
+                                                    className="p-2.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 cursor-pointer"
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
                                             </div>
                                         </div>
 
                                         {/* Ordered Books Inside Series */}
-                                        <div className="space-y-2.5 pt-2 border-t border-zinc-800/80">
+                                        <div className="space-y-2.5 pt-2 border-t border-zinc-800/80 flex-1 overflow-y-auto pr-1 custom-scrollbar">
                                             {seriesBooks.map((book: any, bIdx: number) => (
                                                 <div
                                                     key={book.bookKey}
@@ -4061,32 +4069,37 @@ export function AudiobooksMediaManager() {
                                     {studioConfig?.itunesAudiobookProvider !== false ? 'ON' : 'OFF'}
                                 </button>
                             </div>
+                        {/* Auto Series Grouping Toggle */}
+                        <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-base font-black text-white">Auto Series Grouping</p>
+                                <p className="text-xs font-bold text-zinc-400">Automatically create series collections and reading orders</p>
+                            </div>
+                            <button
+                                onClick={() => handleSaveConfig({ autoGroupSeriesEnabled: studioConfig?.autoGroupSeriesEnabled === false ? true : false })}
+                                className={px-4 py-2 rounded-xl text-xs font-black uppercase cursor-pointer }
+                            >
+                                {studioConfig?.autoGroupSeriesEnabled !== false ? 'ON' : 'OFF'}
+                            </button>
                         </div>
 
-                        {/* AI Provider API Key */}
-                        <div className="space-y-3 pt-2 border-t border-zinc-800">
-                            <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
-                                <Sliders size={18} className="text-amber-400" />
-                                <span>AI Provider API Key</span>
-                            </h4>
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <input
-                                    type="password"
-                                    value={apiKeyInput}
-                                    onChange={e => setApiKeyInput(e.target.value)}
-                                    placeholder="Paste Gemini / OpenAI / Claude / Groq API Key (or leave blank for Free Built-in)..."
-                                    className="flex-1 px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono focus:outline-none focus:border-amber-500"
-                                />
-                                <button
-                                    onClick={() => handleSaveConfig({})}
-                                    disabled={savingConfig}
-                                    className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider cursor-pointer"
-                                >
-                                    Save Key
-                                </button>
+                        {/* Central Settings Link for AI Keys & Telemetry */}
+                        <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3">
+                            <div className="space-y-1">
+                                <h4 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                    <Sliders size={18} className="text-amber-400" />
+                                    <span>AI Provider Keys &amp; Telemetry</span>
+                                </h4>
+                                <p className="text-xs text-zinc-400 font-medium">Manage API keys (Gemini, Claude, OpenAI, Groq), rate limits, and quota telemetry in Central Settings.</p>
                             </div>
+                            <a
+                                href="/settings?subtopic=ai"
+                                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer shrink-0 shadow-lg"
+                            >
+                                <span>Open Settings</span>
+                                <ArrowRight size={14} />
+                            </a>
                         </div>
-                    </div>
                 );
             })()}
 
@@ -4183,33 +4196,6 @@ export function AudiobooksMediaManager() {
                                         )}
                                     </div>
 
-                                    <div className="pt-1 flex items-center gap-2.5 flex-wrap">
-                                        <button
-                                            onClick={() => {
-                                                setBookModalMainTab('book');
-                                                setShowBookCustomizePanel(prev => !prev);
-                                            }}
-                                            title="Swap between available cover arts, edit synopsis, author bio & metadata"
-                                            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider flex items-center gap-2 border transition-all cursor-pointer ${
-                                                showBookCustomizePanel && bookModalMainTab === 'book'
-                                                    ? 'bg-amber-500 text-black border-amber-400 shadow-lg'
-                                                    : 'bg-zinc-900 hover:bg-zinc-800 text-amber-300 border-amber-500/40'
-                                            }`}
-                                        >
-                                            <Sliders size={16} />
-                                            <span>Customize</span>
-                                        </button>
-                                        <button
-                                            onClick={() => handleFetchBookMetadata(currentModalBook, true)}
-                                            disabled={fetchedDetails.loading}
-                                            title="Fetch available cover arts, synopsis, year & genre from OpenLibrary & iTunes"
-                                            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs sm:text-sm font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                        >
-                                            <RefreshCw size={15} className={fetchedDetails.loading ? 'animate-spin text-amber-400' : 'text-amber-400'} />
-                                            <span>Fetch</span>
-                                        </button>
-                                    </div>
-                                </div>
                             </div>
 
                             {/* Main Modal Switcher: [Book] vs [AI] + Close */}
@@ -4281,335 +4267,146 @@ export function AudiobooksMediaManager() {
                                 const displayAuthorBio = editAuthorBio || currentModalBook.savedAuthorBio || fetchedDetails.authorBio || '';
 
                                 return (
-                                    <div className="space-y-6">
-                                        {/* ── LARGE EXPANDED 3D BOOK SHOWCASE ── */}
-                                        <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-br from-[#22160c] via-zinc-900/95 to-zinc-950 border-2 border-amber-500/35 shadow-2xl flex flex-col md:flex-row items-center md:items-start gap-7">
-                                            {/* 3D Hardcover Book Presentation with Settings Icon */}
-                                            <div className="relative group shrink-0">
-                                                <div
-                                                    onClick={() => setShowBookCustomizePanel(prev => !prev)}
-                                                    title="Click book or settings icon to swap cover art & edit synopsis"
-                                                    className="w-48 h-72 sm:w-56 sm:h-80 rounded-r-3xl rounded-l-lg bg-gradient-to-br from-[#3b2514] via-[#1f130a] to-[#0f0905] border-2 border-amber-500/50 shadow-[12px_16px_38px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col items-center justify-center relative cursor-pointer transition-transform duration-300 group-hover:scale-[1.02]"
+                                        {/* â”€â”€ 1-CLICK AVAILABLE COVER ARTWORKS STRIP â”€â”€ */}
+                                        <div className="p-5 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-3">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                                    <ImageIcon size={18} className="text-amber-400" />
+                                                    <span>Available Cover Artwork ({allAvailableCovers.length})</span>
+                                                </h4>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleToggleCustomBookCover(true)}
+                                                    disabled={runningStudioAction === 'cover'}
+                                                    className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                                                 >
-                                                    {/* Book Spine Crease Effect */}
-                                                    <div className="absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-black/75 via-white/10 to-transparent z-10 pointer-events-none" />
-                                                    {activeCoverDisplayUrl ? (
-                                                        <img
-                                                            src={activeCoverDisplayUrl}
-                                                            alt={currentModalBook.title}
-                                                            className="w-full h-full object-cover"
-                                                        />
-                                                    ) : (
-                                                        <div className="p-5 text-center flex flex-col items-center justify-center h-full w-full">
-                                                            <BookOpen size={52} className="text-amber-400 mb-3" />
-                                                            <span className="text-base sm:text-lg font-black text-amber-100 leading-snug line-clamp-4">
-                                                                {currentModalBook.title}
-                                                            </span>
-                                                            <span className="text-sm font-bold text-amber-400/90 mt-2 line-clamp-2">
-                                                                {currentModalBook.author}
-                                                            </span>
-                                                        </div>
-                                                    )}
+                                                    <Sparkles size={14} className={runningStudioAction === 'cover' ? 'animate-spin' : ''} />
+                                                    <span>AI Cover</span>
+                                                </button>
+                                            </div>
+                                            {allAvailableCovers.length > 0 && (
+                                                <div className="flex items-center gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                                                    {allAvailableCovers.map((cov, cIdx) => {
+                                                        const isSelected = activeCoverDisplayUrl === cov.url;
+                                                        return (
+                                                            <div
+                                                                key={${cov.url}-}
+                                                                onClick={() => handleSelectBookCover(cov.url, cov.label)}
+                                                                className={w-24 h-36 rounded-xl overflow-hidden border-2 transition-all cursor-pointer flex-shrink-0 relative group }
+                                                                title={Select }
+                                                            >
+                                                                <img src={cov.url} alt={cov.label} className="w-full h-full object-cover" />
+                                                                {isSelected && (
+                                                                    <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-amber-500 text-black text-[10px] font-black uppercase">
+                                                                        Active
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
 
-                                                    {/* Prominent Settings Icon on the Book Cover */}
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setShowBookCustomizePanel(prev => !prev);
-                                                        }}
-                                                        title="Swap cover art, edit synopsis & book details"
-                                                        className={`absolute top-3 right-3 z-20 p-3 rounded-2xl border-2 shadow-2xl flex items-center gap-2 transition-all cursor-pointer ${
-                                                            showBookCustomizePanel
-                                                                ? 'bg-amber-500 text-black border-amber-200 scale-105'
-                                                                : 'bg-black/85 hover:bg-amber-500 text-amber-300 hover:text-black border-amber-500/60'
-                                                        }`}
-                                                    >
-                                                        <Sliders size={22} />
-                                                    </button>
+                                        {/* â”€â”€ DIRECT IN-PLACE BOOK DETAILS EDITOR â”€â”€ */}
+                                        <div className="p-6 rounded-3xl bg-zinc-900/80 border-2 border-amber-500/40 shadow-2xl space-y-5">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <h4 className="text-lg font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                                    <Edit3 size={20} className="text-amber-400" />
+                                                    <span>Edit Details &amp; Metadata</span>
+                                                </h4>
+                                                <button
+                                                    onClick={handleSaveBookMetadata}
+                                                    disabled={savingMetadata}
+                                                    title="Save book metadata"
+                                                    className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50"
+                                                >
+                                                    <Check size={18} />
+                                                    <span>{savingMetadata ? 'Saving...' : 'Save Changes'}</span>
+                                                </button>
+                                            </div>
 
-                                                    {/* Bottom Cover Badge */}
-                                                    <div className="absolute bottom-3 left-3 right-3 z-20 flex items-center justify-between gap-2 pointer-events-none">
-                                                        <span className="px-3 py-1 rounded-xl bg-black/85 border border-amber-500/40 text-amber-300 text-xs font-black uppercase tracking-wider">
-                                                            {allAvailableCovers.length} {allAvailableCovers.length === 1 ? 'Art' : 'Arts'}
-                                                        </span>
-                                                    </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Title</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editTitle}
+                                                        onChange={e => setEditTitle(e.target.value)}
+                                                        className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-bold focus:outline-none focus:border-amber-500"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Author</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editAuthor}
+                                                        onChange={e => setEditAuthor(e.target.value)}
+                                                        className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-bold focus:outline-none focus:border-amber-500"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Year</label>
+                                                    <input
+                                                        type="number"
+                                                        value={editYear}
+                                                        onChange={e => setEditYear(e.target.value)}
+                                                        className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono font-bold focus:outline-none focus:border-amber-500"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Genre</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editGenre}
+                                                        onChange={e => setEditGenre(e.target.value)}
+                                                        className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-bold focus:outline-none focus:border-amber-500"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Narrator</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editNarrator}
+                                                        onChange={e => setEditNarrator(e.target.value)}
+                                                        className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-bold focus:outline-none focus:border-amber-500"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Cover URL</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editCoverUrl}
+                                                        onChange={e => setEditCoverUrl(e.target.value)}
+                                                        placeholder="https://..."
+                                                        className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono focus:outline-none focus:border-amber-500"
+                                                    />
                                                 </div>
                                             </div>
 
-                                            {/* Right Column: Synopsis, Author Bio & Quick Actions */}
-                                            <div className="flex-1 min-w-0 space-y-4 w-full">
-                                                <div className="flex items-center justify-between gap-3 flex-wrap">
-                                                    <div className="flex items-center gap-2.5 flex-wrap">
-                                                        <span className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-300 text-sm font-black">
-                                                            {currentModalBook.transCh}/{currentModalBook.totalCh} Text
-                                                        </span>
-                                                        <span className="px-3.5 py-1.5 rounded-xl bg-purple-500/15 border border-purple-500/35 text-purple-300 text-sm font-black">
-                                                            {currentModalBook.detectedScenesCount || 0} Scenes • {currentModalBook.paintedScenesCount || 0} Art
-                                                        </span>
-                                                        <span className="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 text-sm font-black">
-                                                            {currentModalBook.enhCh}/{currentModalBook.totalCh} Voice
-                                                        </span>
-                                                    </div>
-
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setShowBookCustomizePanel(prev => !prev)}
-                                                        title="Open book settings to swap cover arts and edit synopsis"
-                                                        className={`px-4 py-2.5 rounded-2xl text-sm font-black uppercase tracking-wider flex items-center gap-2 border transition-all cursor-pointer ${
-                                                            showBookCustomizePanel
-                                                                ? 'bg-amber-500 text-black border-amber-300 shadow-lg'
-                                                                : 'bg-zinc-900 hover:bg-zinc-800 text-amber-300 border-amber-500/40'
-                                                        }`}
-                                                    >
-                                                        <Sliders size={18} />
-                                                        <span>Settings</span>
-                                                    </button>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Synopsis</label>
+                                                    <textarea
+                                                        rows={5}
+                                                        value={editSynopsis}
+                                                        onChange={e => setEditSynopsis(e.target.value)}
+                                                        placeholder="Book synopsis..."
+                                                        className="w-full p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-zinc-100 leading-relaxed focus:outline-none focus:border-amber-500 resize-y"
+                                                    />
                                                 </div>
-
-                                                {/* Synopsis Card */}
-                                                <div className="p-5 rounded-3xl bg-zinc-950/85 border border-zinc-800 space-y-2.5">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <h4 className="text-sm sm:text-base font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                                                            <BookOpen size={18} />
-                                                            <span>Synopsis</span>
-                                                        </h4>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setShowBookCustomizePanel(true)}
-                                                            title="Edit synopsis"
-                                                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-300 border border-zinc-800 cursor-pointer"
-                                                        >
-                                                            <Edit3 size={16} />
-                                                        </button>
-                                                    </div>
-                                                    {displaySynopsis ? (
-                                                        <p className="text-base text-zinc-200 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-line">
-                                                            {displaySynopsis}
-                                                        </p>
-                                                    ) : (
-                                                        <div className="flex items-center gap-3 py-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleFetchBookMetadata(currentModalBook, true)}
-                                                                disabled={fetchedDetails.loading}
-                                                                title="Fetch book synopsis from OpenLibrary & iTunes"
-                                                                className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-sm font-black uppercase flex items-center gap-2 cursor-pointer"
-                                                            >
-                                                                <RefreshCw size={16} className={fetchedDetails.loading ? 'animate-spin' : ''} />
-                                                                <span>Fetch</span>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setShowBookCustomizePanel(true)}
-                                                                title="Write or edit synopsis"
-                                                                className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-sm font-black uppercase flex items-center gap-2 cursor-pointer"
-                                                            >
-                                                                <Edit3 size={16} />
-                                                                <span>Edit</span>
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Author Card */}
-                                                <div className="p-4 sm:p-5 rounded-3xl bg-zinc-950/85 border border-zinc-800 space-y-1.5">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <h4 className="text-sm sm:text-base font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                                                            <User size={18} />
-                                                            <span>Author</span>
-                                                        </h4>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setShowBookCustomizePanel(true)}
-                                                            title="Edit author details"
-                                                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-300 border border-zinc-800 cursor-pointer"
-                                                        >
-                                                            <Edit3 size={16} />
-                                                        </button>
-                                                    </div>
-                                                    <p className="text-sm sm:text-base text-zinc-200 leading-relaxed max-h-36 overflow-y-auto">
-                                                        {displayAuthorBio || currentModalBook.author}
-                                                    </p>
+                                                <div>
+                                                    <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Author Bio</label>
+                                                    <textarea
+                                                        rows={5}
+                                                        value={editAuthorBio}
+                                                        onChange={e => setEditAuthorBio(e.target.value)}
+                                                        placeholder="Author bio..."
+                                                        className="w-full p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-zinc-100 leading-relaxed focus:outline-none focus:border-amber-500 resize-y"
+                                                    />
                                                 </div>
                                             </div>
                                         </div>
-
-                                        {/* ── EXPANDABLE BOOK CUSTOMIZATION DRAWER (AVAILABLE COVER ARTS SWITCHER + SYNOPSIS & METADATA EDITOR) ── */}
-                                        {showBookCustomizePanel && (
-                                            <div className="p-6 rounded-3xl bg-zinc-900/80 border-2 border-amber-500/50 shadow-2xl space-y-6">
-                                                {/* 1. AVAILABLE COVER ARTS SWITCHER */}
-                                                <div className="space-y-4">
-                                                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                                                        <h4 className="text-lg font-black text-white uppercase tracking-wider flex items-center gap-2.5">
-                                                            <ImageIcon size={20} className="text-amber-400" />
-                                                            <span>Arts ({allAvailableCovers.length})</span>
-                                                        </h4>
-                                                        <div className="flex items-center gap-2.5 flex-wrap">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleFetchBookMetadata(currentModalBook, true)}
-                                                                disabled={fetchedDetails.loading}
-                                                                title="Search OpenLibrary & iTunes for more cover editions"
-                                                                className="px-4 py-2.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-amber-500/40 text-sm font-black uppercase flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                                            >
-                                                                <RefreshCw size={16} className={fetchedDetails.loading ? 'animate-spin' : ''} />
-                                                                <span>Fetch</span>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleToggleCustomBookCover(true)}
-                                                                disabled={runningStudioAction === 'cover'}
-                                                                title="Generate an AI custom illustration for the book cover"
-                                                                className="px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-sm font-black uppercase flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                                            >
-                                                                <Sparkles size={16} className={runningStudioAction === 'cover' ? 'animate-spin' : ''} />
-                                                                <span>AI Cover</span>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-
-                                                    {allAvailableCovers.length > 0 ? (
-                                                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
-                                                            {allAvailableCovers.map((cov, cIdx) => {
-                                                                const isSelected = activeCoverDisplayUrl === cov.url;
-                                                                return (
-                                                                    <div
-                                                                        key={`${cov.url}-${cIdx}`}
-                                                                        onClick={() => handleSelectBookCover(cov.url, cov.label)}
-                                                                        title={`Use ${cov.label}`}
-                                                                        className={`group rounded-2xl overflow-hidden border-2 transition-all cursor-pointer flex flex-col bg-zinc-950 ${
-                                                                            isSelected
-                                                                                ? 'border-amber-400 ring-2 ring-amber-400/40 scale-[1.02] shadow-xl'
-                                                                                : 'border-zinc-800 hover:border-amber-500/60'
-                                                                        }`}
-                                                                    >
-                                                                        <div className="aspect-[2/3] w-full bg-zinc-900 relative overflow-hidden">
-                                                                            <img
-                                                                                src={cov.url}
-                                                                                alt={cov.label}
-                                                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                                                            />
-                                                                            {isSelected && (
-                                                                                <div className="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-amber-500 text-black text-xs font-black uppercase flex items-center gap-1 shadow-lg">
-                                                                                    <Check size={13} />
-                                                                                    <span>Active</span>
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                        <div className="p-2.5 text-center bg-zinc-950 border-t border-zinc-800/80">
-                                                                            <span className="text-xs font-black text-zinc-200 line-clamp-1">
-                                                                                {cov.label}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    ) : null}
-                                                </div>
-
-                                                {/* 2. SYNOPSIS, AUTHOR BIO & METADATA EDITOR */}
-                                                <div className="pt-4 border-t border-zinc-800 space-y-4">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <h4 className="text-lg font-black text-white uppercase tracking-wider flex items-center gap-2">
-                                                            <Edit3 size={20} className="text-amber-400" />
-                                                            <span>Details</span>
-                                                        </h4>
-                                                        <button
-                                                            onClick={handleSaveBookMetadata}
-                                                            disabled={savingMetadata}
-                                                            title="Save synopsis, cover URL & book metadata"
-                                                            className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm sm:text-base uppercase tracking-wider flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50"
-                                                        >
-                                                            <Check size={18} />
-                                                            <span>{savingMetadata ? 'Saving...' : 'Save'}</span>
-                                                        </button>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                        <div>
-                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Title</label>
-                                                            <input
-                                                                type="text"
-                                                                value={editTitle}
-                                                                onChange={e => setEditTitle(e.target.value)}
-                                                                className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-bold focus:outline-none focus:border-amber-500"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Author</label>
-                                                            <input
-                                                                type="text"
-                                                                value={editAuthor}
-                                                                onChange={e => setEditAuthor(e.target.value)}
-                                                                className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-bold focus:outline-none focus:border-amber-500"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Year</label>
-                                                            <input
-                                                                type="number"
-                                                                value={editYear}
-                                                                onChange={e => setEditYear(e.target.value)}
-                                                                className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono font-bold focus:outline-none focus:border-amber-500"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Genre</label>
-                                                            <input
-                                                                type="text"
-                                                                value={editGenre}
-                                                                onChange={e => setEditGenre(e.target.value)}
-                                                                className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-bold focus:outline-none focus:border-amber-500"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Narrator</label>
-                                                            <input
-                                                                type="text"
-                                                                value={editNarrator}
-                                                                onChange={e => setEditNarrator(e.target.value)}
-                                                                className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-bold focus:outline-none focus:border-amber-500"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Cover URL</label>
-                                                            <input
-                                                                type="text"
-                                                                value={editCoverUrl}
-                                                                onChange={e => setEditCoverUrl(e.target.value)}
-                                                                placeholder="https://..."
-                                                                className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-base text-white font-mono focus:outline-none focus:border-amber-500"
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <div>
-                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Synopsis</label>
-                                                            <textarea
-                                                                rows={5}
-                                                                value={editSynopsis}
-                                                                onChange={e => setEditSynopsis(e.target.value)}
-                                                                placeholder="Book synopsis..."
-                                                                className="w-full p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-zinc-100 leading-relaxed focus:outline-none focus:border-amber-500 resize-y"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1.5">Author Bio</label>
-                                                            <textarea
-                                                                rows={5}
-                                                                value={editAuthorBio}
-                                                                onChange={e => setEditAuthorBio(e.target.value)}
-                                                                placeholder="Author bio..."
-                                                                className="w-full p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-base text-zinc-100 leading-relaxed focus:outline-none focus:border-amber-500 resize-y"
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
 
                                         {/* Clean Chapter List (Zero .M4A badges) */}
                                         <div className="p-5 rounded-3xl bg-zinc-900/50 border border-zinc-800 space-y-3">
@@ -4774,24 +4571,18 @@ export function AudiobooksMediaManager() {
                                                 <span>Save</span>
                                             </button>
                                         </div>
-
                                         {/* Per-book Unified Cleanup */}
-                                        <div className="pt-3 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
-                                            <span className="text-xs sm:text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                                <Trash2 size={16} className="text-red-400" />
-                                                <span>Clean Assets</span>
-                                            </span>
+                                        <div className="pt-2 border-t border-zinc-800/80 flex justify-end">
                                             <button
                                                 onClick={() => setUnifiedCleanerModal({ isOpen: true, bookKey: currentModalBook.bookKey, bookTitle: currentModalBook.cleanTitle || currentModalBook.title })}
                                                 disabled={savingConfig}
-                                                title="Open unified asset cleaner to delete images, scenes, transcripts, or voices for this book"
-                                                className="px-4 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-black border border-red-500/40 text-xs sm:text-sm font-black uppercase flex items-center gap-2 cursor-pointer disabled:opacity-50 transition-all shadow-md"
+                                                title="Open asset cleaner to delete generated assets"
+                                                className="px-4 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 text-xs font-black uppercase flex items-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
                                             >
-                                                <Trash2 size={16} />
-                                                <span>Clean Assets...</span>
+                                                <Trash2 size={15} />
+                                                <span>Clean Assets</span>
                                             </button>
                                         </div>
-                                    </div>
 
                                     {/* ── THE 4 AI SUBTABS (PIPELINE ORDER: 1. TRANSCRIPTION -> 2. SCENING -> 3. ILLUSTRATION -> 4. VOICE) ── */}
                                     {(() => {
@@ -5343,15 +5134,17 @@ export function AudiobooksMediaManager() {
                                                                             {chTrack.title || chTrack.name || `Chapter ${chIdx + 1}`}
                                                                         </h5>
                                                                         <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 flex-wrap mt-0.5">
+                                                                        <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 flex-wrap mt-0.5">
                                                                             <span className="font-mono">{formatMMSS(durSec)}</span>
-                                                                            <span>•</span>
+                                                                            <span>â€¢</span>
                                                                             <span className={isTranscribed ? 'text-amber-300 font-black' : 'text-zinc-500'}>
-                                                                                {isTranscribed ? `1. Text (${transcriptLinesCount} lines)` : '1. Needs Transcript'}
+                                                                                {transcriptLinesCount} Lines
                                                                             </span>
-                                                                            <span>•</span>
+                                                                            <span>â€¢</span>
                                                                             <span className={detectedScenes.length > 0 ? 'text-purple-300 font-black' : 'text-zinc-500'}>
-                                                                                2. {detectedScenes.length} {detectedScenes.length === 1 ? 'Scene' : 'Scenes'}
+                                                                                {detectedScenes.length} {detectedScenes.length === 1 ? 'Scene' : 'Scenes'}
                                                                             </span>
+                                                                        </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -6008,19 +5801,19 @@ export function AudiobooksMediaManager() {
                                                     <h4 className="text-xl font-black text-white uppercase tracking-wider">Voice Profile</h4>
                                                 </div>
                                                 <AudiobookVoiceSelector
-                                                    engineMode={editVoiceEngineMode}
-                                                    onChangeEngineMode={handleSwitchEngineMode}
-                                                    selectedPreset={editVoicePreset}
-                                                    onSelectPreset={(pId) => {
-                                                        setEditVoicePreset(pId);
-                                                        handleSaveVoiceProfile(editVoiceEngineMode, editActivePersonas, editActiveTimbres, pId, true);
+                                                    enabled={studioConfig?.voiceEnabled !== false}
+                                                    onToggleEnabled={(en) => handleSaveConfig({ voiceEnabled: en })}
+                                                    selectedStyles={[editVoicePreset]}
+                                                    onToggleStyle={(sId) => {
+                                                        setEditVoicePreset(sId);
+                                                        handleSaveVoiceProfile(editVoiceEngineMode, editActivePersonas, editActiveTimbres, sId, false);
                                                     }}
-                                                    selectedPersonas={editActivePersonas}
-                                                    onTogglePersona={handleTogglePersona}
-                                                    selectedTimbres={editActiveTimbres}
-                                                    onToggleTimbre={handleToggleTimbre}
-                                                    onSave={() => handleSaveVoiceProfile(editVoiceEngineMode, editActivePersonas, editActiveTimbres, editVoicePreset, true)}
-                                                    saveConfirmationMessage={voiceSavedNotice || undefined}
+                                                    selectedPersons={editActivePersonas.length > 0 ? editActivePersonas : ['original']}
+                                                    onTogglePerson={handleTogglePersona}
+                                                    onSave={({ styles, persons }) => {
+                                                        handleSaveVoiceProfile(editVoiceEngineMode, persons, editActiveTimbres, styles[0] || 'warm', true);
+                                                    }}
+                                                    disabled={studioConfig?.voiceEnabled === false}
                                                 />
                                             </div>
 
@@ -6135,7 +5928,9 @@ export function AudiobooksMediaManager() {
                                                                                 <span className="font-mono">{formatMMSS(durSec)}</span>
                                                                                 <span>•</span>
                                                                                 <span className={isEnhDone ? 'text-emerald-300 font-black' : 'text-zinc-500'}>
-                                                                                    {isEnhDone ? `Enhanced (${chMeta.voice_preset || editVoicePreset})` : 'Original Audio'}
+                                                                                    <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 font-mono font-black text-xs">
+                                                                                        1 + {voiceEntries.length} Available
+                                                                                    </span>
                                                                                 </span>
                                                                             </div>
                                                                             <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-3 w-full" onClick={e => e.stopPropagation()}>
@@ -6146,28 +5941,28 @@ export function AudiobooksMediaManager() {
                                                                                     className="w-full max-w-sm h-8 rounded-lg"
                                                                                 />
                                                                                 {voiceEntries.length > 0 && (
-                                                                                    <div className="flex items-center gap-1.5 shrink-0">
-                                                                                        <span className="text-[11px] font-black uppercase text-zinc-400">Voice:</span>
-                                                                                        <select
+                                                                                {voiceEntries.length > 0 && (
+                                                                                    <div className="flex items-center gap-2 shrink-0">
+                                                                                        <SleekSelect
+                                                                                            icon={<Volume2 size={13} />}
                                                                                             value={chMeta.enhanced_audio_path ? (voiceEntries.find(([, p]) => p === chMeta.enhanced_audio_path)?.[0] || chMeta.voice_preset || 'original') : 'original'}
-                                                                                            onChange={e => {
-                                                                                                const sel = e.target.value;
+                                                                                            onChange={(sel) => {
                                                                                                 if (sel === 'original') {
                                                                                                     handleSetActiveVoice(chapterKey, 'original', chTrack.path || '');
                                                                                                 } else if (processedVoices[sel]) {
                                                                                                     handleSetActiveVoice(chapterKey, sel, processedVoices[sel]);
                                                                                                 }
                                                                                             }}
-                                                                                            className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-emerald-500/40 text-xs font-black text-emerald-300 cursor-pointer"
-                                                                                        >
-                                                                                            <option value="original">Original Audio</option>
-                                                                                            {voiceEntries.map(([vKey]) => (
-                                                                                                <option key={vKey} value={vKey}>
-                                                                                                    {vKey.replace(/_/g, ' ')}
-                                                                                                </option>
-                                                                                            ))}
-                                                                                        </select>
+                                                                                            options={[
+                                                                                                { id: 'original', label: 'Original Audio' },
+                                                                                                ...voiceEntries.map(([vKey]) => ({ id: vKey, label: vKey.replace(/_/g, ' ') }))
+                                                                                            ]}
+                                                                                            size="sm"
+                                                                                            colorScheme="emerald"
+                                                                                            title="Select active voice version"
+                                                                                        />
                                                                                     </div>
+                                                                                )}
                                                                                 )}
                                                                             </div>
                                                                         </div>

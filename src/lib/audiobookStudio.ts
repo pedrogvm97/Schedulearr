@@ -135,6 +135,7 @@ export interface AudiobookStudioConfig {
     sceningEnabled?: boolean;
     imagingEnabled?: boolean;
     voiceEnabled?: boolean;
+    autoGroupSeriesEnabled?: boolean;
     scheduleMode: 'continuous_low_cpu' | 'hourly' | 'overnight' | 'manual_only';
     sttEngine: 'whisper_tiny_local' | 'openai_whisper' | 'gemini_audio' | 'acoustic_cadence';
     cpuThreads: number;
@@ -209,6 +210,7 @@ const DEFAULT_STUDIO_CONFIG: AudiobookStudioConfig = {
     sceningEnabled: true,
     imagingEnabled: true,
     voiceEnabled: true,
+    autoGroupSeriesEnabled: true,
     scheduleMode: 'continuous_low_cpu',
     sttEngine: 'whisper_tiny_local',
     cpuThreads: 1,
@@ -428,6 +430,7 @@ export const saveAudiobookStudioConfig = (partial: Partial<AudiobookStudioConfig
     let sceningEnabled = partial.sceningEnabled !== undefined ? Boolean(partial.sceningEnabled) : (current.sceningEnabled ?? true);
     let imagingEnabled = partial.imagingEnabled !== undefined ? Boolean(partial.imagingEnabled) : (current.imagingEnabled ?? true);
     let voiceEnabled = partial.voiceEnabled !== undefined ? Boolean(partial.voiceEnabled) : (current.voiceEnabled ?? true);
+    let autoGroupSeriesEnabled = partial.autoGroupSeriesEnabled !== undefined ? Boolean(partial.autoGroupSeriesEnabled) : (current.autoGroupSeriesEnabled ?? true);
 
     if (transcribeEnabled === false) {
         sceningEnabled = false;
@@ -451,6 +454,7 @@ export const saveAudiobookStudioConfig = (partial: Partial<AudiobookStudioConfig
         sceningEnabled,
         imagingEnabled,
         voiceEnabled,
+        autoGroupSeriesEnabled,
         apiMetrics: partial.apiMetrics ? { ...(current.apiMetrics || DEFAULT_API_METRICS), ...partial.apiMetrics } : (current.apiMetrics || DEFAULT_API_METRICS),
         apiKeys: incomingKeys,
         keyPool: incomingKeys,
@@ -6068,7 +6072,8 @@ export const runSingleSceningOrImagingStep = async (
 
             if (bookImagingOn && hasEnoughScenesToStartImaging && unpaintedScenes.length > 0) {
                 const bypassQuota = Boolean(forceChapterKey) || Boolean(forceBookKey) || Boolean(forceIgnoreQuota);
-                if (afterSceneChapter.illustration_status === 'failed') {
+                const canRetryFailed = bypassQuota || (afterSceneChapter.updated_at ? (Date.now() - new Date(afterSceneChapter.updated_at).getTime() > 180000) : true);
+                if (afterSceneChapter.illustration_status === 'failed' && !canRetryFailed) {
                     failedCount++;
                     if (afterSceneChapter.error_message && !lastError) lastError = afterSceneChapter.error_message;
                 } else if (!bypassQuota && freshCfg.imagesGeneratedToday >= freshCfg.dailyImageQuota) {

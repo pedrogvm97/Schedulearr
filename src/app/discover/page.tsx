@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { Component, useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -28,6 +28,7 @@ import { PhotosMediaManager } from '@/components/PhotosMediaManager';
 import { ManageLibrariesModal } from '@/components/ManageLibrariesModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
 
+import { CollapsibleNavSidebar, CollapsibleSidebarItem } from '@/components/CollapsibleNavSidebar';
 class IptvErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
     constructor(props: { children: React.ReactNode }) {
         super(props);
@@ -673,6 +674,49 @@ function UnifiedMediaCard({
 function DiscoverPageContent() {
     const searchParams = useSearchParams();
     const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'audiobooks' | 'iptv_dvr' | 'photos'>('movie');
+    const [audiobookSubTab, setAudiobookSubTab] = useState<'books' | 'collections' | 'renamer' | 'ai' | 'queue_settings'>('books');
+
+    const mediaSidebarItems: CollapsibleSidebarItem[] = useMemo(() => {
+        return [
+            {
+                id: 'movie',
+                label: 'Movies',
+                icon: <Film size={22} className="text-indigo-400" />
+            },
+            {
+                id: 'series',
+                label: 'Series',
+                icon: <Tv size={22} className="text-emerald-400" />
+            },
+            {
+                id: 'music',
+                label: 'Music',
+                icon: <Disc size={22} className="text-amber-400" />
+            },
+            {
+                id: 'audiobooks',
+                label: 'Audiobooks',
+                icon: <BookOpen size={22} className="text-orange-400" />,
+                subItems: [
+                    { id: 'books', label: 'Audiobooks', icon: <BookOpen size={14} className="text-orange-400" /> },
+                    { id: 'collections', label: 'Series', icon: <FolderPlus size={14} className="text-amber-400" /> },
+                    { id: 'renamer', label: 'Rename', icon: <Wand2 size={14} className="text-zinc-400" /> },
+                    { id: 'ai', label: 'AI', icon: <Sparkles size={14} className="text-purple-400" /> },
+                    { id: 'queue_settings', label: 'Settings', icon: <Settings size={14} className="text-emerald-400" /> }
+                ]
+            },
+            {
+                id: 'photos',
+                label: 'Photos',
+                icon: <ImageIcon size={22} className="text-sky-400" />
+            },
+            {
+                id: 'iptv_dvr',
+                label: 'Live TV & DVR',
+                icon: <Tv size={22} className="text-amber-400" />
+            }
+        ];
+    }, []);
     const [isManageLibrariesOpen, setIsManageLibrariesOpen] = useState(false);
 
     useEffect(() => {
@@ -1774,7 +1818,22 @@ function DiscoverPageContent() {
     return (
         <>
             <Toaster position="top-right" theme="dark" richColors />
-            <div className="space-y-6 pb-20">
+            <div className="flex items-start gap-6 pb-20">
+                <CollapsibleNavSidebar
+                    items={mediaSidebarItems}
+                    activeItemId={mediaType}
+                    activeSubItemId={mediaType === 'audiobooks' ? audiobookSubTab : undefined}
+                    onSelectItem={(itemId, subItemId) => {
+                        setMediaType(itemId as any);
+                        if (itemId === 'audiobooks' && subItemId) {
+                            setAudiobookSubTab(subItemId as any);
+                        }
+                    }}
+                    storageKey="schedulearr_discover_sidebar_collapsed"
+                    colorScheme="amber"
+                />
+
+                <div className="flex-1 min-w-0 space-y-6">
                 {/* ── Main Top Bar (Non-Overlapping Multi-Row Layout for 125% Scale) ── */}
                 <div className="bg-[#09090b]/90 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl space-y-4">
                     {/* Row 1: Page Title (Left) | Libraries & Folders + Refresh (Right) */}
@@ -1809,64 +1868,6 @@ function DiscoverPageContent() {
                                 </button>
                             )}
                         </div>
-                    </div>
-
-                    {/* Row 2: Dedicated Media Type Navigation Strip + Subtab Settings Toggle */}
-                    <div className="flex flex-wrap items-center justify-between bg-zinc-950/90 p-2 rounded-2xl border border-zinc-800/80 shadow-inner gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <button
-                                onClick={() => setMediaType('movie')}
-                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                            >
-                                <Film size={16} className="shrink-0" /> Movies
-                            </button>
-                            <button
-                                onClick={() => setMediaType('series')}
-                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                            >
-                                <Tv size={16} className="shrink-0" /> Series
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setMediaType('music');
-                                    if (musicResults.length === 0) handleMusicSearch('');
-                                }}
-                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                            >
-                                <Disc size={16} className="shrink-0" /> Music
-                            </button>
-                            <button
-                                onClick={() => setMediaType('audiobooks')}
-                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                            >
-                                <BookOpen size={16} className="shrink-0" /> Audiobooks
-                            </button>
-                            <button
-                                onClick={() => setMediaType('photos')}
-                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'photos' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                            >
-                                <ImageIcon size={16} className="shrink-0" /> Photos
-                            </button>
-                            <button
-                                onClick={() => setMediaType('iptv_dvr')}
-                                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
-                            >
-                                <Tv size={16} className="shrink-0" /> Live TV &amp; DVR
-                            </button>
-                        </div>
-
-                        <button
-                            onClick={() => setShowSubtabSettings(prev => !prev)}
-                            title="Open Features & Providers Settings for the active Media Subtab"
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl border transition-all whitespace-nowrap cursor-pointer ${
-                                showSubtabSettings
-                                    ? 'bg-emerald-500 text-black border-emerald-400 shadow-lg'
-                                    : 'bg-zinc-900 text-zinc-200 border-zinc-800 hover:text-white hover:bg-zinc-800'
-                            }`}
-                        >
-                            <Settings size={16} />
-                            <span>Settings</span>
-                        </button>
                     </div>
 
                     {/* ── PER-SUBTAB FEATURES & PROVIDERS SETTINGS MENU ── */}
@@ -2500,7 +2501,10 @@ function DiscoverPageContent() {
                         <IptvDvrManager />
                     </IptvErrorBoundary>
                 ) : mediaType === 'audiobooks' ? (
-                    <AudiobooksMediaManager />
+                    <AudiobooksMediaManager
+                        controlledSubTab={audiobookSubTab}
+                        onControlledSubTabChange={setAudiobookSubTab}
+                    />
                 ) : mediaType === 'photos' ? (
                     <PhotosMediaManager />
                 ) : mediaType === 'music' ? (
@@ -2680,6 +2684,7 @@ function DiscoverPageContent() {
                         <p className="text-xs text-zinc-500 font-medium">Try adjusting your search query, status, or filters.</p>
                     </div>
                 )}
+                </div>
             </div>
 
             {/* ── Modals & Overlays ── */}

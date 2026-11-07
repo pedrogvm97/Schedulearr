@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useMemo } from "react";
 import {
@@ -21,6 +21,10 @@ import { StreamGuardSettingsPanel } from "@/components/StreamGuardSettingsPanel"
 import { SubtitleSettingsPanel } from "@/components/SubtitleSettingsPanel";
 import { PixelSetupGuideModal } from "@/components/PixelSetupGuideModal";
 import { twColorToHex } from "@/lib/instanceColor";
+import { CollapsibleNavSidebar, CollapsibleSidebarItem } from "@/components/CollapsibleNavSidebar";
+import { AiFeaturesMatrix } from "@/components/AiFeaturesMatrix";
+import { AiDiagnosticsPanel } from "@/components/AiDiagnosticsPanel";
+import { Activity } from "lucide-react";
 
 export default function Settings() {
     const [settingsNavTab, setSettingsNavTab] = useState<'settings' | 'analytics' | 'profiles'>('settings');
@@ -46,7 +50,57 @@ export default function Settings() {
 
     const [isAuthorModalOpen, setIsAuthorModalOpen] = useState(false);
     const [activeTroubleshootModal, setActiveTroubleshootModal] = useState<'socket' | 'perms' | null>(null);
-    const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'cleaners' | 'ai' | 'subtitles' | 'system'>('instances');
+    const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'cleaners' | 'ai' | 'ai_matrix' | 'ai_telemetry' | 'subtitles' | 'system'>('instances');
+
+    const settingsSidebarItems: CollapsibleSidebarItem[] = useMemo(() => {
+        return [
+            {
+                id: 'instances',
+                label: 'Instances',
+                icon: <Server size={22} className="text-indigo-400" />
+            },
+            {
+                id: 'ai',
+                label: 'AI Studio',
+                icon: <Sparkles size={22} className="text-amber-400" />,
+                subItems: [
+                    { id: 'ai', label: 'Keys & Models', icon: <Key size={14} className="text-amber-400" /> },
+                    { id: 'ai_matrix', label: 'Features Matrix', icon: <Sliders size={14} className="text-purple-400" /> },
+                    { id: 'ai_telemetry', label: 'Telemetry & Quota', icon: <Activity size={14} className="text-emerald-400" /> }
+                ]
+            },
+            {
+                id: 'ai_matrix',
+                label: 'Features Matrix',
+                icon: <Sliders size={22} className="text-purple-400" />
+            },
+            {
+                id: 'ai_telemetry',
+                label: 'AI Telemetry',
+                icon: <Activity size={22} className="text-emerald-400" />
+            },
+            {
+                id: 'automation',
+                label: 'Automation',
+                icon: <Cpu size={22} className="text-emerald-400" />
+            },
+            {
+                id: 'cleaners',
+                label: 'Cleaners',
+                icon: <Trash2 size={22} className="text-rose-400" />
+            },
+            {
+                id: 'subtitles',
+                label: 'Subtitles',
+                icon: <Subtitles size={22} className="text-sky-400" />
+            },
+            {
+                id: 'system',
+                label: 'System',
+                icon: <Wrench size={22} className="text-zinc-400" />
+            }
+        ];
+    }, []);
     const [aiMediaCategory, setAiMediaCategory] = useState<'general' | 'audiobooks' | 'video' | 'subtitles'>('general');
     const [voiceNarrationMode, setVoiceNarrationMode] = useState<'timbre_filter' | 'neural_tts'>('timbre_filter');
     const [selectedVoiceModel, setSelectedVoiceModel] = useState<string>('morgan_freeman');
@@ -813,6 +867,10 @@ export default function Settings() {
                 const mBytes = inst.mediaBytes || 0;
                 const pct = (mBytes / totalBytes) * 100;
                 const colorHex = inst.colorHex || twColorToHex(inst.color);
+import { CollapsibleNavSidebar, CollapsibleSidebarItem } from "@/components/CollapsibleNavSidebar";
+import { AiFeaturesMatrix } from "@/components/AiFeaturesMatrix";
+import { AiDiagnosticsPanel } from "@/components/AiDiagnosticsPanel";
+import { Activity } from "lucide-react";
                 return {
                     id: inst.id,
                     name: inst.name,
@@ -846,6 +904,10 @@ export default function Settings() {
                 bytes: 0,
                 percent: slice,
                 colorHex: inst.colorHex || twColorToHex(inst.color)
+import { CollapsibleNavSidebar, CollapsibleSidebarItem } from "@/components/CollapsibleNavSidebar";
+import { AiFeaturesMatrix } from "@/components/AiFeaturesMatrix";
+import { AiDiagnosticsPanel } from "@/components/AiDiagnosticsPanel";
+import { Activity } from "lucide-react";
             }));
         }
     }, [diskInfo]);
@@ -1374,7 +1436,24 @@ export default function Settings() {
     };
 
     return (
-        <div className="max-w-6xl mx-auto p-6 space-y-8 pb-32">
+        <div className="max-w-[96rem] mx-auto p-4 sm:p-6 pb-32">
+            <div className="flex items-start gap-6">
+                <CollapsibleNavSidebar
+                    items={settingsSidebarItems}
+                    activeItemId={settingsSubtopic === 'ai_matrix' || settingsSubtopic === 'ai_telemetry' ? 'ai' : settingsSubtopic}
+                    activeSubItemId={settingsSubtopic}
+                    onSelectItem={(itemId, subItemId) => {
+                        if (subItemId) {
+                            setSettingsSubtopic(subItemId as any);
+                        } else {
+                            setSettingsSubtopic(itemId as any);
+                        }
+                    }}
+                    storageKey="schedulearr_settings_sidebar_collapsed"
+                    colorScheme="emerald"
+                />
+
+                <div className="flex-1 min-w-0 space-y-8">
             {/* Top Navigation & Subtopic Section Switcher */}
             <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-6 rounded-[2.5rem] shadow-2xl space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1396,72 +1475,6 @@ export default function Settings() {
                         </button>
                     </div>
                 </div>
-
-                {/* Subtopic Segmented Switcher — Prominent 125%+ Scale Controls */}
-                <div className="flex flex-wrap p-2 bg-zinc-950/90 rounded-3xl border border-zinc-800 max-w-5xl gap-2 shadow-xl">
-                    <button
-                        onClick={() => setSettingsSubtopic('instances')}
-                        title="Configure Radarr, Sonarr, Lidarr, and media server instances"
-                        className={`flex-1 min-w-[120px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                            settingsSubtopic === 'instances'
-                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
-                        }`}
-                    >
-                        <Server size={20} className={settingsSubtopic === 'instances' ? 'text-white' : 'text-indigo-400'} />
-                        <span>Instances</span>
-                    </button>
-                    <button
-                        onClick={() => setSettingsSubtopic('automation')}
-                        title="Configure search schedules, automated batching, and instance backups"
-                        className={`flex-1 min-w-[120px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                            settingsSubtopic === 'automation'
-                                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
-                        }`}
-                    >
-                        <Cpu size={20} className={settingsSubtopic === 'automation' ? 'text-white' : 'text-emerald-400'} />
-                        <span>Automation</span>
-                    </button>
-                    <button
-                        onClick={() => setSettingsSubtopic('cleaners')}
-                        title="Dedicated Cleaners: Storage Guard, library capacity limits, candidate queues & database housekeeping"
-                        className={`flex-1 min-w-[120px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                            settingsSubtopic === 'cleaners'
-                                ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 border border-rose-400'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
-                        }`}
-                    >
-                        <Trash2 size={20} className={settingsSubtopic === 'cleaners' ? 'text-white' : 'text-rose-400'} />
-                        <span>Cleaners</span>
-                    </button>
-                    <button
-                        onClick={() => setSettingsSubtopic('ai')}
-                        title="Dedicated AI Settings: Neural engines, API key pools, image quotas, voice models & video pipelines"
-                        className={`flex-1 min-w-[120px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                            settingsSubtopic === 'ai'
-                                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30 border border-amber-300'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
-                        }`}
-                    >
-                        <Sparkles size={20} className={settingsSubtopic === 'ai' ? 'text-black' : 'text-amber-400'} />
-                        <span>AI Settings</span>
-                    </button>
-                    <button
-                        onClick={() => setSettingsSubtopic('system')}
-                        title="System updates, Docker diagnostics, and troubleshooting"
-                        className={`flex-1 min-w-[120px] py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                            settingsSubtopic === 'system'
-                                ? 'bg-sky-600 text-white shadow-lg shadow-sky-600/30 border border-sky-400'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
-                        }`}
-                    >
-                        <Wrench size={20} className={settingsSubtopic === 'system' ? 'text-white' : 'text-sky-400'} />
-                        <span>System</span>
-                    </button>
-                </div>
-            </div>
-
             {/* ═══════════════════════════════════════════════════════════════════
                SUBTOPIC 1: INSTANCES & INTEGRATIONS
                ═══════════════════════════════════════════════════════════════════ */}
@@ -4038,6 +4051,14 @@ export default function Settings() {
                 </div>
             )}
 
+            {/* AI FEATURES MATRIX */}
+            {settingsSubtopic === 'ai_matrix' && <AiFeaturesMatrix />}
+
+            {/* AI DIAGNOSTICS & TELEMETRY */}
+            {settingsSubtopic === 'ai_telemetry' && <AiDiagnosticsPanel />}
+
+                </div>
+            </div>
             <PasswordPromptModal
                 isOpen={passwordModal.isOpen}
                 onClose={() => setPasswordModal(prev => ({ ...prev, isOpen: false }))}

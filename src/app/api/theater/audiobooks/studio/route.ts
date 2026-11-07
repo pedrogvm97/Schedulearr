@@ -127,6 +127,35 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { action } = body;
 
+        if (action === 'reset_daily_quota') {
+            const config = saveAudiobookStudioConfig({
+                imagesGeneratedToday: 0,
+                quotaResetDate: new Date().toISOString().slice(0, 10)
+            });
+            triggerAudiobookQueueWorker(body.bookKey || undefined, undefined, true);
+            return NextResponse.json({ success: true, config, message: 'Daily quota reset & imaging resumed' });
+        }
+
+        if (action === 'retry_failed_chapters') {
+            const { bookKey } = body;
+            if (bookKey) {
+                const chapters = getAudiobookChaptersMeta(bookKey);
+                chapters.forEach(ch => {
+                    if (ch.illustration_status === 'failed') {
+                        upsertAudiobookChapterMeta({
+                            chapter_key: ch.chapter_key,
+                            book_key: bookKey,
+                            illustration_status: 'scenes_detected',
+                            error_message: null
+                        });
+                    }
+                });
+                recalculateAudiobookTotals(bookKey);
+            }
+            triggerAudiobookQueueWorker(bookKey || undefined, undefined, true);
+            return NextResponse.json({ success: true, message: 'Retrying failed chapters' });
+        }
+
         if (action === 'detect_api_key') {
             const { apiKey, role } = body;
             const { probe, config } = await detectAndVerifyAiApiKey(apiKey || '', role || 'primary');
