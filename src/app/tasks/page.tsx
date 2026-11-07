@@ -332,7 +332,7 @@ export default function TasksPage() {
     const ringDashoffset = ringCircumference - (ringCircumference * totalProcessingPercent) / 100;
 
     return (
-        <div className="min-h-screen bg-[#07090e] text-white px-4 py-5 md:px-8 max-w-[1920px] 2xl:max-w-[2160px] mx-auto space-y-6">
+        <div className="min-h-screen bg-[#07090e] text-white px-4 py-5 md:px-8 w-full max-w-[2560px] 3xl:max-w-full mx-auto space-y-6">
             {/* Top Header Bar */}
             <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
                 <div className="flex items-center gap-3">

@@ -1428,7 +1428,7 @@ export default function Settings() {
     };
 
     return (
-        <div className="max-w-[96rem] mx-auto p-4 sm:p-6 pb-32">
+        <div className="w-full pb-32">
             <div className="flex items-start gap-6">
                 <CollapsibleNavSidebar
                     items={settingsSidebarItems}
@@ -1651,7 +1651,7 @@ export default function Settings() {
                         No instances configured yet. Add one above.
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5 gap-4">
                         {instances.map(inst => {
                             // Convert standard "bg-red-500" into a Hex for the border or "border-red-500" equivalent
                             let borderColorHex = '#27272a'; // default zinc-800
