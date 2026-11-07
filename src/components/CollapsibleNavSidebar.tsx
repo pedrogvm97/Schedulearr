@@ -78,26 +78,26 @@ export function CollapsibleNavSidebar({
 
     const colors = {
         amber: {
-            activeBg: 'bg-amber-500 text-black shadow-lg shadow-amber-500/20',
-            activeSubBg: 'bg-amber-500/20 text-amber-300 border-l-2 border-amber-400 font-black',
+            activeBg: 'bg-amber-500 text-black shadow-lg shadow-amber-500/25 font-black',
+            activeSubBg: 'bg-amber-500/25 text-amber-200 border-l-4 border-amber-400 font-black shadow-sm',
             badgeBg: 'bg-amber-500/20 text-amber-300 border border-amber-500/40',
             toggleBtn: 'hover:bg-amber-500/20 hover:text-amber-300'
         },
         emerald: {
-            activeBg: 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20',
-            activeSubBg: 'bg-emerald-500/20 text-emerald-300 border-l-2 border-emerald-400 font-black',
+            activeBg: 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/25 font-black',
+            activeSubBg: 'bg-emerald-500/25 text-emerald-200 border-l-4 border-emerald-400 font-black shadow-sm',
             badgeBg: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40',
             toggleBtn: 'hover:bg-emerald-500/20 hover:text-emerald-300'
         },
         purple: {
-            activeBg: 'bg-purple-600 text-white shadow-lg shadow-purple-600/20',
-            activeSubBg: 'bg-purple-500/20 text-purple-300 border-l-2 border-purple-400 font-black',
+            activeBg: 'bg-purple-600 text-white shadow-lg shadow-purple-600/25 font-black',
+            activeSubBg: 'bg-purple-500/25 text-purple-200 border-l-4 border-purple-400 font-black shadow-sm',
             badgeBg: 'bg-purple-500/20 text-purple-300 border border-purple-500/40',
             toggleBtn: 'hover:bg-purple-500/20 hover:text-purple-300'
         },
         sky: {
-            activeBg: 'bg-sky-600 text-white shadow-lg shadow-sky-600/20',
-            activeSubBg: 'bg-sky-500/20 text-sky-300 border-l-2 border-sky-400 font-black',
+            activeBg: 'bg-sky-600 text-white shadow-lg shadow-sky-600/25 font-black',
+            activeSubBg: 'bg-sky-500/25 text-sky-200 border-l-4 border-sky-400 font-black shadow-sm',
             badgeBg: 'bg-sky-500/20 text-sky-300 border border-sky-500/40',
             toggleBtn: 'hover:bg-sky-500/20 hover:text-sky-300'
         }
@@ -106,14 +106,14 @@ export function CollapsibleNavSidebar({
     return (
         <aside
             className={`transition-all duration-300 flex flex-col shrink-0 select-none ${
-                isCollapsed ? 'w-[72px]' : 'w-[250px] lg:w-[270px]'
+                isCollapsed ? 'w-[84px] sm:w-[92px]' : 'w-[290px] sm:w-[320px] lg:w-[350px] 2xl:w-[380px]'
             } ${className}`}
         >
-            <div className="rounded-3xl bg-zinc-950/85 border border-zinc-800/80 p-2.5 flex flex-col justify-between gap-3 shadow-2xl backdrop-blur-md min-h-[480px]">
+            <div className="rounded-3xl bg-zinc-950/90 border border-zinc-800/90 p-3 sm:p-4 flex flex-col justify-between gap-4 shadow-2xl backdrop-blur-md min-h-[520px]">
                 {/* Header with Title (if expanded) and Collapse Button */}
-                <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-zinc-900">
+                <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-zinc-900/90">
                     {!isCollapsed && title && (
-                        <span className="text-xs font-black uppercase tracking-widest text-zinc-400 truncate">
+                        <span className="text-sm sm:text-base font-black uppercase tracking-widest text-zinc-300 truncate">
                             {title}
                         </span>
                     )}
@@ -121,23 +121,23 @@ export function CollapsibleNavSidebar({
                         type="button"
                         onClick={toggleCollapse}
                         title={isCollapsed ? 'Expand navigation menu' : 'Collapse navigation menu'}
-                        className={`p-2 rounded-xl text-zinc-400 transition-all cursor-pointer ${colors.toggleBtn} ${
+                        className={`p-2.5 sm:p-3 rounded-2xl text-zinc-400 hover:text-white transition-all cursor-pointer ${colors.toggleBtn} ${
                             isCollapsed ? 'mx-auto' : 'ml-auto'
                         }`}
                     >
-                        {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+                        {isCollapsed ? <ChevronRight size={24} /> : <ChevronLeft size={24} />}
                     </button>
                 </div>
 
                 {/* Main Navigation Items */}
-                <nav className="flex-1 space-y-1.5 overflow-y-auto custom-scrollbar pr-0.5">
+                <nav className="flex-1 space-y-2 overflow-y-auto custom-scrollbar pr-0.5">
                     {items.map(item => {
                         const isCurrentActive = activeItemId === item.id;
                         const isAccordionOpen = expandedAccordionId === item.id;
                         const hasSubItems = Array.isArray(item.subItems) && item.subItems.length > 0;
 
                         return (
-                            <div key={item.id} className="space-y-1">
+                            <div key={item.id} className="space-y-1.5">
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -150,41 +150,43 @@ export function CollapsibleNavSidebar({
                                     }}
                                     title={item.title || item.label}
                                     className={`w-full flex items-center rounded-2xl transition-all cursor-pointer ${
-                                        isCollapsed ? 'justify-center p-3' : 'justify-between px-3.5 py-3'
+                                        isCollapsed ? 'justify-center p-3.5' : 'justify-between px-4 py-3.5 sm:py-4'
                                     } ${
                                         isCurrentActive
                                             ? colors.activeBg
-                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900/80'
+                                            : 'text-zinc-300 hover:text-white hover:bg-zinc-900/80'
                                     }`}
                                 >
-                                    <div className="flex items-center gap-3 truncate">
-                                        <span className="shrink-0">{item.icon}</span>
+                                    <div className="flex items-center gap-3.5 truncate">
+                                        <span className="shrink-0 flex items-center justify-center [&>svg]:w-6 [&>svg]:h-6 sm:[&>svg]:w-7 sm:[&>svg]:h-7">
+                                            {item.icon}
+                                        </span>
                                         {!isCollapsed && (
-                                            <span className="text-sm font-black uppercase tracking-wider truncate">
+                                            <span className="text-base sm:text-lg lg:text-xl font-black uppercase tracking-wider truncate">
                                                 {item.label}
                                             </span>
                                         )}
                                     </div>
 
                                     {!isCollapsed && (
-                                        <div className="flex items-center gap-1.5 shrink-0">
+                                        <div className="flex items-center gap-2 shrink-0">
                                             {item.count !== undefined && (
                                                 <span
-                                                    className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold ${
+                                                    className={`px-3 py-1 rounded-xl text-sm sm:text-base font-mono font-black ${
                                                         isCurrentActive
                                                             ? 'bg-black/30 text-white'
-                                                            : 'bg-zinc-900 text-zinc-400'
+                                                            : 'bg-zinc-900 text-zinc-300 border border-zinc-800'
                                                     }`}
                                                 >
                                                     {item.count}
                                                 </span>
                                             )}
                                             {hasSubItems && (
-                                                <span className="text-current opacity-70">
+                                                <span className="text-current opacity-80">
                                                     {isAccordionOpen ? (
-                                                        <ChevronUp size={16} />
+                                                        <ChevronUp size={22} />
                                                     ) : (
-                                                        <ChevronDown size={16} />
+                                                        <ChevronDown size={22} />
                                                     )}
                                                 </span>
                                             )}
@@ -194,7 +196,7 @@ export function CollapsibleNavSidebar({
 
                                 {/* Nested Accordion Sub-items */}
                                 {!isCollapsed && hasSubItems && isAccordionOpen && (
-                                    <div className="pl-4 pr-1 py-1 space-y-1 animate-in fade-in duration-200">
+                                    <div className="pl-5 pr-1 py-1.5 space-y-1.5 animate-in fade-in duration-200">
                                         {item.subItems!.map(sub => {
                                             const isSubActive =
                                                 isCurrentActive && activeSubItemId === sub.id;
@@ -204,20 +206,22 @@ export function CollapsibleNavSidebar({
                                                     type="button"
                                                     onClick={() => onSelectItem(item.id, sub.id)}
                                                     title={sub.title || sub.label}
-                                                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                                    className={`w-full flex items-center justify-between px-4 py-3 sm:py-3.5 rounded-2xl text-sm sm:text-base lg:text-lg font-black transition-all cursor-pointer ${
                                                         isSubActive
                                                             ? colors.activeSubBg
-                                                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
+                                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60'
                                                     }`}
                                                 >
-                                                    <div className="flex items-center gap-2 truncate">
+                                                    <div className="flex items-center gap-3 truncate">
                                                         {sub.icon && (
-                                                            <span className="shrink-0">{sub.icon}</span>
+                                                            <span className="shrink-0 flex items-center justify-center [&>svg]:w-5 [&>svg]:h-5 sm:[&>svg]:w-6 sm:[&>svg]:h-6">
+                                                                {sub.icon}
+                                                            </span>
                                                         )}
                                                         <span className="truncate">{sub.label}</span>
                                                     </div>
                                                     {sub.count !== undefined && (
-                                                        <span className="px-1.5 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400">
+                                                        <span className="px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-xs sm:text-sm font-mono font-black text-zinc-300">
                                                             {sub.count}
                                                         </span>
                                                     )}

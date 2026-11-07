@@ -57,47 +57,47 @@ export default function Settings() {
             {
                 id: 'instances',
                 label: 'Instances',
-                icon: <Server size={22} className="text-indigo-400" />
+                icon: <Server size={26} className="text-indigo-400" />
             },
             {
                 id: 'ai',
-                label: 'AI Studio',
-                icon: <Sparkles size={22} className="text-amber-400" />,
+                label: 'AI',
+                icon: <Sparkles size={26} className="text-amber-400" />,
                 subItems: [
-                    { id: 'ai', label: 'Keys & Models', icon: <Key size={14} className="text-amber-400" /> },
-                    { id: 'ai_matrix', label: 'Features Matrix', icon: <Sliders size={14} className="text-purple-400" /> },
-                    { id: 'ai_telemetry', label: 'Telemetry & Quota', icon: <Activity size={14} className="text-emerald-400" /> }
+                    { id: 'ai', label: 'Keys', icon: <Key size={22} className="text-amber-400" /> },
+                    { id: 'ai_matrix', label: 'Matrix', icon: <Sliders size={22} className="text-purple-400" /> },
+                    { id: 'ai_telemetry', label: 'Telemetry', icon: <Activity size={22} className="text-emerald-400" /> }
                 ]
             },
             {
                 id: 'ai_matrix',
-                label: 'Features Matrix',
-                icon: <Sliders size={22} className="text-purple-400" />
+                label: 'Matrix',
+                icon: <Sliders size={26} className="text-purple-400" />
             },
             {
                 id: 'ai_telemetry',
-                label: 'AI Telemetry',
-                icon: <Activity size={22} className="text-emerald-400" />
+                label: 'Telemetry',
+                icon: <Activity size={26} className="text-emerald-400" />
             },
             {
                 id: 'automation',
                 label: 'Automation',
-                icon: <Cpu size={22} className="text-emerald-400" />
+                icon: <Cpu size={26} className="text-emerald-400" />
             },
             {
                 id: 'cleaners',
                 label: 'Cleaners',
-                icon: <Trash2 size={22} className="text-rose-400" />
+                icon: <Trash2 size={26} className="text-rose-400" />
             },
             {
                 id: 'subtitles',
                 label: 'Subtitles',
-                icon: <Subtitles size={22} className="text-sky-400" />
+                icon: <Subtitles size={26} className="text-sky-400" />
             },
             {
                 id: 'system',
                 label: 'System',
-                icon: <Wrench size={22} className="text-zinc-400" />
+                icon: <Wrench size={26} className="text-zinc-400" />
             }
         ];
     }, []);

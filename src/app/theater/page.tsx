@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import Link from 'next/link';
@@ -2318,6 +2318,15 @@ function TheaterPageContent() {
     const [audiobookShelfViewMode, setAudiobookShelfViewMode] = useState<'books' | 'bedside' | 'authors' | 'finished' | 'queue'>('books');
     const [audiobookSortBy, setAudiobookSortBy] = useState<'title' | 'year' | 'author' | 'recent'>('title');
     const [audiobookGenreFilter, setAudiobookGenreFilter] = useState<string>('ALL');
+    const [shelfColumns, setShelfColumns] = useState<number>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem('schedulearr_bookshelf_columns');
+                if (saved) return Number(saved) || 4;
+            } catch {}
+        }
+        return 4;
+    });
     const [bookModalTab, setBookModalTab] = useState<'overview' | 'generate'>('overview');
     const [editingModalChapterKey, setEditingModalChapterKey] = useState<string | null>(null);
     const [audiobookQueueBreakdown, setAudiobookQueueBreakdown] = useState<any>(null);
@@ -4977,72 +4986,72 @@ function TheaterPageContent() {
             {
                 id: 'movie',
                 label: 'Movies',
-                icon: <Film size={22} className="text-indigo-400" />,
+                icon: <Film size={26} className="text-indigo-400" />,
                 count: libraries.filter(l => matchesTabType(l.type, 'movie')).length,
                 subItems: libraries.filter(l => matchesTabType(l.type, 'movie')).map(l => ({
                     id: l.id,
                     label: l.name,
-                    icon: <Folder size={14} className="text-indigo-400" />
+                    icon: <Folder size={22} className="text-indigo-400" />
                 }))
             },
             {
                 id: 'show',
                 label: 'Series',
-                icon: <Tv size={22} className="text-emerald-400" />,
+                icon: <Tv size={26} className="text-emerald-400" />,
                 count: libraries.filter(l => matchesTabType(l.type, 'show')).length,
                 subItems: libraries.filter(l => matchesTabType(l.type, 'show')).map(l => ({
                     id: l.id,
                     label: l.name,
-                    icon: <Folder size={14} className="text-emerald-400" />
+                    icon: <Folder size={22} className="text-emerald-400" />
                 }))
             },
             {
                 id: 'live',
-                label: 'Live TV',
-                icon: <RadioTower size={22} className="text-red-400" />,
+                label: 'Live',
+                icon: <RadioTower size={26} className="text-red-400" />,
                 count: libraries.filter(l => matchesTabType(l.type, 'live')).length,
                 subItems: libraries.filter(l => matchesTabType(l.type, 'live')).map(l => ({
                     id: l.id,
                     label: l.name,
-                    icon: <Tv2 size={14} className="text-red-400" />
+                    icon: <Tv2 size={22} className="text-red-400" />
                 }))
             },
             {
                 id: 'music',
                 label: 'Music',
-                icon: <Music size={22} className="text-amber-400" />,
+                icon: <Music size={26} className="text-amber-400" />,
                 count: libraries.filter(l => matchesTabType(l.type, 'music')).length,
                 subItems: libraries.filter(l => matchesTabType(l.type, 'music')).map(l => ({
                     id: l.id,
                     label: l.name,
-                    icon: <Disc size={14} className="text-amber-400" />
+                    icon: <Disc size={22} className="text-amber-400" />
                 }))
             },
             {
                 id: 'audiobooks',
-                label: 'Audiobooks',
-                icon: <BookOpen size={22} className="text-orange-400" />,
+                label: 'Books',
+                icon: <BookOpen size={26} className="text-orange-400" />,
                 count: libraries.filter(l => matchesTabType(l.type, 'audiobooks')).length,
                 subItems: libraries.filter(l => matchesTabType(l.type, 'audiobooks')).map(l => ({
                     id: l.id,
                     label: l.name,
-                    icon: <BookOpen size={14} className="text-orange-400" />
+                    icon: <BookOpen size={22} className="text-orange-400" />
                 }))
             },
             {
                 id: 'photos',
                 label: 'Photos',
-                icon: <ImageIcon size={22} className="text-sky-400" />,
+                icon: <ImageIcon size={26} className="text-sky-400" />,
                 count: libraries.filter(l => matchesTabType(l.type, 'photo')).length,
                 subItems: libraries.filter(l => matchesTabType(l.type, 'photo')).map(l => ({
                     id: l.id,
                     label: l.name,
-                    icon: <ImageIcon size={14} className="text-sky-400" />
+                    icon: <ImageIcon size={22} className="text-sky-400" />
                 }))
             }
         ];
     }, [libraries, matchesTabType]);
-    const getLibIcon = (type: string, size = 18) => {
+    const getLibIcon = (type: string, size = 22) => {
         if (type === 'movie') return <Film size={size} className="text-indigo-400" />;
         if (type === 'show') return <Tv size={size} className="text-emerald-400" />;
         if (type === 'music') return <Music size={size} className="text-amber-400" />;
@@ -6209,50 +6218,52 @@ function TheaterPageContent() {
                             <div className="pt-4 border-t border-amber-900/40 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3.5">
                                 <div className="flex items-center gap-3 flex-wrap">
                                     {/* Genre Filter */}
-                                    <div className="flex items-center gap-2 bg-black/60 px-3.5 py-2 rounded-xl border border-amber-900/50" title="Filter shelf by book genre">
-                                        <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-300/90">Genre:</span>
-                                        <select
-                                            value={audiobookGenreFilter}
-                                            onChange={(e) => setAudiobookGenreFilter(e.target.value)}
-                                            className="bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none cursor-pointer"
-                                        >
-                                            <option value="ALL" className="bg-zinc-900 text-white">All Genres ({audiobooks.length})</option>
-                                            {audiobookShelfData.availableGenres.map(g => (
-                                                <option key={g} value={g} className="bg-zinc-900 text-white">{g}</option>
-                                            ))}
-                                        </select>
-                                    </div>
+                                    <SleekSelect
+                                        options={[
+                                            { id: 'ALL', label: `All Genres (${audiobooks.length})` },
+                                            ...audiobookShelfData.availableGenres.map(g => ({ id: g, label: g }))
+                                        ]}
+                                        value={audiobookGenreFilter}
+                                        onChange={val => setAudiobookGenreFilter(val)}
+                                        label="Genre"
+                                        colorScheme="amber"
+                                        size="md"
+                                        minWidth="min-w-[190px]"
+                                        title="Filter shelf by book genre"
+                                    />
 
                                     {/* Author Filter */}
-                                    <div className="flex items-center gap-2 bg-black/60 px-3.5 py-2 rounded-xl border border-amber-900/50" title="Filter shelf by author">
-                                        <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-300/90">Author:</span>
-                                        <select
-                                            value={selectedShelfAuthor || 'ALL'}
-                                            onChange={(e) => setSelectedShelfAuthor(e.target.value === 'ALL' ? null : e.target.value)}
-                                            className="bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none cursor-pointer max-w-[240px]"
-                                        >
-                                            <option value="ALL" className="bg-zinc-900 text-white">All Authors ({audiobookShelfData.authorsList.length})</option>
-                                            {audiobookShelfData.authorsList.map(a => (
-                                                <option key={a.name} value={a.name} className="bg-zinc-900 text-white">{a.name} ({a.books.length})</option>
-                                            ))}
-                                        </select>
-                                    </div>
+                                    <SleekSelect
+                                        options={[
+                                            { id: 'ALL', label: `All Authors (${audiobookShelfData.authorsList.length})` },
+                                            ...audiobookShelfData.authorsList.map(a => ({ id: a.name, label: a.name, count: a.books.length }))
+                                        ]}
+                                        value={selectedShelfAuthor || 'ALL'}
+                                        onChange={val => setSelectedShelfAuthor(val === 'ALL' ? null : val)}
+                                        label="Author"
+                                        colorScheme="amber"
+                                        size="md"
+                                        minWidth="min-w-[210px]"
+                                        title="Filter shelf by author"
+                                    />
 
                                     {/* Sort By */}
-                                    <div className="flex items-center gap-2 bg-black/60 px-3.5 py-2 rounded-xl border border-amber-900/50" title="Sort books on the shelf">
-                                        <ArrowUpDown size={16} className="text-amber-400" />
-                                        <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-300/90">Sort:</span>
-                                        <select
-                                            value={audiobookSortBy}
-                                            onChange={(e) => setAudiobookSortBy(e.target.value as any)}
-                                            className="bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none cursor-pointer"
-                                        >
-                                            <option value="title" className="bg-zinc-900 text-white">Alphabetical (A–Z)</option>
-                                            <option value="year" className="bg-zinc-900 text-white">Publication Year (Newest)</option>
-                                            <option value="author" className="bg-zinc-900 text-white">Author Name</option>
-                                            <option value="recent" className="bg-zinc-900 text-white">Recently Played</option>
-                                        </select>
-                                    </div>
+                                    <SleekSelect
+                                        options={[
+                                            { id: 'title', label: 'Alphabetical' },
+                                            { id: 'year', label: 'Year' },
+                                            { id: 'author', label: 'Author' },
+                                            { id: 'recent', label: 'Recent' }
+                                        ]}
+                                        value={audiobookSortBy}
+                                        onChange={val => setAudiobookSortBy(val as any)}
+                                        icon={<ArrowUpDown size={18} className="text-amber-400" />}
+                                        label="Sort"
+                                        colorScheme="amber"
+                                        size="md"
+                                        minWidth="min-w-[170px]"
+                                        title="Sort books on the shelf"
+                                    />
 
                                     {(audiobookGenreFilter !== 'ALL' || selectedShelfAuthor) && (
                                         <button
@@ -6261,20 +6272,42 @@ function TheaterPageContent() {
                                                 setSelectedShelfAuthor(null);
                                             }}
                                             title="Clear active genre and author filters"
-                                            className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-sm font-black cursor-pointer"
+                                            className="px-4 py-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-base font-black cursor-pointer transition-all"
                                         >
                                             Reset
                                         </button>
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-2.5 self-end lg:self-auto flex-wrap">
+                                <div className="flex items-center gap-3.5 self-end lg:self-auto flex-wrap">
+                                    {/* Bookshelf Scale Slider */}
+                                    <div className="flex items-center gap-3 bg-black/60 px-4 py-2.5 rounded-2xl border border-amber-900/50 shadow-inner" title="Adjust bookshelf grid size (3 to 6 books per shelf)">
+                                        <LayoutGrid size={22} className="text-amber-400 shrink-0" />
+                                        <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-300/90">Scale:</span>
+                                        <input
+                                            type="range"
+                                            min={3}
+                                            max={6}
+                                            step={1}
+                                            value={shelfColumns}
+                                            onChange={(e) => {
+                                                const val = Number(e.target.value);
+                                                setShelfColumns(val);
+                                                try {
+                                                    localStorage.setItem('schedulearr_bookshelf_columns', String(val));
+                                                } catch {}
+                                            }}
+                                            className="w-24 accent-amber-400 cursor-pointer"
+                                        />
+                                        <span className="text-sm font-mono font-black text-amber-200 min-w-[28px]">{shelfColumns}x</span>
+                                    </div>
+
                                     <Link
                                         href="/discover?tab=audiobooks"
-                                        className="px-4 py-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-amber-100 hover:text-white border border-amber-900/50 text-sm font-black flex items-center gap-2 transition-all"
+                                        className="px-5 py-3 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 text-amber-100 hover:text-white border border-amber-900/50 text-base font-black flex items-center gap-2.5 transition-all shadow-lg"
                                         title="Open Audiobook Manager in Media tab to edit book metadata, collections, file renamer & AI studio settings"
                                     >
-                                        <Sliders size={18} className="text-amber-400" />
+                                        <Sliders size={20} className="text-amber-400" />
                                         <span>Manage</span>
                                     </Link>
                                 </div>
@@ -6809,32 +6842,44 @@ function TheaterPageContent() {
                             };
 
                             // Helper to render a Wooden Bookshelf Cabinet for a list of shelfEntries (4 Large Hardcover Books per Row)
-                            const renderWoodenShelfRows = (entries: typeof audiobookShelfData.shelfEntries) => (
-                                <div className="rounded-[2.25rem] bg-gradient-to-b from-[#17100b] via-[#110c08] to-[#17100b] border-2 border-[#3b2514] shadow-[inset_0_10px_40px_rgba(0,0,0,0.85),0_20px_50px_rgba(0,0,0,0.8)] p-6 sm:p-9 space-y-12">
-                                    {entries.length === 0 ? (
-                                        <div className="py-12 text-center text-base font-bold text-amber-200/70">
-                                            No books match the selected filter.
-                                        </div>
-                                    ) : (
-                                        Array.from({ length: Math.ceil(entries.length / 4) }).map((_, shelfRowIdx) => {
-                                            const rowEntries = entries.slice(shelfRowIdx * 4, (shelfRowIdx + 1) * 4);
-                                            return (
-                                                <div key={shelfRowIdx} className="relative">
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-7 sm:gap-8 px-2 pb-3 items-end">
-                                                        {rowEntries.map(entry =>
-                                                            entry.type === 'collection'
-                                                                ? renderShelfCollectionCard(entry)
-                                                                : renderShelfBookCard(entry.book)
-                                                        )}
+                            const renderWoodenShelfRows = (entries: typeof audiobookShelfData.shelfEntries) => {
+                                const cols = shelfColumns || 4;
+                                const gridColsClass =
+                                    cols === 3
+                                        ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+                                        : cols === 5
+                                        ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5'
+                                        : cols === 6
+                                        ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'
+                                        : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
+
+                                return (
+                                    <div className="rounded-[2.25rem] bg-gradient-to-b from-[#17100b] via-[#110c08] to-[#17100b] border-2 border-[#3b2514] shadow-[inset_0_10px_40px_rgba(0,0,0,0.85),0_20px_50px_rgba(0,0,0,0.8)] p-6 sm:p-9 space-y-12">
+                                        {entries.length === 0 ? (
+                                            <div className="py-12 text-center text-lg font-black text-amber-200/70">
+                                                No books match the selected filter.
+                                            </div>
+                                        ) : (
+                                            Array.from({ length: Math.ceil(entries.length / cols) }).map((_, shelfRowIdx) => {
+                                                const rowEntries = entries.slice(shelfRowIdx * cols, (shelfRowIdx + 1) * cols);
+                                                return (
+                                                    <div key={shelfRowIdx} className="relative">
+                                                        <div className={`grid ${gridColsClass} gap-7 sm:gap-8 px-2 pb-3 items-end`}>
+                                                            {rowEntries.map(entry =>
+                                                                entry.type === 'collection'
+                                                                    ? renderShelfCollectionCard(entry)
+                                                                    : renderShelfBookCard(entry.book)
+                                                            )}
+                                                        </div>
+                                                        {/* 3D Wooden Bookshelf Plank Ledge Under Every Row */}
+                                                        <div className="h-5 w-full rounded-xl bg-gradient-to-b from-[#52331b] via-[#382110] to-[#1e1108] border-t-2 border-amber-400/30 border-b-2 border-black shadow-[0_16px_28px_rgba(0,0,0,0.95)]" />
                                                     </div>
-                                                    {/* 3D Wooden Bookshelf Plank Ledge Under Every Row */}
-                                                    <div className="h-5 w-full rounded-xl bg-gradient-to-b from-[#52331b] via-[#382110] to-[#1e1108] border-t-2 border-amber-400/30 border-b-2 border-black shadow-[0_16px_28px_rgba(0,0,0,0.95)]" />
-                                                </div>
-                                            );
-                                        })
-                                    )}
-                                </div>
-                            );
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                );
+                            };
 
                             if (audiobookShelfViewMode === 'bedside') {
                                 return renderBedsideTableSection(true);

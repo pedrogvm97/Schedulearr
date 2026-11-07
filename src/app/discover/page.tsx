@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { Component, useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -681,39 +681,39 @@ function DiscoverPageContent() {
             {
                 id: 'movie',
                 label: 'Movies',
-                icon: <Film size={22} className="text-indigo-400" />
+                icon: <Film size={26} className="text-indigo-400" />
             },
             {
                 id: 'series',
                 label: 'Series',
-                icon: <Tv size={22} className="text-emerald-400" />
+                icon: <Tv size={26} className="text-emerald-400" />
             },
             {
                 id: 'music',
                 label: 'Music',
-                icon: <Disc size={22} className="text-amber-400" />
+                icon: <Disc size={26} className="text-amber-400" />
             },
             {
                 id: 'audiobooks',
-                label: 'Audiobooks',
-                icon: <BookOpen size={22} className="text-orange-400" />,
+                label: 'Books',
+                icon: <BookOpen size={26} className="text-orange-400" />,
                 subItems: [
-                    { id: 'books', label: 'Audiobooks', icon: <BookOpen size={14} className="text-orange-400" /> },
-                    { id: 'collections', label: 'Series', icon: <FolderPlus size={14} className="text-amber-400" /> },
-                    { id: 'renamer', label: 'Rename', icon: <Wand2 size={14} className="text-zinc-400" /> },
-                    { id: 'ai', label: 'AI', icon: <Sparkles size={14} className="text-purple-400" /> },
-                    { id: 'queue_settings', label: 'Settings', icon: <Settings size={14} className="text-emerald-400" /> }
+                    { id: 'books', label: 'Books', icon: <BookOpen size={22} className="text-orange-400" /> },
+                    { id: 'collections', label: 'Series', icon: <FolderPlus size={22} className="text-amber-400" /> },
+                    { id: 'renamer', label: 'Rename', icon: <Wand2 size={22} className="text-zinc-400" /> },
+                    { id: 'ai', label: 'AI', icon: <Sparkles size={22} className="text-purple-400" /> },
+                    { id: 'queue_settings', label: 'Settings', icon: <Settings size={22} className="text-emerald-400" /> }
                 ]
             },
             {
                 id: 'photos',
                 label: 'Photos',
-                icon: <ImageIcon size={22} className="text-sky-400" />
+                icon: <ImageIcon size={26} className="text-sky-400" />
             },
             {
                 id: 'iptv_dvr',
-                label: 'Live TV & DVR',
-                icon: <Tv size={22} className="text-amber-400" />
+                label: 'Live',
+                icon: <Tv size={26} className="text-amber-400" />
             }
         ];
     }, []);
