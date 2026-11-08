@@ -1441,11 +1441,8 @@ export default function Settings() {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-3">
-                            <Sliders size={26} className="text-emerald-400" /> Settings & System Control
+                            <Sliders size={28} className="text-emerald-400" /> Settings
                         </h1>
-                        <p className="text-sm text-zinc-400 font-medium mt-1">
-                            Instances, automated search schedules, storage protection, and system diagnostics
-                        </p>
                     </div>
 
                     <div className="flex items-center gap-2">

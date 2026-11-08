@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     Activity, RefreshCw, Image as ImageIcon, Headphones,
     Sliders, CheckCircle2, AlertTriangle, Zap, Save, Clock, Server,
-    Pause, Play, Trash2, Sparkles, FileText, Mic, Layers
+    Pause, Play, Trash2, Sparkles, FileText, Mic, Layers, RotateCcw, AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmModal } from '@/components/ConfirmModal';
@@ -196,6 +196,102 @@ export function AiApiAnalyticsPanel() {
         };
         recentEvents: any[];
     } | null>(null);
+
+    const [studioData, setStudioData] = useState<any>(null);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [isCleanupOpen, setIsCleanupOpen] = useState<boolean>(false);
+
+    const fetchStudioStatus = useCallback(async () => {
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio');
+            if (res.ok) {
+                const json = await res.json();
+                setStudioData(json);
+            }
+        } catch {}
+    }, []);
+
+    useEffect(() => {
+        fetchStudioStatus();
+        const interval = setInterval(fetchStudioStatus, 10000);
+        return () => clearInterval(interval);
+    }, [fetchStudioStatus]);
+
+    const handleResetDailyQuota = async () => {
+        setActionLoading('reset_quota');
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reset_daily_quota' })
+            });
+            if (res.ok) {
+                toast.success("Daily quota reset to 0! Pipeline resumed.");
+                await fetchStudioStatus();
+                fetchAnalytics(false);
+            } else {
+                toast.error("Failed to reset quota");
+            }
+        } catch {
+            toast.error("Failed to reset quota");
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleRetryFailedChapters = async () => {
+        setActionLoading('retry_failed');
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'retry_failed_chapters' })
+            });
+            if (res.ok) {
+                toast.success("Cleared failed status on chapters! Retrying illustrations...");
+                await fetchStudioStatus();
+                fetchAnalytics(false);
+            } else {
+                toast.error("Failed to retry chapters");
+            }
+        } catch {
+            toast.error("Failed to retry chapters");
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleRunWorkerNow = async () => {
+        setActionLoading('run_worker');
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'run_queue' })
+            });
+            if (res.ok) {
+                toast.success("Pipeline triggered!");
+                await fetchStudioStatus();
+                fetchAnalytics(false);
+            }
+        } catch {} finally {
+            setActionLoading(null);
+        }
+    };
+
+    const studioCfg = studioData?.config || {};
+    const books = Array.isArray(studioData?.books) ? studioData.books : [];
+    const dailyLimit = studioCfg.dailyImageQuota || 85;
+    const imagesToday = studioData?.imagesGeneratedToday || 0;
+    const isQuotaExhausted = imagesToday >= dailyLimit;
+
+    const stuckBooks = books.filter((b: any) => {
+        const transCh = b.transCh || 0;
+        const totalCh = b.totalCh || 1;
+        const scenedCh = b.scenedCh || 0;
+        const illCh = b.illCh || 0;
+        return transCh >= totalCh && scenedCh >= totalCh && illCh === 0;
+    });
 
     const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
     const [draftTierId, setDraftTierId] = useState<string>('free_flash_lite');
@@ -392,176 +488,233 @@ export function AiApiAnalyticsPanel() {
     const isAiPaused = Boolean(data?.aiPaused);
 
     return (
-        <div className="space-y-8">
-            {/* ── TOP BAR: TIMEFRAME SELECTOR, PAUSE AI, AUTO-DETECT LIMITS & PING ── */}
-            <div className="p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex flex-wrap items-center justify-between gap-4 shadow-2xl">
-                <div className="flex flex-wrap items-center gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
-                    {(
-                        [
-                            { id: '24h', label: '24 Hours' },
-                            { id: '7d', label: '7 Days' },
-                            { id: '30d', label: '30 Days' },
-                            { id: 'all', label: 'All Time' }
-                        ] as const
-                    ).map(t => (
-                        <button
-                            key={t.id}
-                            onClick={() => setRange(t.id)}
-                            title={`Show API usage and generated assets for ${t.label}`}
-                            className={`px-5 py-2.5 rounded-xl text-sm sm:text-base font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                range === t.id
-                                    ? 'bg-indigo-500 text-black shadow-lg shadow-indigo-500/25'
-                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-                            }`}
-                        >
-                            {t.label}
-                        </button>
-                    ))}
+        <div className="space-y-6">
+            {/* ── UNIFIED TELEMETRY BAR: HEADER, LIVE STATUS, TIME FILTERS & ACTIONS ── */}
+            <div className="p-5 sm:p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xl">
+                <div className="flex items-center gap-3.5 flex-wrap">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                        <Activity size={26} />
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-2.5">
+                            <h2 className="text-xl sm:text-2xl font-black text-white">Telemetry</h2>
+                            <span className={`px-3 py-1 rounded-xl text-xs font-mono font-black border ${
+                                isAiPaused
+                                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                    : isQuotaExhausted
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            }`}>
+                                {isAiPaused ? 'Paused' : isQuotaExhausted ? 'Quota Full' : `${imagesToday}/${dailyLimit} Today`}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Time Filters */}
+                    <div className="flex items-center gap-1 bg-black/60 p-1.5 rounded-2xl border border-zinc-800 ml-0 sm:ml-2">
+                        {([
+                            { id: '24h', label: '24H' },
+                            { id: '7d', label: '7D' },
+                            { id: '30d', label: '30D' },
+                            { id: 'all', label: 'ALL' }
+                        ] as const).map(t => (
+                            <button
+                                key={t.id}
+                                onClick={() => setRange(t.id)}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+                                    range === t.id
+                                        ? 'bg-indigo-600 text-white shadow'
+                                        : 'text-zinc-400 hover:text-white'
+                                }`}
+                                title={`Show usage for ${t.label}`}
+                            >
+                                {t.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                    {/* Global Pause / Resume AI Button */}
+                {/* Consolidated Quick Actions */}
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    <button
+                        onClick={handleRunWorkerNow}
+                        disabled={actionLoading !== null}
+                        title="Run Queue Now"
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
+                    >
+                        <Zap size={15} className={actionLoading === 'run_worker' ? 'animate-spin' : ''} />
+                        <span>Run</span>
+                    </button>
+
+                    <button
+                        onClick={handleResetDailyQuota}
+                        disabled={actionLoading !== null}
+                        title="Reset Daily Quota & Resume"
+                        className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
+                    >
+                        <RotateCcw size={15} className={actionLoading === 'reset_quota' ? 'animate-spin' : ''} />
+                        <span>Reset</span>
+                    </button>
+
+                    <button
+                        onClick={handleRetryFailedChapters}
+                        disabled={actionLoading !== null}
+                        title="Retry Failed Chapters"
+                        className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                        <RefreshCw size={15} className={actionLoading === 'retry_failed' ? 'animate-spin text-amber-400' : 'text-amber-400'} />
+                        <span>Retry</span>
+                    </button>
+
                     <button
                         onClick={handleToggleAiPause}
                         disabled={togglingPause}
-                        title={
+                        title={isAiPaused ? "Resume AI processing" : "Pause all AI processing"}
+                        className={`px-3.5 py-2 rounded-xl font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer border ${
                             isAiPaused
-                                ? 'AI is currently paused. Click to resume background AI transcription, scene detection, and artwork generation.'
-                                : 'Immediately halt all AI features (transcription, scening, artwork generation) to prevent any API hits or quota usage.'
-                        }
-                        className={`px-5 py-3 rounded-2xl font-black text-sm sm:text-base uppercase tracking-wider flex items-center gap-2.5 shadow-lg cursor-pointer transition-all disabled:opacity-50 ${
-                            isAiPaused
-                                ? 'bg-amber-500 hover:bg-amber-400 text-black ring-2 ring-amber-300/60'
-                                : 'bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40'
+                                ? 'bg-amber-500 text-black border-amber-400 shadow'
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
                         }`}
                     >
-                        {isAiPaused ? <Play size={20} /> : <Pause size={20} />}
-                        <span>{isAiPaused ? 'Resume AI' : 'Pause AI'}</span>
+                        {isAiPaused ? <Play size={15} /> : <Pause size={15} />}
+                        <span>{isAiPaused ? 'Resume' : 'Pause'}</span>
                     </button>
 
-                    {/* Auto-Detect Limits Button */}
                     <button
                         onClick={handleAutoDetectLimits}
                         disabled={detectingLimits}
-                        title="Automatically detect RPM, TPM, and RPD limits from active model presets (e.g. Gemini Flash Lite 15 RPM / 250K TPM / 500 RPD), live HTTP rate-limit headers, and 429 QuotaFailure responses"
-                        className="px-5 py-3 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-black font-black text-sm sm:text-base uppercase tracking-wider flex items-center gap-2.5 shadow-lg cursor-pointer disabled:opacity-50"
+                        title="Auto-Detect Limits from API response headers & models"
+                        className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
-                        <Sparkles size={20} className={detectingLimits ? 'animate-spin' : ''} />
-                        <span>Auto-Detect Limits</span>
+                        <Sparkles size={15} className={detectingLimits ? 'animate-spin' : ''} />
+                        <span>Detect</span>
                     </button>
 
-                    {/* Live Ping Button */}
                     <button
                         onClick={() => fetchAnalytics(true)}
                         disabled={pinging}
-                        title="Query all API providers right now to check live rate limits and latency"
-                        className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm sm:text-base uppercase tracking-wider flex items-center gap-2.5 shadow-lg cursor-pointer disabled:opacity-50"
+                        title="Ping all active API providers for latency & status"
+                        className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 font-black text-xs uppercase flex items-center gap-1 cursor-pointer disabled:opacity-50"
                     >
-                        <RefreshCw size={20} className={pinging ? 'animate-spin' : ''} />
+                        <RefreshCw size={15} className={pinging ? 'animate-spin' : ''} />
                         <span>Ping</span>
                     </button>
+
+                    <button
+                        onClick={() => setIsCleanupOpen(true)}
+                        title="Open Cleanup Menu"
+                        className="px-3.5 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                    >
+                        <Trash2 size={15} />
+                        <span>Clean</span>
+                    </button>
                 </div>
             </div>
 
-            {/* ── GRANULAR & FULL CLEANUP BAR ── */}
-            <div className="p-6 rounded-3xl bg-zinc-900/90 border border-zinc-800 flex flex-wrap items-center justify-between gap-4 shadow-xl">
-                <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-2xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-400">
-                        <Trash2 size={22} />
+            {/* Focused Cleanup Modal */}
+            {isCleanupOpen && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+                        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                            <div className="flex items-center gap-2.5">
+                                <Trash2 size={22} className="text-red-400" />
+                                <h3 className="text-lg font-black text-white">Cleanup</h3>
+                            </div>
+                            <button
+                                onClick={() => setIsCleanupOpen(false)}
+                                className="p-1 text-zinc-400 hover:text-white cursor-pointer"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2.5">
+                            <button
+                                onClick={() => { setIsCleanupOpen(false); handleCleanup('images', 'Images'); }}
+                                className="p-3 rounded-xl bg-zinc-900 hover:bg-purple-950/40 border border-purple-500/30 text-purple-300 font-bold text-xs flex items-center gap-2 cursor-pointer"
+                            >
+                                <ImageIcon size={16} />
+                                <span>Images</span>
+                            </button>
+                            <button
+                                onClick={() => { setIsCleanupOpen(false); handleCleanup('scenes', 'Scenes'); }}
+                                className="p-3 rounded-xl bg-zinc-900 hover:bg-indigo-950/40 border border-indigo-500/30 text-indigo-300 font-bold text-xs flex items-center gap-2 cursor-pointer"
+                            >
+                                <Layers size={16} />
+                                <span>Scenes</span>
+                            </button>
+                            <button
+                                onClick={() => { setIsCleanupOpen(false); handleCleanup('transcripts', 'Transcripts'); }}
+                                className="p-3 rounded-xl bg-zinc-900 hover:bg-amber-950/40 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-2 cursor-pointer"
+                            >
+                                <FileText size={16} />
+                                <span>Transcripts</span>
+                            </button>
+                            <button
+                                onClick={() => { setIsCleanupOpen(false); handleCleanup('voices', 'Voices'); }}
+                                className="p-3 rounded-xl bg-zinc-900 hover:bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center gap-2 cursor-pointer"
+                            >
+                                <Mic size={16} />
+                                <span>Voices</span>
+                            </button>
+                            <button
+                                onClick={() => { setIsCleanupOpen(false); handleCleanup('api_history', 'API Log'); }}
+                                className="p-3 rounded-xl bg-zinc-900 hover:bg-sky-950/40 border border-sky-500/30 text-sky-300 font-bold text-xs flex items-center gap-2 cursor-pointer"
+                            >
+                                <Activity size={16} />
+                                <span>API Log</span>
+                            </button>
+                            <button
+                                onClick={() => { setIsCleanupOpen(false); handleCleanup('all', 'Everything'); }}
+                                className="p-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs flex items-center gap-2 cursor-pointer shadow"
+                            >
+                                <Trash2 size={16} />
+                                <span>Clean All</span>
+                            </button>
+                        </div>
                     </div>
-                    <h3 className="text-lg sm:text-xl font-black text-white">Cleanup</h3>
                 </div>
+            )}
 
-                <div className="flex flex-wrap items-center gap-2.5">
+            {/* Stuck Books Alert (Only shown if books are waiting on images) */}
+            {stuckBooks.length > 0 && (
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 text-amber-300 text-xs sm:text-sm font-bold">
+                        <AlertCircle size={18} />
+                        <span>${stuckBooks.length} book(s) waiting on illustrations</span>
+                    </div>
                     <button
-                        onClick={() => handleCleanup('images', 'Generated Images Only')}
-                        disabled={cleaningTarget !== null}
-                        title="Delete all generated scene images across audiobooks while keeping transcripts and scene timestamps/prompts intact"
-                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                        onClick={handleResetDailyQuota}
+                        className="px-3 py-1 bg-amber-500 text-black text-xs font-black rounded-lg cursor-pointer hover:bg-amber-400"
                     >
-                        <ImageIcon size={18} />
-                        <span>Images</span>
-                    </button>
-
-                    <button
-                        onClick={() => handleCleanup('scenes', 'Scenes & Images')}
-                        disabled={cleaningTarget !== null}
-                        title="Delete all generated scenes and artwork across audiobooks while keeping Speech-to-Text transcripts intact"
-                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                        <Layers size={18} />
-                        <span>Scenes</span>
-                    </button>
-
-                    <button
-                        onClick={() => handleCleanup('transcripts', 'Transcripts Only')}
-                        disabled={cleaningTarget !== null}
-                        title="Delete all generated Speech-to-Text transcripts (.lrc / .txt) across audiobooks"
-                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                        <FileText size={18} />
-                        <span>Transcripts</span>
-                    </button>
-
-                    <button
-                        onClick={() => handleCleanup('voices', 'Voice Exports')}
-                        disabled={cleaningTarget !== null}
-                        title="Delete all generated voice preset audio files (.m4a)"
-                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                        <Mic size={18} />
-                        <span>Voices</span>
-                    </button>
-
-                    <button
-                        onClick={() => handleCleanup('api_history', 'API Usage Log')}
-                        disabled={cleaningTarget !== null}
-                        title="Clear recorded API request & quota telemetry history"
-                        className="px-4 py-2.5 rounded-2xl bg-zinc-950 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                        <Activity size={18} />
-                        <span>API Log</span>
-                    </button>
-
-                    <button
-                        onClick={() => handleCleanup('all', 'Everything (Pause AI + Full Reset)')}
-                        disabled={cleaningTarget !== null}
-                        title="Pause AI and wipe all generated images, scenes, transcripts, voice exports, and queue items"
-                        className="px-5 py-2.5 rounded-2xl bg-red-500 hover:bg-red-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50"
-                    >
-                        <Trash2 size={18} />
-                        <span>Clean All</span>
+                        Resume
                     </button>
                 </div>
-            </div>
+            )}
 
-            {/* ── GOOGLE AI STUDIO STYLE: PEAK USAGE TRENDS (RPM, TPM, RPD WITH RED DASHED LIMIT LINES) ── */}
+            {/* ── PEAK USAGE TRENDS CHARTS ── */}
             <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-4 px-1">
-                    <div className="flex items-center gap-3">
-                        <Activity size={26} className="text-sky-400" />
-                        <h2 className="text-xl sm:text-2xl font-black text-white">Peak usage trends</h2>
+                <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                    <div className="flex items-center gap-2.5">
+                        <Activity size={22} className="text-sky-400" />
+                        <h3 className="text-lg sm:text-xl font-black text-white">Trends</h3>
                         {selectedProvider?.detectedModel && (
-                            <span className="px-3 py-1 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-200 font-mono text-xs sm:text-sm font-black">
+                            <span className="px-2.5 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 font-mono text-xs font-bold border border-zinc-700">
                                 {selectedProvider.detectedModel}
                             </span>
                         )}
                     </div>
 
-                    <div className="flex items-center gap-3">
-                        <select
-                            value={selectedPeakProviderId}
-                            onChange={e => setSelectedPeakProviderId(e.target.value)}
-                            title="Select API provider / model to inspect RPM, TPM, and RPD peak usage against its Limit line"
-                            className="px-4 py-2.5 rounded-2xl bg-zinc-900 border border-zinc-700 text-white font-black text-sm sm:text-base cursor-pointer"
-                        >
-                            {providers.map((p: any) => (
-                                <option key={p.id} value={p.id}>
-                                    {p.name} ({p.rpmLimit} RPM / {formatCompactNumber(p.tpmLimit || 250000)} TPM / {p.rpdLimit} RPD)
-                                </option>
-                            ))}
-                        </select>
-                    </div>
+                    <select
+                        value={selectedPeakProviderId}
+                        onChange={e => setSelectedPeakProviderId(e.target.value)}
+                        className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold text-xs sm:text-sm cursor-pointer outline-none"
+                    >
+                        {providers.map((p: any) => (
+                            <option key={p.id} value={p.id}>
+                                {p.name} ({p.rpmLimit} RPM / {formatCompactNumber(p.tpmLimit || 250000)} TPM / {p.rpdLimit} RPD)
+                            </option>
+                        ))}
+                    </select>
                 </div>
 
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
