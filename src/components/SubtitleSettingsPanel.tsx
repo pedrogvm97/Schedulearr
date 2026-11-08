@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Subtitles, Sparkles, Check, RotateCcw, Eye, Film, BookOpen, Languages, Globe } from 'lucide-react';
+import { Subtitles, Check, RotateCcw, Eye, BookOpen, Languages } from 'lucide-react';
 import { toast } from 'sonner';
 
 export interface SubtitleAppearanceConfig {
@@ -82,7 +82,7 @@ export function getStoredSubtitleAppearance(): SubtitleAppearanceConfig {
 
 export function SubtitleSettingsPanel() {
     const [config, setConfig] = useState<SubtitleAppearanceConfig>(DEFAULT_SUBTITLE_APPEARANCE);
-    const [saving, setSaving] = useState(false);
+    const [, setSaving] = useState(false);
     const [targetLanguages, setTargetLanguages] = useState<string[]>(['en', 'pt']);
     const [supportedLanguages, setSupportedLanguages] = useState<Array<{ code: string; name: string; flag: string }>>(DEFAULT_SUPPORTED_LANGUAGES);
     const [updatingLang, setUpdatingLang] = useState<string | null>(null);
@@ -217,23 +217,22 @@ export function SubtitleSettingsPanel() {
     return (
         <div className="space-y-8 animate-in fade-in duration-200">
             {/* Header Card */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 shrink-0 shadow-inner">
-                        <Subtitles size={26} />
+                    <div className="w-14 h-14 rounded-2xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400 shrink-0 shadow-inner">
+                        <Subtitles size={28} />
                     </div>
                     <div>
-                        <h2 className="text-xl sm:text-2xl font-black text-white">Subtitles</h2>
-                        <span className="text-xs font-mono font-bold text-zinc-400">Appearance across Books, Movies, Series &amp; Songs</span>
+                        <h2 className="text-2xl sm:text-3xl font-black text-white">Subtitles</h2>
                     </div>
                 </div>
 
                 <button
                     onClick={handleReset}
                     title="Reset Subtitle Appearance to Default"
-                    className="p-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-all flex items-center gap-2 text-xs font-black self-start sm:self-auto cursor-pointer"
+                    className="px-5 py-3.5 rounded-2xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-all flex items-center gap-2.5 text-sm font-black cursor-pointer shadow-sm"
                 >
-                    <RotateCcw size={16} />
+                    <RotateCcw size={18} />
                     <span>Reset</span>
                 </button>
             </div>
@@ -241,36 +240,33 @@ export function SubtitleSettingsPanel() {
             {/* Live Interactive Preview */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                    <span className="text-xs font-black uppercase text-purple-400 tracking-wider flex items-center gap-2">
-                        <Eye size={16} /> Live Preview
+                    <span className="text-sm sm:text-base font-black uppercase text-sky-400 tracking-wider flex items-center gap-2.5">
+                        <Eye size={22} /> Preview
                     </span>
-                    <span className="text-xs font-bold text-zinc-500">Real-time Rendering</span>
                 </div>
 
-                <div className="relative w-full h-64 sm:h-72 rounded-xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between p-6 select-none shadow-inner">
-                    {/* Background cinematic artwork simulation */}
-                    <div className="absolute inset-0 bg-gradient-to-tr from-purple-950/40 via-zinc-900/60 to-black/80 pointer-events-none" />
+                <div className="relative w-full h-64 sm:h-72 rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between p-6 select-none shadow-inner">
+                    <div className="absolute inset-0 bg-gradient-to-tr from-sky-950/30 via-zinc-900/60 to-black/80 pointer-events-none" />
                     <div className="absolute top-4 left-4 flex items-center gap-2 z-10">
-                        <div className="p-1.5 rounded-lg bg-black/60 border border-white/10 text-zinc-400">
-                            <BookOpen size={16} />
+                        <div className="p-2 rounded-xl bg-black/60 border border-white/10 text-zinc-300">
+                            <BookOpen size={18} />
                         </div>
-                        <span className="text-xs font-bold text-zinc-400">Chapter 1: The Boy Who Lived</span>
                     </div>
 
                     <div className={`relative z-10 w-full flex justify-center ${config.position === 'top' ? 'mt-8' : 'mt-auto mb-2'}`}>
                         <div
-                            className={`px-5 py-2.5 rounded-xl transition-all duration-200 text-center max-w-xl ${
+                            className={`px-6 py-3.5 rounded-2xl transition-all duration-200 text-center max-w-xl ${
                                 config.backdrop === 'translucent'
                                     ? 'bg-black/75 backdrop-blur-md border border-white/10 shadow-2xl'
                                     : config.backdrop === 'solid'
                                         ? 'bg-black border border-zinc-700 shadow-2xl'
                                         : 'bg-transparent'
                             } ${
-                                config.fontSize === 'small' ? 'text-sm' :
-                                config.fontSize === 'medium' ? 'text-base sm:text-lg' :
-                                config.fontSize === 'large' ? 'text-lg sm:text-xl' :
-                                config.fontSize === 'xlarge' ? 'text-xl sm:text-2xl' :
-                                'text-2xl sm:text-3xl'
+                                config.fontSize === 'small' ? 'text-base sm:text-lg' :
+                                config.fontSize === 'medium' ? 'text-lg sm:text-xl' :
+                                config.fontSize === 'large' ? 'text-xl sm:text-2xl' :
+                                config.fontSize === 'xlarge' ? 'text-2xl sm:text-3xl' :
+                                'text-3xl sm:text-4xl'
                             } ${
                                 config.fontWeight === 'normal' ? 'font-normal' :
                                 config.fontWeight === 'bold' ? 'font-bold' :
@@ -293,13 +289,13 @@ export function SubtitleSettingsPanel() {
             {/* Auto-Translation Target Languages Picker */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                    <span className="text-sm font-black uppercase text-purple-400 tracking-wider flex items-center gap-2">
-                        <Languages size={20} /> Languages
+                    <span className="text-sm sm:text-base font-black uppercase text-sky-400 tracking-wider flex items-center gap-2.5">
+                        <Languages size={22} /> Languages
                     </span>
-                    <span className="text-xs font-mono font-bold text-zinc-400">{targetLanguages.length} Active</span>
+                    <span className="text-sm font-mono font-bold text-zinc-300 bg-zinc-950 px-3 py-1 rounded-xl border border-zinc-800">{targetLanguages.length} Active</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
                     {supportedLanguages.map(lang => {
                         const active = targetLanguages.includes(lang.code.toLowerCase());
                         const isUpdating = updatingLang === lang.code.toLowerCase();
@@ -309,15 +305,15 @@ export function SubtitleSettingsPanel() {
                                 onClick={() => handleToggleLanguage(lang.code)}
                                 disabled={isUpdating}
                                 title={`Toggle Auto-Translation into ${lang.name} (${lang.code.toUpperCase()})`}
-                                className={`p-4 rounded-xl text-center transition-all flex flex-col items-center justify-center gap-2 cursor-pointer border ${
+                                className={`p-4 sm:p-5 rounded-2xl text-center transition-all flex flex-col items-center justify-center gap-2.5 cursor-pointer border ${
                                     active
-                                        ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30 ring-1 ring-purple-400/50'
+                                        ? 'bg-sky-600 text-white border-sky-400 shadow-lg shadow-sky-600/30 ring-2 ring-sky-400/50'
                                         : 'bg-zinc-950 text-zinc-400 hover:text-white border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/40'
                                 } ${isUpdating ? 'opacity-50 animate-pulse' : ''}`}
                             >
-                                <span className="text-3xl select-none">{lang.flag}</span>
-                                <div className="flex items-center gap-1.5 font-bold text-sm">
-                                    {active && <Check size={16} className="text-white shrink-0" />}
+                                <span className="text-4xl select-none">{lang.flag}</span>
+                                <div className="flex items-center gap-2 font-black text-sm sm:text-base">
+                                    {active && <Check size={18} className="text-white shrink-0" />}
                                     <span>{lang.name}</span>
                                 </div>
                             </button>
@@ -330,10 +326,10 @@ export function SubtitleSettingsPanel() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* 1. Font Size Selector */}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
-                    <span className="text-xs font-black uppercase text-purple-400 tracking-wider">
+                    <span className="text-sm sm:text-base font-black uppercase text-sky-400 tracking-wider">
                         Size
                     </span>
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className="grid grid-cols-5 gap-2.5">
                         {sizeOptions.map(opt => {
                             const active = config.fontSize === opt.id;
                             return (
@@ -341,9 +337,9 @@ export function SubtitleSettingsPanel() {
                                     key={opt.id}
                                     onClick={() => updateConfig({ fontSize: opt.id })}
                                     title={`Subtitle Size: ${opt.label} (${opt.sample})`}
-                                    className={`py-3 px-1 rounded-xl text-xs font-black uppercase transition-all flex flex-col items-center justify-center gap-1 cursor-pointer border ${
+                                    className={`py-4 px-2 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer border ${
                                         active
-                                            ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30'
+                                            ? 'bg-sky-600 text-white border-sky-400 shadow-lg shadow-sky-600/30'
                                             : 'bg-zinc-950 text-zinc-400 hover:text-white border-zinc-800 hover:border-zinc-700'
                                     }`}
                                 >
@@ -357,10 +353,10 @@ export function SubtitleSettingsPanel() {
 
                 {/* 2. Font Weight Selector */}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
-                    <span className="text-xs font-black uppercase text-purple-400 tracking-wider">
+                    <span className="text-sm sm:text-base font-black uppercase text-sky-400 tracking-wider">
                         Weight
                     </span>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-3 gap-2.5">
                         {weightOptions.map(opt => {
                             const active = config.fontWeight === opt.id;
                             return (
@@ -368,13 +364,13 @@ export function SubtitleSettingsPanel() {
                                     key={opt.id}
                                     onClick={() => updateConfig({ fontWeight: opt.id })}
                                     title={`Font Weight: ${opt.label}`}
-                                    className={`py-3.5 px-3 rounded-xl text-xs font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer border ${
+                                    className={`py-4 px-3 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer border ${
                                         active
-                                            ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30'
+                                            ? 'bg-sky-600 text-white border-sky-400 shadow-lg shadow-sky-600/30'
                                             : 'bg-zinc-950 text-zinc-400 hover:text-white border-zinc-800 hover:border-zinc-700'
                                     }`}
                                 >
-                                    {active && <Check size={14} />}
+                                    {active && <Check size={16} />}
                                     <span>{opt.label}</span>
                                 </button>
                             );
@@ -384,10 +380,10 @@ export function SubtitleSettingsPanel() {
 
                 {/* 3. Backdrop Style */}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
-                    <span className="text-xs font-black uppercase text-purple-400 tracking-wider">
+                    <span className="text-sm sm:text-base font-black uppercase text-sky-400 tracking-wider">
                         Backdrop
                     </span>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-3 gap-2.5">
                         {backdropOptions.map(opt => {
                             const active = config.backdrop === opt.id;
                             return (
@@ -395,13 +391,13 @@ export function SubtitleSettingsPanel() {
                                     key={opt.id}
                                     onClick={() => updateConfig({ backdrop: opt.id })}
                                     title={`Backdrop Style: ${opt.label}`}
-                                    className={`py-3.5 px-3 rounded-xl text-xs font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer border ${
+                                    className={`py-4 px-3 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer border ${
                                         active
-                                            ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30'
+                                            ? 'bg-sky-600 text-white border-sky-400 shadow-lg shadow-sky-600/30'
                                             : 'bg-zinc-950 text-zinc-400 hover:text-white border-zinc-800 hover:border-zinc-700'
                                     }`}
                                 >
-                                    {active && <Check size={14} />}
+                                    {active && <Check size={16} />}
                                     <span>{opt.label}</span>
                                 </button>
                             );
@@ -411,10 +407,10 @@ export function SubtitleSettingsPanel() {
 
                 {/* 4. Highlight Color */}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
-                    <span className="text-xs font-black uppercase text-purple-400 tracking-wider">
-                        Highlight
+                    <span className="text-sm sm:text-base font-black uppercase text-sky-400 tracking-wider">
+                        Color
                     </span>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-4 gap-2.5">
                         {colorOptions.map(opt => {
                             const active = config.highlightColor === opt.id;
                             return (
@@ -422,13 +418,13 @@ export function SubtitleSettingsPanel() {
                                     key={opt.id}
                                     onClick={() => updateConfig({ highlightColor: opt.id })}
                                     title={`Highlight Color: ${opt.label}`}
-                                    className={`py-3.5 px-3 rounded-xl text-xs font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer border ${
+                                    className={`py-4 px-3 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer border ${
                                         active
-                                            ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30'
+                                            ? 'bg-sky-600 text-white border-sky-400 shadow-lg shadow-sky-600/30'
                                             : 'bg-zinc-950 text-zinc-400 hover:text-white border-zinc-800 hover:border-zinc-700'
                                     }`}
                                 >
-                                    <span className={`w-3 h-3 rounded-full ${opt.bg} shrink-0`} />
+                                    <span className={`w-3.5 h-3.5 rounded-full ${opt.bg} shrink-0 shadow-sm`} />
                                     <span>{opt.label}</span>
                                 </button>
                             );
@@ -438,7 +434,7 @@ export function SubtitleSettingsPanel() {
 
                 {/* 5. Placement Position */}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4 md:col-span-2">
-                    <span className="text-xs font-black uppercase text-purple-400 tracking-wider">
+                    <span className="text-sm sm:text-base font-black uppercase text-sky-400 tracking-wider">
                         Position
                     </span>
                     <div className="grid grid-cols-2 gap-3 max-w-md">
@@ -449,13 +445,13 @@ export function SubtitleSettingsPanel() {
                                     key={opt.id}
                                     onClick={() => updateConfig({ position: opt.id })}
                                     title={`Screen Position: ${opt.label}`}
-                                    className={`py-3.5 px-4 rounded-xl text-xs font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer border ${
+                                    className={`py-4 px-4 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer border ${
                                         active
-                                            ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30'
+                                            ? 'bg-sky-600 text-white border-sky-400 shadow-lg shadow-sky-600/30'
                                             : 'bg-zinc-950 text-zinc-400 hover:text-white border-zinc-800 hover:border-zinc-700'
                                     }`}
                                 >
-                                    {active && <Check size={14} />}
+                                    {active && <Check size={16} />}
                                     <span>{opt.label}</span>
                                 </button>
                             );

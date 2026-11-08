@@ -383,8 +383,7 @@ export default function Settings() {
             } else if (subtopicParam === 'system') {
                 setSettingsSubtopic('system');
             } else if (subtopicParam === 'subtitles' || subtopicParam === 'subtitle' || subtopicParam === 'captions') {
-                setSettingsSubtopic('ai');
-                setAiMediaCategory('subtitles');
+                setSettingsSubtopic('subtitles');
             } else if (subtopicParam === 'instances') {
                 setSettingsSubtopic('instances');
             }
@@ -4209,6 +4208,9 @@ export default function Settings() {
 
             {/* AI DIAGNOSTICS & TELEMETRY */}
             {settingsSubtopic === 'ai_telemetry' && <AiDiagnosticsPanel />}
+
+            {/* SUBTITLES SETTINGS */}
+            {settingsSubtopic === 'subtitles' && <SubtitleSettingsPanel />}
 
                 </div>
             </div>
