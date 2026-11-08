@@ -732,8 +732,8 @@ export function SchedulerQueuePanel() {
                 const currentSonarrMode = sonarrSearchModes[activeInstance.id] || 'missing';
 
                 return (
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 rounded-2xl bg-violet-500/10 text-violet-400 border border-violet-500/20">
                                     <Icon size={26} />
@@ -748,18 +748,34 @@ export function SchedulerQueuePanel() {
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
+                                {/* Sonarr Search Mode Dropdown Choice */}
+                                {activeInstance.type === 'sonarr' && (
+                                    <div className="flex items-center gap-2 bg-zinc-950 px-3.5 py-2.5 rounded-2xl border border-zinc-800 shrink-0">
+                                        <span className="text-sm font-black text-zinc-400 uppercase">Mode:</span>
+                                        <CustomSelect
+                                            minimal
+                                            options={[
+                                                { id: 'missing', name: 'Missing' },
+                                                { id: 'general', name: 'General' }
+                                            ]}
+                                            value={currentSonarrMode}
+                                            onChange={val => handleSetSonarrSearchMode(activeInstance.id, val as 'missing' | 'general')}
+                                        />
+                                    </div>
+                                )}
+
                                 <button
                                     type="button"
                                     disabled={triggeringInstanceId === activeInstance.id}
                                     onClick={() => handleTriggerInstanceSearch(activeInstance)}
-                                    className="px-6 py-3 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2.5 cursor-pointer shadow-lg shadow-violet-600/30 transition-all disabled:opacity-50"
+                                    className="px-6 py-3 rounded-2xl bg-violet-600 hover:bg-violet-500 text-white font-black text-sm uppercase tracking-wider flex items-center gap-2.5 cursor-pointer shadow-lg shadow-violet-600/30 transition-all disabled:opacity-50"
                                     title={`Trigger ${activeInstance.type === 'sonarr' && currentSonarrMode === 'general' ? 'General Series' : 'Missing'} Search on ${activeInstance.name}`}
                                 >
                                     {triggeringInstanceId === activeInstance.id ? (
-                                        <RefreshCw size={18} className="animate-spin text-white" />
+                                        <RefreshCw size={20} className="animate-spin text-white" />
                                     ) : (
-                                        <Play size={18} className="fill-current" />
+                                        <Play size={20} className="fill-current" />
                                     )}
                                     <span>
                                         {activeInstance.type === 'sonarr'
@@ -771,55 +787,6 @@ export function SchedulerQueuePanel() {
                                 </button>
                             </div>
                         </div>
-
-                        {/* Sonarr Series Search Mode Switcher (Missing vs General) */}
-                        {activeInstance.type === 'sonarr' && (
-                            <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-4">
-                                <div className="flex items-center justify-between flex-wrap gap-2">
-                                    <span className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-                                        <Search size={16} className="text-violet-400" />
-                                        Search Mode
-                                    </span>
-                                    <span className="text-xs font-bold text-zinc-400">
-                                        {currentSonarrMode === 'general' ? 'General Series Search' : 'Missing Episodes Only'}
-                                    </span>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleSetSonarrSearchMode(activeInstance.id, 'missing')}
-                                        className={`p-4 rounded-xl border flex items-center gap-3 cursor-pointer transition-all ${
-                                            currentSonarrMode === 'missing'
-                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-lg'
-                                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-white'
-                                        }`}
-                                        title="Search only missing monitored episodes across series on this instance"
-                                    >
-                                        <ListFilter size={22} className="shrink-0" />
-                                        <div className="text-left min-w-0">
-                                            <span className="text-sm font-black uppercase tracking-wider block">Missing</span>
-                                        </div>
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => handleSetSonarrSearchMode(activeInstance.id, 'general')}
-                                        className={`p-4 rounded-xl border flex items-center gap-3 cursor-pointer transition-all ${
-                                            currentSonarrMode === 'general'
-                                                ? 'bg-violet-600/25 text-violet-300 border-violet-500/60 shadow-lg'
-                                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-white'
-                                        }`}
-                                        title="Search generally for all monitored series and quality upgrades on this instance"
-                                    >
-                                        <Sparkles size={22} className="shrink-0" />
-                                        <div className="text-left min-w-0">
-                                            <span className="text-sm font-black uppercase tracking-wider block">General</span>
-                                        </div>
-                                    </button>
-                                </div>
-                            </div>
-                        )}
                     </div>
                 );
             })()}
