@@ -10,6 +10,7 @@ if (!fs.existsSync(dbDir)) {
 }
 
 const dbPath = path.join(dbDir, 'schedulearr.db');
+export function getDbPath(): string { return dbPath; }
 
 let _db: any;
 

@@ -47,7 +47,8 @@ import {
     getBookVisualPortfolio,
     saveBookVisualPortfolio,
     generateBookVisualPortfolioWithAi,
-    paintBookPortfolioItem
+    paintBookPortfolioItem,
+    getAudiobookStudioStorageBreakdown
 } from '@/lib/audiobookStudio';
 
 export const dynamic = 'force-dynamic';
@@ -114,7 +115,8 @@ export async function GET(request: Request) {
             chapters: allChapters,
             collectionsState,
             queueBreakdown,
-            queueHistory
+            queueHistory,
+            storageBreakdown: getAudiobookStudioStorageBreakdown(bookKey || undefined)
         });
     } catch (e: any) {
         console.error('Error in GET /api/theater/audiobooks/studio:', e);
@@ -1368,7 +1370,8 @@ export async function POST(request: Request) {
                 status: getAudiobookStudioStatus(),
                 books: getAllAudiobooksMeta(),
                 book: bookKey ? getAudiobookMeta(bookKey) : undefined,
-                chapters: bookKey ? getAudiobookChaptersMeta(bookKey) : undefined
+                chapters: bookKey ? getAudiobookChaptersMeta(bookKey) : undefined,
+                storageBreakdown: getAudiobookStudioStorageBreakdown(bookKey)
             });
         }
 

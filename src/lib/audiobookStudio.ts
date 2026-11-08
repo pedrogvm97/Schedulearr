@@ -815,6 +815,99 @@ export const cleanGeneratedAudiobookData = (options: {
     };
 };
 
+export interface AudiobookStorageStats {
+    imagesBytes: number;
+    imagesCount: number;
+    transcriptsBytes: number;
+    transcriptsCount: number;
+    voicesBytes: number;
+    voicesCount: number;
+    totalBytes: number;
+    totalFiles: number;
+}
+
+export const getAudiobookStudioStorageBreakdown = (bookKey?: string): AudiobookStorageStats => {
+    let imagesBytes = 0;
+    let imagesCount = 0;
+    let transcriptsBytes = 0;
+    let transcriptsCount = 0;
+    let voicesBytes = 0;
+    let voicesCount = 0;
+
+    const chapters = bookKey ? getAudiobookChaptersMeta(bookKey) : [];
+    const safeChapterPrefixes = new Set(
+        chapters.map(c => c.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_'))
+    );
+
+    const matchesBookFilter = (filename: string): boolean => {
+        if (!bookKey) return true;
+        for (const pref of safeChapterPrefixes) {
+            if (filename.includes(pref)) return true;
+        }
+        const safeBk = bookKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+        return filename.includes(safeBk);
+    };
+
+    try {
+        const artDir = getAudiobookArtDir();
+        if (fs.existsSync(artDir)) {
+            for (const f of fs.readdirSync(artDir)) {
+                if (!matchesBookFilter(f)) continue;
+                try {
+                    const st = fs.statSync(path.join(artDir, f));
+                    if (st.isFile()) {
+                        imagesBytes += st.size;
+                        imagesCount++;
+                    }
+                } catch {}
+            }
+        }
+    } catch {}
+
+    try {
+        const trDir = getAudiobookTranscriptsDir();
+        if (fs.existsSync(trDir)) {
+            for (const f of fs.readdirSync(trDir)) {
+                if (!matchesBookFilter(f)) continue;
+                try {
+                    const st = fs.statSync(path.join(trDir, f));
+                    if (st.isFile()) {
+                        transcriptsBytes += st.size;
+                        transcriptsCount++;
+                    }
+                } catch {}
+            }
+        }
+    } catch {}
+
+    try {
+        const enhDir = getAudiobookEnhancedDir();
+        if (fs.existsSync(enhDir)) {
+            for (const f of fs.readdirSync(enhDir)) {
+                if (!matchesBookFilter(f)) continue;
+                try {
+                    const st = fs.statSync(path.join(enhDir, f));
+                    if (st.isFile()) {
+                        voicesBytes += st.size;
+                        voicesCount++;
+                    }
+                } catch {}
+            }
+        }
+    } catch {}
+
+    return {
+        imagesBytes,
+        imagesCount,
+        transcriptsBytes,
+        transcriptsCount,
+        voicesBytes,
+        voicesCount,
+        totalBytes: imagesBytes + transcriptsBytes + voicesBytes,
+        totalFiles: imagesCount + transcriptsCount + voicesCount
+    };
+};
+
 /**
  * Purges all generated audiobook studio assets (files on disk in art, transcripts, enhanced dirs)
  * and clears all generated chapter/scene rows and studio history in SQLite.

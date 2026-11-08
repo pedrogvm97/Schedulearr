@@ -3,7 +3,7 @@ import axios from 'axios';
 
 function getDockerClient() {
   const socketPath = '/var/run/docker.sock';
-  return axios.create({ socketPath, baseURL: 'http://localhost/v1.41', timeout: 30000 });
+  return axios.create({ socketPath, baseURL: 'http://localhost/v1.41', timeout: 8000 });
 }
 
 /**
@@ -168,7 +168,13 @@ export interface VDiskStats {
 /**
  * Returns accurate VDisk filesystem metrics and Docker storage breakdown (/system/df).
  */
-export async function getVDiskStats(): Promise<VDiskStats> {
+let cachedVDiskStats: VDiskStats | null = null;
+let lastVDiskCacheTime = 0;
+
+export async function getVDiskStats(forceRefresh: boolean = false): Promise<VDiskStats> {
+  if (!forceRefresh && cachedVDiskStats && Date.now() - lastVDiskCacheTime < 60000) {
+    return cachedVDiskStats;
+  }
   let totalBytes = 0;
   let freeBytes = 0;
   let usedBytes = 0;
@@ -240,7 +246,7 @@ export async function getVDiskStats(): Promise<VDiskStats> {
     // Docker socket not available
   }
 
-  return {
+  const result: VDiskStats = {
     available,
     totalBytes,
     usedBytes,
@@ -252,6 +258,9 @@ export async function getVDiskStats(): Promise<VDiskStats> {
     containers,
     volumes
   };
+  cachedVDiskStats = result;
+  lastVDiskCacheTime = Date.now();
+  return result;
 }
 
 /**
