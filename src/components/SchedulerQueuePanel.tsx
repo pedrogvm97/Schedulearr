@@ -650,11 +650,14 @@ export function SchedulerQueuePanel() {
     // Unique genres
     const uniqueGenres = useMemo(() => {
         const set = new Set<string>();
-        [...(movies || []), ...(episodes || [])].forEach(item => {
+        const sourceItems = selectedInstanceTab === 'all'
+            ? [...(movies || []), ...(episodes || [])]
+            : [...(movies || []), ...(episodes || [])].filter(item => item.instanceId === selectedInstanceTab);
+        sourceItems.forEach(item => {
             (item.genres || []).forEach((g: string) => set.add(g));
         });
         return ['All', ...Array.from(set).sort()];
-    }, [movies, episodes]);
+    }, [movies, episodes, selectedInstanceTab]);
 
     const activeInstancesList = useMemo(() => {
         return (Array.isArray(instances) ? instances : []).filter(i => i.type === 'radarr' || i.type === 'sonarr' || i.type === 'lidarr');
@@ -860,31 +863,37 @@ export function SchedulerQueuePanel() {
                     </div>
 
                     {/* Configuration Inputs Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* BOX 1: INTERVAL */}
+                        <div className="flex flex-col justify-between bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4 sm:p-5 h-[160px] transition-all hover:border-zinc-700">
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Interval</span>
-                                <span className="text-xs font-mono font-bold text-amber-300">{schedulerConfig.interval}m</span>
+                                <span className="text-sm font-black uppercase tracking-wider text-zinc-300">Interval</span>
+                                <span className="px-2.5 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono font-bold text-amber-300">
+                                    {schedulerConfig.interval >= 60 ? `${(schedulerConfig.interval / 60).toFixed(schedulerConfig.interval % 60 === 0 ? 0 : 1)}h` : `${schedulerConfig.interval}m`}
+                                </span>
                             </div>
-                            <input
-                                type="number"
-                                min={1}
-                                max={10080}
-                                value={schedulerConfig.interval}
-                                onChange={e => updateConfig({ interval: Math.max(1, Math.min(10080, parseInt(e.target.value) || 30)) })}
-                                className="bg-transparent text-white text-base font-black outline-none w-full"
-                                title="Minutes between automated search batches"
-                            />
-                            <div className="flex items-center gap-1 pt-1 flex-wrap">
-                                {[15, 30, 60, 120, 360, 720, 1440].map(m => (
+                            <div className="flex items-baseline gap-2">
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={10080}
+                                    value={schedulerConfig.interval}
+                                    onChange={e => updateConfig({ interval: Math.max(1, Math.min(10080, parseInt(e.target.value) || 30)) })}
+                                    className="bg-transparent text-3xl font-black text-white font-mono outline-none w-28 hover:text-amber-300 focus:text-amber-400 transition-colors"
+                                    title="Minutes between automated search batches"
+                                />
+                                <span className="text-sm font-bold text-zinc-500 uppercase">min</span>
+                            </div>
+                            <div className="grid grid-cols-4 gap-1.5 w-full">
+                                {[15, 30, 60, 120].map(m => (
                                     <button
                                         key={m}
                                         type="button"
                                         onClick={() => updateConfig({ interval: m })}
-                                        className={`px-1.5 py-0.5 rounded text-[11px] font-bold transition-colors cursor-pointer ${
+                                        className={`py-1.5 rounded-lg text-xs font-bold font-mono transition-all cursor-pointer text-center border ${
                                             schedulerConfig.interval === m
-                                                ? 'bg-amber-500 text-black font-black'
-                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400'
+                                                ? 'bg-amber-500 text-black border-amber-400 font-black shadow-md'
+                                                : 'bg-zinc-900 hover:bg-zinc-850 text-zinc-400 border-zinc-800 hover:text-white'
                                         }`}
                                         title={`Set interval to ${m >= 60 ? `${m/60}h` : `${m}m`}`}
                                     >
@@ -894,36 +903,36 @@ export function SchedulerQueuePanel() {
                             </div>
                         </div>
 
-                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5 justify-center">
+                        {/* BOX 2: BATCH SIZE */}
+                        <div className="flex flex-col justify-between bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4 sm:p-5 h-[160px] transition-all hover:border-zinc-700">
                             <div className="flex items-center justify-between">
-                                <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Batch Size</span>
-                                <span className="text-xs font-mono font-bold text-amber-400">{schedulerConfig.batchSize} items</span>
+                                <span className="text-sm font-black uppercase tracking-wider text-zinc-300">Batch</span>
+                                <span className="px-2.5 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono font-bold text-amber-300">
+                                    {schedulerConfig.batchSize} items
+                                </span>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-baseline gap-2">
                                 <input
                                     type="number"
                                     min={1}
                                     max={500}
                                     value={schedulerConfig.batchSize}
-                                    onChange={e => {
-                                        const val = Math.max(1, parseInt(e.target.value) || 1);
-                                        updateConfig({ batchSize: val });
-                                    }}
-                                    className="bg-zinc-900 border border-zinc-700/80 rounded-xl px-3 py-1.5 text-white text-base font-black outline-none w-full focus:border-amber-400 transition-colors"
-                                    title="Type any custom batch size to search per cycle"
-                                    placeholder="e.g. 15"
+                                    onChange={e => updateConfig({ batchSize: Math.max(1, parseInt(e.target.value) || 1) })}
+                                    className="bg-transparent text-3xl font-black text-white font-mono outline-none w-28 hover:text-amber-300 focus:text-amber-400 transition-colors"
+                                    title="Batch size to search per cycle"
                                 />
+                                <span className="text-sm font-bold text-zinc-500 uppercase">items</span>
                             </div>
-                            <div className="flex items-center gap-1 pt-1 overflow-x-auto no-scrollbar">
-                                {[5, 10, 20, 35, 50].map(n => (
+                            <div className="grid grid-cols-4 gap-1.5 w-full">
+                                {[5, 10, 25, 50].map(n => (
                                     <button
                                         key={n}
                                         type="button"
                                         onClick={() => updateConfig({ batchSize: n })}
-                                        className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                                        className={`py-1.5 rounded-lg text-xs font-bold font-mono transition-all cursor-pointer text-center border ${
                                             schedulerConfig.batchSize === n
-                                                ? 'bg-amber-500 text-black font-black'
-                                                : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                                                ? 'bg-amber-500 text-black border-amber-400 font-black shadow-md'
+                                                : 'bg-zinc-900 hover:bg-zinc-850 text-zinc-400 border-zinc-800 hover:text-white'
                                         }`}
                                         title={`Set batch size to ${n}`}
                                     >
@@ -933,32 +942,83 @@ export function SchedulerQueuePanel() {
                             </div>
                         </div>
 
-                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5">
-                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Rotation Mode</span>
-                            <CustomSelect
-                                minimal
-                                options={[{ id: 'repeat', name: 'Repeat' }, { id: 'rotate', name: 'Rotate' }]}
-                                value={schedulerConfig.batchBehavior}
-                                onChange={val => updateConfig({ batchBehavior: String(val) })}
-                            />
+                        {/* BOX 3: ROTATION MODE */}
+                        <div className="flex flex-col justify-between bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4 sm:p-5 h-[160px] transition-all hover:border-zinc-700">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-black uppercase tracking-wider text-zinc-300">Rotation</span>
+                                <span className="px-2.5 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono font-bold text-amber-300 capitalize">
+                                    {schedulerConfig.batchBehavior}
+                                </span>
+                            </div>
+                            <div className="flex items-baseline">
+                                <span className="text-3xl font-black text-white capitalize tracking-tight">
+                                    {schedulerConfig.batchBehavior === 'rotate' ? 'Rotate' : 'Repeat'}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 w-full">
+                                {[
+                                    { id: 'repeat', label: 'Repeat' },
+                                    { id: 'rotate', label: 'Rotate' }
+                                ].map(m => (
+                                    <button
+                                        key={m.id}
+                                        type="button"
+                                        onClick={() => updateConfig({ batchBehavior: m.id })}
+                                        className={`py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer text-center border ${
+                                            schedulerConfig.batchBehavior === m.id
+                                                ? 'bg-amber-500 text-black border-amber-400 font-black shadow-md'
+                                                : 'bg-zinc-900 hover:bg-zinc-850 text-zinc-400 border-zinc-800 hover:text-white'
+                                        }`}
+                                        title={`Mode: ${m.label}`}
+                                    >
+                                        {m.label}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
-                        <div className="flex flex-col gap-1.5 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3.5 justify-center">
-                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Max Attempts</span>
-                            <input
-                                type="number"
-                                min={1}
-                                max={20}
-                                value={schedulerConfig.maxAttempts}
-                                onChange={e => updateConfig({ maxAttempts: Math.max(1, parseInt(e.target.value) || 3) })}
-                                className="bg-transparent text-white text-base font-black outline-none w-full"
-                                title="Maximum search attempts per cycle"
-                            />
+                        {/* BOX 4: MAX ATTEMPTS */}
+                        <div className="flex flex-col justify-between bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4 sm:p-5 h-[160px] transition-all hover:border-zinc-700">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-black uppercase tracking-wider text-zinc-300">Attempts</span>
+                                <span className="px-2.5 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono font-bold text-amber-300">
+                                    {schedulerConfig.maxAttempts} max
+                                </span>
+                            </div>
+                            <div className="flex items-baseline gap-2">
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={20}
+                                    value={schedulerConfig.maxAttempts}
+                                    onChange={e => updateConfig({ maxAttempts: Math.max(1, parseInt(e.target.value) || 3) })}
+                                    className="bg-transparent text-3xl font-black text-white font-mono outline-none w-28 hover:text-amber-300 focus:text-amber-400 transition-colors"
+                                    title="Maximum search attempts per cycle"
+                                />
+                                <span className="text-sm font-bold text-zinc-500 uppercase">retries</span>
+                            </div>
+                            <div className="grid grid-cols-4 gap-1.5 w-full">
+                                {[1, 3, 5, 10].map(a => (
+                                    <button
+                                        key={a}
+                                        type="button"
+                                        onClick={() => updateConfig({ maxAttempts: a })}
+                                        className={`py-1.5 rounded-lg text-xs font-bold font-mono transition-all cursor-pointer text-center border ${
+                                            schedulerConfig.maxAttempts === a
+                                                ? 'bg-amber-500 text-black border-amber-400 font-black shadow-md'
+                                                : 'bg-zinc-900 hover:bg-zinc-850 text-zinc-400 border-zinc-800 hover:text-white'
+                                        }`}
+                                        title={`Set max attempts to ${a}`}
+                                    >
+                                        {a}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
 
-                    {/* Instant Master Trigger & Per-Instance Quick Triggers */}
-                    <div className="pt-2 space-y-4">
+                    {/* Instant Master Trigger */}
+                    <div className="pt-2">
                         <button
                             type="button"
                             onClick={handleRunBatchNow}
@@ -979,35 +1039,6 @@ export function SchedulerQueuePanel() {
                             )}
                             <span>Run Batch Search Now</span>
                         </button>
-
-                        {/* Per-Instance Trigger Buttons */}
-                        {activeInstancesList.length > 0 && (
-                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
-                                <span className="text-xs font-black uppercase tracking-wider text-zinc-500 block">
-                                    Quick Instance Search Triggers
-                                </span>
-                                <div className="flex flex-wrap gap-2.5">
-                                    {activeInstancesList.map(inst => (
-                                        <button
-                                            key={inst.id}
-                                            type="button"
-                                            disabled={triggeringInstanceId === inst.id}
-                                            onClick={() => handleTriggerInstanceSearch(inst)}
-                                            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 text-white border border-zinc-800 flex items-center gap-2.5 text-xs font-black uppercase tracking-wider cursor-pointer transition-all hover:scale-102 active:scale-98 shadow-md"
-                                            title={`Trigger Search for ${inst.name} (${inst.type})`}
-                                        >
-                                            <span className={`w-2.5 h-2.5 rounded-full ${inst.color || 'bg-emerald-400'}`} />
-                                            <span>{inst.name}</span>
-                                            {triggeringInstanceId === inst.id ? (
-                                                <RefreshCw size={14} className="animate-spin text-amber-400" />
-                                            ) : (
-                                                <RefreshCw size={14} className="text-zinc-500 hover:text-white" />
-                                            )}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </div>
             )}
@@ -1024,17 +1055,17 @@ export function SchedulerQueuePanel() {
                             placeholder="Filter queue by title..."
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
-                            className="w-full bg-zinc-950 border border-zinc-800 text-white text-sm rounded-2xl p-4 outline-none placeholder-zinc-600 pr-12 focus:border-zinc-700"
+                            className="w-full bg-zinc-950 border border-zinc-800 text-white text-base rounded-2xl p-4 outline-none placeholder-zinc-600 pr-12 focus:border-zinc-700"
                         />
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none">
-                            <Search size={20} />
+                            <Search size={22} />
                         </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2.5 bg-zinc-950 p-2 rounded-2xl border border-zinc-800 shrink-0">
+                    <div className="flex flex-wrap items-center gap-3 bg-zinc-950 p-2.5 rounded-2xl border border-zinc-800 shrink-0">
                         {/* Sort selector */}
-                        <div className="flex items-center gap-2 px-2 border-r border-zinc-800">
-                            <span className="text-xs font-black text-zinc-500 uppercase">Sort:</span>
+                        <div className="flex items-center gap-2.5 px-3 border-r border-zinc-800">
+                            <span className="text-sm font-black text-zinc-400 uppercase">Sort:</span>
                             <CustomSelect
                                 minimal
                                 options={[
@@ -1050,8 +1081,8 @@ export function SchedulerQueuePanel() {
                         </div>
 
                         {/* Library status filter */}
-                        <div className="flex items-center gap-2 px-2 border-r border-zinc-800">
-                            <span className="text-xs font-black text-zinc-500 uppercase">Status:</span>
+                        <div className="flex items-center gap-2.5 px-3 border-r border-zinc-800">
+                            <span className="text-sm font-black text-zinc-400 uppercase">Status:</span>
                             <CustomSelect
                                 minimal
                                 options={[
@@ -1068,7 +1099,7 @@ export function SchedulerQueuePanel() {
                             type="button"
                             onClick={handleSaveConfig}
                             disabled={isSavingConfig}
-                            className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 cursor-pointer transition-all"
+                            className="px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 cursor-pointer transition-all"
                             title="Save current filters as default scheduler config"
                         >
                             {isSavingConfig ? 'Saving...' : 'Save Filters'}
@@ -1076,10 +1107,10 @@ export function SchedulerQueuePanel() {
                     </div>
                 </div>
 
-                {/* Instance Filter Buttons */}
-                {activeInstancesList.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800/80">
-                        <span className="text-xs font-black text-zinc-500 uppercase tracking-wider mr-2">
+                {/* Instance Filter Buttons (Only shown in 'All' view to filter the unified queue) */}
+                {selectedInstanceTab === 'all' && activeInstancesList.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-zinc-800/80">
+                        <span className="text-sm font-black text-zinc-400 uppercase tracking-wider mr-2">
                             Instances:
                         </span>
                         {activeInstancesList.map(inst => {
@@ -1089,14 +1120,14 @@ export function SchedulerQueuePanel() {
                                     key={inst.id}
                                     type="button"
                                     onClick={() => setInstanceFilters(p => ({ ...p, [inst.id]: !isIncluded }))}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 cursor-pointer ${
+                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all flex items-center gap-2.5 cursor-pointer ${
                                         isIncluded
                                             ? 'bg-zinc-800 text-white border-zinc-600 shadow-md'
                                             : 'bg-zinc-950 text-zinc-600 border-zinc-850 opacity-50'
                                     }`}
                                     title={`Toggle ${inst.name} in queue`}
                                 >
-                                    <span className={`w-2 h-2 rounded-full ${inst.color || 'bg-emerald-400'}`} />
+                                    <span className={`w-2.5 h-2.5 rounded-full ${inst.color || 'bg-emerald-400'}`} />
                                     <span>{inst.name}</span>
                                 </button>
                             );
@@ -1158,16 +1189,16 @@ export function SchedulerQueuePanel() {
                 </div>
 
                 {/* Bulk Selection and Total Counter */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-zinc-800/80 text-xs text-zinc-400">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-zinc-800/80 text-sm text-zinc-400">
                     <div className="flex items-center gap-3 flex-wrap">
-                        <span className="font-black text-white text-sm">
+                        <span className="font-black text-white text-base">
                             {displayedList.length} of {combinedList.length} Items in Queue
                         </span>
                         <span className="text-zinc-600">•</span>
                         <button
                             type="button"
                             onClick={handleSelectAll}
-                            className="font-bold text-indigo-400 hover:underline cursor-pointer"
+                            className="font-black text-sm text-indigo-400 hover:underline cursor-pointer"
                             title="Enable search for all displayed items"
                         >
                             Select All
@@ -1176,7 +1207,7 @@ export function SchedulerQueuePanel() {
                         <button
                             type="button"
                             onClick={handleDeselectAll}
-                            className="font-bold text-zinc-400 hover:underline cursor-pointer"
+                            className="font-black text-sm text-zinc-400 hover:underline cursor-pointer"
                             title="Disable search for all displayed items"
                         >
                             Deselect All
@@ -1185,17 +1216,17 @@ export function SchedulerQueuePanel() {
 
                     <div className="flex items-center gap-4 flex-wrap">
                         {/* Queue Display Limit Selector */}
-                        <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800">
-                            <span className="text-xs font-black text-zinc-500 uppercase px-1.5">Show:</span>
+                        <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-xl border border-zinc-800">
+                            <span className="text-xs font-black text-zinc-400 uppercase px-1.5">Show:</span>
                             {[10, 25, 50, 100, 0].map(lim => (
                                 <button
                                     key={lim}
                                     type="button"
                                     onClick={() => setQueueDisplayLimit(lim)}
-                                    className={`px-2 py-0.5 rounded text-xs font-black transition-colors cursor-pointer ${
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition-colors cursor-pointer ${
                                         queueDisplayLimit === lim
                                             ? 'bg-indigo-600 text-white shadow-sm'
-                                            : 'text-zinc-500 hover:text-zinc-300'
+                                            : 'text-zinc-400 hover:text-zinc-200'
                                     }`}
                                     title={`Show up to ${lim === 0 ? 'All' : lim} queue items`}
                                 >
@@ -1209,9 +1240,9 @@ export function SchedulerQueuePanel() {
                                 type="checkbox"
                                 checked={hideUnmonitored}
                                 onChange={e => setHideUnmonitored(e.target.checked)}
-                                className="w-4 h-4 rounded accent-indigo-500 cursor-pointer"
+                                className="w-5 h-5 rounded accent-indigo-500 cursor-pointer"
                             />
-                            <span className="font-bold text-zinc-400 text-xs">Monitored Only</span>
+                            <span className="font-black text-zinc-300 text-sm">Monitored Only</span>
                         </label>
                     </div>
                 </div>
@@ -1261,7 +1292,7 @@ export function SchedulerQueuePanel() {
                                         {/* Queue Rank Badge (Squared) */}
                                         {itemRank !== undefined && (
                                             <span
-                                                className={`w-8 h-8 rounded-lg font-mono font-black text-xs flex items-center justify-center shrink-0 border ${
+                                                className={`w-9 h-9 rounded-xl font-mono font-black text-sm flex items-center justify-center shrink-0 border ${
                                                     isInNextBatch
                                                         ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
                                                         : isInSecondBatch
@@ -1276,7 +1307,7 @@ export function SchedulerQueuePanel() {
 
                                         <div
                                             onClick={() => setSelectedMediaItem(item)}
-                                            className="w-14 h-20 sm:w-16 sm:h-24 rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center shadow-md cursor-pointer hover:border-violet-500/50 hover:scale-105 transition-all group"
+                                            className="w-14 h-20 sm:w-16 sm:h-24 rounded-xl bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center shadow-md cursor-pointer hover:border-violet-500/50 hover:scale-105 transition-all group"
                                             title="Open Media Details"
                                         >
                                             {item.poster ? (
@@ -1286,9 +1317,9 @@ export function SchedulerQueuePanel() {
                                                     className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
                                                 />
                                             ) : item.type === 'movie' ? (
-                                                <Film size={24} className="text-zinc-600" />
+                                                <Film size={26} className="text-zinc-600" />
                                             ) : (
-                                                <Tv size={24} className="text-zinc-600" />
+                                                <Tv size={26} className="text-zinc-600" />
                                             )}
                                         </div>
 
@@ -1296,7 +1327,7 @@ export function SchedulerQueuePanel() {
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <h3
                                                     onClick={() => setSelectedMediaItem(item)}
-                                                    className="text-base sm:text-lg font-black text-white truncate cursor-pointer hover:text-violet-400 transition-colors"
+                                                    className="text-lg sm:text-xl font-black text-white truncate cursor-pointer hover:text-violet-400 transition-colors"
                                                     title="Open Media Details"
                                                 >
                                                     {item.title}
@@ -1329,8 +1360,8 @@ export function SchedulerQueuePanel() {
                                                 )}
                                             </div>
 
-                                            <div className="flex items-center gap-3 text-xs text-zinc-400 flex-wrap">
-                                                <span className="font-bold text-zinc-300">
+                                            <div className="flex items-center gap-3 text-sm text-zinc-300 flex-wrap">
+                                                <span className="font-black text-zinc-200">
                                                     Target: {item.targetQualityProfile}
                                                 </span>
                                                 {item.type === 'movie' && item.movieFile?.quality?.quality?.name && (
@@ -1376,10 +1407,10 @@ export function SchedulerQueuePanel() {
                                                         fetchSeriesEpisodes(item.instanceId, item.id);
                                                     }
                                                 }}
-                                                className="p-2.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer transition-all shadow-md"
+                                                className="p-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer transition-all shadow-md"
                                                 title="Expand Season & Episode Breakdown"
                                             >
-                                                {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                                {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                                             </button>
                                         )}
 
@@ -1388,10 +1419,10 @@ export function SchedulerQueuePanel() {
                                             type="button"
                                             disabled={liveStatus?.isPolling}
                                             onClick={() => handleForceSearchItem(item)}
-                                            className="p-2.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 border border-zinc-800 cursor-pointer transition-all shadow-md disabled:opacity-50"
+                                            className="p-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 border border-zinc-800 cursor-pointer transition-all shadow-md disabled:opacity-50"
                                             title="Force Automatic Indexer Search"
                                         >
-                                            <RefreshCw size={18} className={liveStatus?.isPolling ? 'animate-spin' : ''} />
+                                            <RefreshCw size={20} className={liveStatus?.isPolling ? 'animate-spin' : ''} />
                                         </button>
 
                                         {/* Interactive Search Modal Button */}
@@ -1403,10 +1434,10 @@ export function SchedulerQueuePanel() {
                                                 instanceId: item.instanceId,
                                                 title: item.title
                                             })}
-                                            className="p-2.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-indigo-400 hover:text-indigo-300 border border-zinc-800 cursor-pointer transition-all shadow-md"
+                                            className="p-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-indigo-400 hover:text-indigo-300 border border-zinc-800 cursor-pointer transition-all shadow-md"
                                             title="Interactive Release Search & 1-Click Grab"
                                         >
-                                            <Search size={18} />
+                                            <Search size={20} />
                                         </button>
 
                                         {/* Delete Button */}
@@ -1419,24 +1450,24 @@ export function SchedulerQueuePanel() {
                                                 title: item.title,
                                                 fileId: item.movieFile?.id
                                             })}
-                                            className="p-2.5 rounded-lg bg-zinc-950 hover:bg-rose-950/40 text-rose-400 hover:text-rose-300 border border-zinc-800 hover:border-rose-900 cursor-pointer transition-all shadow-md"
+                                            className="p-3 rounded-xl bg-zinc-950 hover:bg-rose-950/40 text-rose-400 hover:text-rose-300 border border-zinc-800 hover:border-rose-900 cursor-pointer transition-all shadow-md"
                                             title="Delete Media File"
                                         >
-                                            <Trash2 size={18} />
+                                            <Trash2 size={20} />
                                         </button>
 
                                         {/* Search Inclusion Checkbox */}
                                         <button
                                             type="button"
                                             onClick={() => setSearchToggles(p => ({ ...p, [item.idStr]: !isSearchActive }))}
-                                            className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center cursor-pointer transition-all ${
+                                            className={`w-9 h-9 rounded-xl border-2 flex items-center justify-center cursor-pointer transition-all ${
                                                 isSearchActive
                                                     ? 'bg-emerald-500 border-emerald-500 text-black shadow-md'
                                                     : 'border-zinc-700 bg-zinc-950 text-zinc-600'
                                             }`}
                                             title={isSearchActive ? 'Search Active in Batches' : 'Search Excluded'}
                                         >
-                                            {isSearchActive && <Check size={16} className="stroke-[3]" />}
+                                            {isSearchActive && <Check size={18} className="stroke-[3]" />}
                                         </button>
                                     </div>
                                 </div>
