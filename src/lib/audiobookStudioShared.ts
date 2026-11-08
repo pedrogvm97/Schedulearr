@@ -55,73 +55,91 @@ export interface RealPersonVoice {
     isOriginal?: boolean;
     color: string;
     tags: string[];
+    engineType: 'original' | 'dsp' | 'neural';
+    engineLabel: string;
 }
 
 export const REAL_PERSON_VOICES: RealPersonVoice[] = [
     {
         id: 'original',
-        name: 'Original Narrator',
-        subtitle: 'Keep Original Voice',
-        description: 'Preserve authentic book reader voice, applying selected acoustic style mastering.',
+        name: 'Original Audio',
+        subtitle: 'Authentic Recording',
+        description: 'Preserve authentic book reader recording with zero alterations.',
         isOriginal: true,
         color: 'from-zinc-700 to-zinc-900',
-        tags: ['Original Actor', 'Style Adaptive', 'Pure Narration']
+        tags: ['Original', 'Lossless'],
+        engineType: 'original',
+        engineLabel: 'Original Recording'
     },
     {
-        id: 'morgan_freeman',
-        name: 'Morgan Freeman',
-        subtitle: 'Reverent Cinematic Depth',
-        description: 'Commanding baritone gravitas, measured storytelling cadence and iconic depth.',
-        color: 'from-amber-600 to-amber-950',
-        tags: ['Celebrity', 'Epic Depth', 'Baritone', 'US']
+        id: 'studio_clarity',
+        name: 'Studio Clarity',
+        subtitle: 'Speech Denoise & EQ',
+        description: 'Clean acoustic denoise, balanced speech EQ, vocal presence boost, and dynamic normalization.',
+        color: 'from-emerald-700 to-teal-950',
+        tags: ['Denoise', 'Presence'],
+        engineType: 'dsp',
+        engineLabel: 'FFmpeg Real-Time DSP'
     },
     {
-        id: 'david_attenborough',
-        name: 'David Attenborough',
-        subtitle: 'Iconic Nature & Wonder',
-        description: 'Warm British storytelling cadence, articulate pacing and timeless wisdom.',
-        color: 'from-emerald-600 to-teal-950',
-        tags: ['Celebrity', 'British Heritage', 'Documentary', 'UK']
+        id: 'warm_mids',
+        name: 'Warm Mids EQ',
+        subtitle: 'Fireside Warmth',
+        description: 'Smooth lower-mid presence, cozy acoustics, and zero listener fatigue.',
+        color: 'from-amber-700 to-orange-950',
+        tags: ['Warmth', 'Zero Fatigue'],
+        engineType: 'dsp',
+        engineLabel: 'FFmpeg Real-Time DSP'
     },
     {
-        id: 'nelson_mandela',
-        name: 'Nelson Mandela',
-        subtitle: 'Warm Dignified Gravitas',
-        description: 'Distinguished, resonant, slow deliberate cadence full of historical warmth.',
-        color: 'from-orange-600 to-yellow-950',
-        tags: ['Celebrity', 'Dignified', 'Warm Bass', 'Global']
+        id: 'deep_baritone',
+        name: 'Deep Baritone',
+        subtitle: 'Sub-Harmonics Resonance',
+        description: 'Imposing acoustic depth with rich chest sub-harmonics for epic narration.',
+        color: 'from-purple-800 to-indigo-950',
+        tags: ['Sub-Bass', 'Resonance'],
+        engineType: 'dsp',
+        engineLabel: 'FFmpeg Real-Time DSP'
     },
     {
-        id: 'sydney_sweeney',
-        name: 'Sydney Sweeney',
-        subtitle: 'Intimate Soft Contemporary',
-        description: 'Gentle, expressive youthful vocal timbre with natural contemporary flow.',
-        color: 'from-rose-500 to-pink-900',
-        tags: ['Celebrity', 'Female', 'Intimate', 'US']
+        id: 'midnight_leveler',
+        name: 'Midnight Leveler',
+        subtitle: 'Broadcast Compression',
+        description: 'Analog broadcast compression, silky rolled-off highs, and intimate dynamic control.',
+        color: 'from-blue-800 to-slate-950',
+        tags: ['Broadcast', 'Dynamic Leveler'],
+        engineType: 'dsp',
+        engineLabel: 'FFmpeg Real-Time DSP'
     },
     {
-        id: 'scarlett_johansson',
-        name: 'Scarlett Johansson',
-        subtitle: 'Warm Velvet Storyteller',
-        description: 'Rich husky undertones, cinematic presence and soothing bedtime warmth.',
+        id: 'kokoro_af_heart',
+        name: 'Kokoro (af_heart)',
+        subtitle: 'US Female Narrator',
+        description: 'Hexgrad Kokoro-82M v0.19 open-weights neural TTS with natural phrasing.',
+        color: 'from-rose-600 to-pink-950',
+        tags: ['Kokoro-82M', 'Neural TTS'],
+        engineType: 'neural',
+        engineLabel: 'Kokoro-82M Neural Model'
+    },
+    {
+        id: 'kokoro_am_adam',
+        name: 'Kokoro (am_adam)',
+        subtitle: 'US Male Narrator',
+        description: 'Hexgrad Kokoro-82M rich male baritone with commanding pacing.',
+        color: 'from-amber-600 to-yellow-950',
+        tags: ['Kokoro-82M', 'Neural TTS'],
+        engineType: 'neural',
+        engineLabel: 'Kokoro-82M Neural Model'
+    },
+    {
+        id: 'kokoro_bf_emma',
+        name: 'Kokoro (bf_emma)',
+        subtitle: 'UK Female Narrator',
+        description: 'Hexgrad Kokoro-82M British female neural model with refined cadence.',
         color: 'from-purple-600 to-fuchsia-950',
-        tags: ['Celebrity', 'Female', 'Velvet', 'US']
-    },
-    {
-        id: 'alan_watts',
-        name: 'Alan Watts',
-        subtitle: 'Philosophical Storyteller',
-        description: 'Calm, contemplative British cadence with gentle fireside chuckles.',
-        color: 'from-sky-600 to-indigo-950',
-        tags: ['Celebrity', 'Philosophical', 'Calm', 'UK']
-    },
-    {
-        id: 'neil_degrasse_tyson',
-        name: 'Neil deGrasse Tyson',
-        subtitle: 'Cosmic Science Energy',
-        description: 'Passionate, energetic delivery, perfect for hard sci-fi and cosmic epics.',
-        color: 'from-blue-600 to-cyan-950',
-        tags: ['Celebrity', 'Cosmic Sci-Fi', 'Energetic', 'US']
+        tags: ['Kokoro-82M', 'Neural TTS'],
+        engineType: 'neural',
+        engineLabel: 'Kokoro-82M Neural Model'
     }
 ];
 

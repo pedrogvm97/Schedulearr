@@ -103,7 +103,7 @@ export default function Settings() {
     }, []);
     const [aiMediaCategory, setAiMediaCategory] = useState<'general' | 'audiobooks' | 'video' | 'subtitles'>('general');
     const [voiceNarrationMode, setVoiceNarrationMode] = useState<'timbre_filter' | 'neural_tts'>('timbre_filter');
-    const [selectedVoiceModel, setSelectedVoiceModel] = useState<string>('morgan_freeman');
+    const [selectedVoiceModel, setSelectedVoiceModel] = useState<string>('original');
     const [imageProvidersList, setImageProvidersList] = useState<Array<{
         id: 'pollinations_flux' | 'gemini' | 'openai' | 'custom';
         name: string;
@@ -2532,96 +2532,258 @@ export default function Settings() {
                                             {/* Green Confirmation State Card */}
                                             <div className="p-6 bg-gradient-to-br from-emerald-950/45 via-zinc-950 to-zinc-950 rounded-2xl border-2 border-emerald-500/50 space-y-5 shadow-2xl">
                                                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                                                    <div className="space-y-2">
+                                                    <div className="space-y-3">
                                                         <div className="flex items-center gap-2.5 flex-wrap">
-                                                            <span className="px-3 py-1 rounded-xl bg-emerald-500 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md">
-                                                                <span>✓</span> Connected &amp; Active
+                                                            <span className="px-3.5 py-1.5 rounded-xl bg-emerald-500 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md">
+                                                                <span>✓</span> Active
                                                             </span>
-                                                            <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                                                            <h3 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
                                                                 {activeProviderLabel}
                                                             </h3>
-                                                            <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 text-xs font-mono font-bold text-amber-300">
-                                                                Tier: {activeTier}
+                                                            <span className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-700 text-xs font-mono font-bold text-amber-300">
+                                                                {activeTier}
                                                             </span>
-                                                            <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold border bg-zinc-900 text-emerald-300 border-emerald-500/30">
-                                                                Rate Limit: ~{activeRpm} req/min
+                                                            <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold border bg-zinc-900 text-emerald-300 border-emerald-500/40">
+                                                                ~{activeRpm} RPM
                                                             </span>
                                                         </div>
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            <code className="text-xs font-mono text-zinc-300 bg-black/70 px-3 py-1.5 rounded-lg border border-zinc-800">
+                                                        <div className="flex items-center gap-2.5 flex-wrap">
+                                                            <code className="text-xs font-mono text-zinc-300 bg-black/80 px-3.5 py-1.5 rounded-xl border border-zinc-800">
                                                                 Key: {maskedKeyStr}
                                                             </code>
-                                                            {Array.isArray(audiobookStudioConfig.lastKeyProbe?.capabilities) && (
-                                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                                    {audiobookStudioConfig.lastKeyProbe!.capabilities.map((cap, idx) => (
-                                                                        <span key={idx} className="px-2 py-0.5 rounded-md bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-semibold text-emerald-200">
-                                                                            ✓ {cap}
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                            )}
+                                                            {/* Interactive Real Pipeline Stage Toggles */}
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const nextVal = audiobookStudioConfig.transcribeEnabled === false;
+                                                                        saveAudiobookStudioConfig({ transcribeEnabled: nextVal });
+                                                                        toast.success(nextVal ? "Transcribe: ON" : "Transcribe: OFF");
+                                                                    }}
+                                                                    title="Toggle Speech-to-Text Transcription"
+                                                                    className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border ${
+                                                                        audiobookStudioConfig.transcribeEnabled !== false
+                                                                            ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow'
+                                                                            : 'bg-zinc-900 text-zinc-500 border-zinc-800 line-through'
+                                                                    }`}
+                                                                >
+                                                                    <span>{audiobookStudioConfig.transcribeEnabled !== false ? '✓' : '✕'}</span>
+                                                                    <span>Transcribe</span>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const nextVal = audiobookStudioConfig.sceningEnabled === false;
+                                                                        saveAudiobookStudioConfig({ sceningEnabled: nextVal });
+                                                                        toast.success(nextVal ? "Scenes: ON" : "Scenes: OFF");
+                                                                    }}
+                                                                    title="Toggle Narrative Scene Discovery"
+                                                                    className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border ${
+                                                                        audiobookStudioConfig.sceningEnabled !== false
+                                                                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow'
+                                                                            : 'bg-zinc-900 text-zinc-500 border-zinc-800 line-through'
+                                                                    }`}
+                                                                >
+                                                                    <span>{audiobookStudioConfig.sceningEnabled !== false ? '✓' : '✕'}</span>
+                                                                    <span>Scenes</span>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const nextVal = audiobookStudioConfig.imagingEnabled === false;
+                                                                        saveAudiobookStudioConfig({ imagingEnabled: nextVal });
+                                                                        toast.success(nextVal ? "Illustrate: ON" : "Illustrate: OFF");
+                                                                    }}
+                                                                    title="Toggle Scene Artwork Generation"
+                                                                    className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border ${
+                                                                        audiobookStudioConfig.imagingEnabled !== false
+                                                                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow'
+                                                                            : 'bg-zinc-900 text-zinc-500 border-zinc-800 line-through'
+                                                                    }`}
+                                                                >
+                                                                    <span>{audiobookStudioConfig.imagingEnabled !== false ? '✓' : '✕'}</span>
+                                                                    <span>Illustrate</span>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const nextVal = audiobookStudioConfig.voiceEnabled === false;
+                                                                        saveAudiobookStudioConfig({ voiceEnabled: nextVal });
+                                                                        toast.success(nextVal ? "Voice: ON" : "Voice: OFF");
+                                                                    }}
+                                                                    title="Toggle Voice Enhancement & DSP"
+                                                                    className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border ${
+                                                                        audiobookStudioConfig.voiceEnabled !== false
+                                                                            ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50 shadow'
+                                                                            : 'bg-zinc-900 text-zinc-500 border-zinc-800 line-through'
+                                                                    }`}
+                                                                >
+                                                                    <span>{audiobookStudioConfig.voiceEnabled !== false ? '✓' : '✕'}</span>
+                                                                    <span>Voice</span>
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     </div>
 
-                                                    <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                                    <div className="flex items-center gap-2.5 flex-wrap shrink-0">
                                                         <button
                                                             type="button"
                                                             onClick={() => setIsEditingKey(true)}
-                                                            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs uppercase border border-zinc-700 cursor-pointer"
+                                                            className="px-5 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs uppercase border border-zinc-700 cursor-pointer shadow-md"
+                                                            title="Change or replace API key"
                                                         >
-                                                            ✏️ Change Key
+                                                            Key
                                                         </button>
                                                         <button
                                                             type="button"
                                                             disabled={probingApiKey}
                                                             onClick={() => handleAutoDetectApiKey()}
-                                                            className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-black text-xs uppercase cursor-pointer disabled:opacity-50"
+                                                            className="px-5 py-3 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-black text-xs uppercase cursor-pointer disabled:opacity-50 shadow-md"
+                                                            title="Re-verify active key limits and models"
                                                         >
-                                                            {probingApiKey ? 'Verifying...' : '🔄 Re-Verify'}
+                                                            {probingApiKey ? '...' : 'Verify'}
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={() => setIsAddingBackupKey(prev => !prev)}
-                                                            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase cursor-pointer"
+                                                            className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase cursor-pointer shadow-md"
+                                                            title="Add fallback backup key to pool"
                                                         >
-                                                            {isAddingBackupKey ? '✕ Close Form' : '＋ Add Backup Key'}
+                                                            {isAddingBackupKey ? '✕' : '+ Backup'}
                                                         </button>
                                                     </div>
                                                 </div>
 
-                                                {/* API Activity Metrics Counters */}
-                                                <div className="pt-4 border-t border-emerald-500/20 space-y-3">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                                        <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                                                            <span>📊</span> API Activity &amp; Live Counters
-                                                        </span>
-                                                        <span className="text-xs text-zinc-400 font-mono">
-                                                            Last: {metrics.lastRequestAt ? new Date(metrics.lastRequestAt).toLocaleTimeString() : 'None'}
-                                                        </span>
-                                                    </div>
-                                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Total API calls made to AI language & vision models">
-                                                            <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Requests</span>
-                                                            <div className="text-xl font-black text-white font-mono">{metrics.totalRequests || 0}</div>
+                                                {/* API Activity, Health Ratio & Visual Quota Meters */}
+                                                {(() => {
+                                                    const totalCalls = metrics.totalRequests || ((metrics.totalSuccess || 0) + (metrics.totalErrors || 0)) || 0;
+                                                    const okCalls = metrics.totalSuccess || 0;
+                                                    const errCalls = metrics.totalErrors || 0;
+                                                    const okPct = totalCalls > 0 ? Math.round((okCalls / totalCalls) * 100) : 100;
+                                                    const errPct = totalCalls > 0 ? 100 - okPct : 0;
+
+                                                    const dailyCeiling = 1500;
+                                                    const currentRpmLimit = activeRpm || 15;
+                                                    const workerRpm = audiobookStudioConfig.maxRequestsPerMinute || 10;
+                                                    const rpmPct = Math.min(100, Math.round((workerRpm / currentRpmLimit) * 100));
+
+                                                    // Calculate live countdown to 00:00 UTC (Gemini daily reset)
+                                                    const now = new Date();
+                                                    const nextUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
+                                                    const diffMs = Math.max(0, nextUtc.getTime() - now.getTime());
+                                                    const resetHours = Math.floor(diffMs / 3600000);
+                                                    const resetMins = Math.floor((diffMs % 3600000) / 60000);
+                                                    const resetStr = `${resetHours}h ${resetMins}m`;
+
+                                                    return (
+                                                        <div className="pt-4 border-t border-emerald-500/20 space-y-4">
+                                                            {/* Health Ratio Bar: Success vs Rate-Limited 429 */}
+                                                            <div className="space-y-1.5">
+                                                                <div className="flex items-center justify-between text-xs font-mono font-bold">
+                                                                    <span className="text-emerald-400 flex items-center gap-1.5">
+                                                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                                                                        Success: {okCalls.toLocaleString()} ({okPct}%)
+                                                                    </span>
+                                                                    <span className="text-rose-400 flex items-center gap-1.5">
+                                                                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />
+                                                                        Throttled (429): {errCalls.toLocaleString()} ({errPct}%)
+                                                                    </span>
+                                                                </div>
+                                                                <div className="h-3 w-full bg-black/80 rounded-full overflow-hidden flex border border-zinc-800">
+                                                                    <div
+                                                                        style={{ width: `${okPct}%` }}
+                                                                        className="bg-emerald-500 h-full transition-all duration-500"
+                                                                        title={`Successful: ${okCalls.toLocaleString()}`}
+                                                                    />
+                                                                    <div
+                                                                        style={{ width: `${errPct}%` }}
+                                                                        className="bg-rose-500 h-full transition-all duration-500"
+                                                                        title={`Rate-Limited (429): ${errCalls.toLocaleString()}`}
+                                                                    />
+                                                                </div>
+                                                                {errCalls > 0 && (
+                                                                    <div className="px-3.5 py-1.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-xs font-mono text-rose-300 flex items-center justify-between gap-2 flex-wrap">
+                                                                        <span>429 Rate-Limit: exceeded provider ceiling (15 RPM / 1,500 RPD).</span>
+                                                                        <span className="font-bold text-amber-300">Refill in 60s / Reset in {resetStr}</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Real Visual Meters: Speed (RPM) & Daily Quota (RPD) */}
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                                                {/* Meter 1: Speed Limit */}
+                                                                <div className="p-4 rounded-2xl bg-black/70 border border-zinc-800 space-y-2.5">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs font-black uppercase tracking-wider text-sky-400">
+                                                                            Speed (RPM)
+                                                                        </span>
+                                                                        <span className="text-xs font-mono font-black text-sky-300">
+                                                                            Worker: {workerRpm} / {currentRpmLimit} Max
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="h-3 w-full bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                                                        <div
+                                                                            style={{ width: `${rpmPct}%` }}
+                                                                            className={`h-full transition-all ${
+                                                                                rpmPct >= 100 ? 'bg-rose-500' : rpmPct > 80 ? 'bg-amber-500' : 'bg-sky-500'
+                                                                            }`}
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
+                                                                        <span>Ceiling: {currentRpmLimit} RPM</span>
+                                                                        <span className="text-emerald-400 font-bold">Refill: ~60s window</span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Meter 2: Daily Quota & Reset Timer */}
+                                                                <div className="p-4 rounded-2xl bg-black/70 border border-zinc-800 space-y-2.5">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                                                                            Daily Quota (RPD)
+                                                                        </span>
+                                                                        <span className="text-xs font-mono font-black text-amber-300">
+                                                                            Free: {dailyCeiling.toLocaleString()} RPD
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="h-3 w-full bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                                                        <div
+                                                                            style={{ width: `${Math.min(100, Math.round((Math.min(okCalls, dailyCeiling) / dailyCeiling) * 100))}%` }}
+                                                                            className="h-full bg-amber-500 transition-all"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
+                                                                        <span>Provider Free Tier</span>
+                                                                        <span className="text-amber-300 font-bold">Reset: 00:00 UTC (in {resetStr})</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Metric Counters (Big Scale, Rule 3 & 4) */}
+                                                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1">
+                                                                <div className="p-4 bg-black/80 rounded-2xl border border-zinc-800 space-y-0.5" title="Total API requests sent">
+                                                                    <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Requests</span>
+                                                                    <div className="text-2xl font-black text-white font-mono">{totalCalls.toLocaleString()}</div>
+                                                                </div>
+                                                                <div className="p-4 bg-black/80 rounded-2xl border border-emerald-500/30 space-y-0.5" title="Successful requests processed">
+                                                                    <span className="text-xs font-black uppercase tracking-wider text-emerald-400">Successful</span>
+                                                                    <div className="text-2xl font-black text-emerald-400 font-mono">{okCalls.toLocaleString()}</div>
+                                                                </div>
+                                                                <div className="p-4 bg-black/80 rounded-2xl border border-rose-500/30 space-y-0.5" title="Requests throttled by rate limit (HTTP 429)">
+                                                                    <span className="text-xs font-black uppercase tracking-wider text-rose-400">Throttled (429)</span>
+                                                                    <div className="text-2xl font-black text-rose-400 font-mono">{errCalls.toLocaleString()}</div>
+                                                                </div>
+                                                                <div className="p-4 bg-black/80 rounded-2xl border border-zinc-800 space-y-0.5" title="Chapter narrative scenes discovered">
+                                                                    <span className="text-xs font-black uppercase tracking-wider text-amber-400">Scenes</span>
+                                                                    <div className="text-2xl font-black text-amber-300 font-mono">{(metrics.artPromptRequests || 0).toLocaleString()}</div>
+                                                                </div>
+                                                                <div className="p-4 bg-black/80 rounded-2xl border border-zinc-800 space-y-0.5" title="Artwork illustrations painted">
+                                                                    <span className="text-xs font-black uppercase tracking-wider text-purple-400">Illustrations</span>
+                                                                    <div className="text-2xl font-black text-purple-300 font-mono">{(metrics.imagePaintRequests || 0).toLocaleString()}</div>
+                                                                </div>
+                                                            </div>
                                                         </div>
-                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Successful requests processed without error">
-                                                            <span className="text-xs font-black uppercase tracking-wider text-emerald-400">Successful</span>
-                                                            <div className="text-xl font-black text-emerald-400 font-mono">{metrics.totalSuccess || 0}</div>
-                                                        </div>
-                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Failed or rate-limited requests">
-                                                            <span className="text-xs font-black uppercase tracking-wider text-rose-400">Failed</span>
-                                                            <div className="text-xl font-black text-rose-400 font-mono">{metrics.totalErrors || 0}</div>
-                                                        </div>
-                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Audiobook chapters analyzed for visual scene transitions">
-                                                            <span className="text-xs font-black uppercase tracking-wider text-amber-400">Scenes</span>
-                                                            <div className="text-xl font-black text-amber-300 font-mono">{metrics.artPromptRequests || 0}</div>
-                                                        </div>
-                                                        <div className="p-3.5 bg-black/60 rounded-xl border border-zinc-800 space-y-1" title="Scene artwork images rendered across active providers">
-                                                            <span className="text-xs font-black uppercase tracking-wider text-purple-400">Illustrations</span>
-                                                            <div className="text-xl font-black text-purple-300 font-mono">{metrics.imagePaintRequests || 0}</div>
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                    );
+                                                })()}
                                             </div>
 
                                             {/* Key Routing & Backup Pool */}
@@ -2787,7 +2949,7 @@ export default function Settings() {
                                 <div className="space-y-1">
                                     <div className="flex items-center gap-3">
                                         <Sparkles className={`w-7 h-7 ${audiobookStudioConfig.aiFeaturesEnabled !== false ? 'text-amber-400' : 'text-zinc-500'}`} />
-                                        <h2 className="text-xl sm:text-2xl font-black text-white">AI Features</h2>
+                                        <h2 className="text-xl sm:text-2xl font-black text-white">Pipeline</h2>
                                         <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
                                             audiobookStudioConfig.aiFeaturesEnabled !== false
                                                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
@@ -2796,9 +2958,7 @@ export default function Settings() {
                                             {audiobookStudioConfig.aiFeaturesEnabled !== false ? 'Active' : 'Disabled'}
                                         </span>
                                     </div>
-                                    <p className="text-xs sm:text-sm text-zinc-400 font-medium">
-                                        Master switch for all automated speech-to-text, scene breakdowns, illustration artwork, and voice enhancement.
-                                    </p>
+                                    
                                 </div>
 
                                 <div className="flex items-center gap-3 shrink-0 flex-wrap">
@@ -2930,7 +3090,7 @@ export default function Settings() {
                                                     {stage2On ? 'ON' : 'OFF'}
                                                 </button>
                                             </div>
-                                            <p className="text-xs text-zinc-400">Analyzes chapter narrative to extract character moments and vivid scene beats.</p>
+                                            
                                         </div>
 
                                         {/* Stage 3: Scene Artwork */}
@@ -3035,9 +3195,8 @@ export default function Settings() {
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
                                 <div className="flex items-center gap-2.5">
                                     <ImageIcon className="w-6 h-6 text-purple-400" />
-                                    <h2 className="text-xl font-black text-white">3. Image Providers &amp; Quotas</h2>
+                                    <h2 className="text-xl font-black text-white">Images</h2>
                                 </div>
-                                <span className="text-xs font-bold text-zinc-400">Reorder priority, toggle permanently, set daily limits</span>
                             </div>
 
                             <div className="space-y-3">
@@ -3123,66 +3282,68 @@ export default function Settings() {
                         </div>
                     )}
 
-                    {/* GENERAL OR AUDIOBOOKS: 4. BACKGROUND PROCESSING SCHEDULE & RATE LIMITS */}
+                    {/* GENERAL OR AUDIOBOOKS: LIMITS & WORKER PACING */}
                     {(aiMediaCategory === 'general' || aiMediaCategory === 'audiobooks') && (
-                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
-                            <div className="flex items-center justify-between gap-3 pb-3 border-b border-zinc-800">
-                                <div className="flex items-center gap-2.5">
-                                    <Sliders className="w-6 h-6 text-amber-400" />
-                                    <h2 className="text-xl font-black text-white">4. Background Processing Schedule &amp; Limits</h2>
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-7 space-y-6 shadow-xl">
+                            <div className="flex items-center justify-between gap-3 pb-4 border-b border-zinc-800">
+                                <div className="flex items-center gap-3">
+                                    <Sliders className="w-7 h-7 text-amber-400" />
+                                    <h2 className="text-xl sm:text-2xl font-black text-white">Limits</h2>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                                 {/* Schedule Mode */}
-                                <div className="space-y-3 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                <div className="space-y-3 bg-zinc-950/80 p-5 rounded-2xl border border-zinc-800" title="Background worker schedule">
                                     <label className="text-xs font-black uppercase tracking-wider text-amber-400 block">
-                                        Schedule Mode
+                                        Schedule
                                     </label>
                                     <select
                                         value={audiobookStudioConfig.scheduleMode}
                                         onChange={e => saveAudiobookStudioConfig({ scheduleMode: e.target.value as any })}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-500 cursor-pointer"
                                     >
-                                        <option value="continuous_low_cpu">Continuous 1-Thread (Low Unraid CPU)</option>
-                                        <option value="hourly">Hourly Batch</option>
-                                        <option value="overnight">Overnight Only (01:00–07:00)</option>
-                                        <option value="manual_only">Manual Trigger Only</option>
+                                        <option value="continuous_low_cpu">Continuous (Low CPU)</option>
+                                        <option value="hourly">Hourly</option>
+                                        <option value="overnight">Overnight (01:00–07:00)</option>
+                                        <option value="manual_only">Manual</option>
                                     </select>
-                                    <p className="text-[11px] text-zinc-500">
-                                        Controls when ScheduleArr processes books in your Bookshelf Priority Queue.
-                                    </p>
                                 </div>
 
-                                {/* Daily API / Image Quota Limit (4-column grid, NO CURBING!) */}
-                                <div className="space-y-3 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                {/* Daily Worker Budget Cap */}
+                                <div className="space-y-3 bg-zinc-950/80 p-5 rounded-2xl border border-zinc-800">
                                     <div className="flex items-center justify-between">
-                                        <label className="text-xs font-black uppercase tracking-wider text-emerald-400">
-                                            Daily API Quota
+                                        <label className="text-xs font-black uppercase tracking-wider text-emerald-400" title="Daily worker cap before pausing (Provider ceiling is 1,500 RPD)">
+                                            Daily Cap
                                         </label>
-                                        <span className="text-[11px] font-mono font-bold text-amber-300">
-                                            Used: {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
+                                        <span className="text-xs font-mono font-black text-amber-300">
+                                            {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
                                         </span>
+                                    </div>
+                                    <div className="h-2.5 w-full bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                        <div
+                                            style={{ width: `${Math.min(100, Math.round(((audiobookStudioConfig.imagesGeneratedToday || 0) / (audiobookStudioConfig.dailyImageQuota || 1)) * 100))}%` }}
+                                            className="h-full bg-emerald-500 transition-all"
+                                        />
                                     </div>
                                     <input
                                         type="number"
                                         min={1}
-                                        max={1000}
+                                        max={1500}
                                         value={audiobookStudioConfig.dailyImageQuota}
                                         onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
                                         onBlur={() => saveAudiobookStudioConfig()}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-300 outline-none focus:border-amber-500"
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm font-mono font-black text-amber-300 outline-none focus:border-amber-500"
                                     />
-                                    {/* 4-column grid: Perfectly fits 4 presets in 1 row */}
                                     <div className="grid grid-cols-4 gap-1.5 w-full">
-                                        {[5, 15, 50, 100].map(q => (
+                                        {[15, 50, 85, 100].map(q => (
                                             <button
                                                 key={q}
                                                 type="button"
                                                 onClick={() => saveAudiobookStudioConfig({ dailyImageQuota: q })}
-                                                className={`py-1.5 rounded-lg text-[10px] font-black border text-center cursor-pointer ${
+                                                className={`py-2 rounded-xl text-xs font-black border text-center cursor-pointer ${
                                                     audiobookStudioConfig.dailyImageQuota === q
-                                                        ? 'bg-emerald-500 text-black border-emerald-400'
+                                                        ? 'bg-emerald-500 text-black border-emerald-400 shadow'
                                                         : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
                                                 }`}
                                             >
@@ -3192,30 +3353,42 @@ export default function Settings() {
                                     </div>
                                 </div>
 
-                                {/* Rate-Limit Guard (RPM) (4-column grid, NO CURBING!) */}
-                                <div className="space-y-3 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
-                                    <label className="text-xs font-black uppercase tracking-wider text-sky-400 block">
-                                        Rate-Limit (RPM)
-                                    </label>
+                                {/* Speed Throttle (RPM) vs Provider 15 RPM Ceiling */}
+                                <div className="space-y-3 bg-zinc-950/80 p-5 rounded-2xl border border-zinc-800">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-black uppercase tracking-wider text-sky-400" title="Worker pacing: Google AI Studio Free Tier ceiling is 15 RPM">
+                                            Speed (RPM)
+                                        </label>
+                                        <span className="text-xs font-mono font-black text-sky-300">
+                                            {audiobookStudioConfig.maxRequestsPerMinute || 10} / 15 Max
+                                        </span>
+                                    </div>
+                                    <div className="h-2.5 w-full bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                        <div
+                                            style={{ width: `${Math.min(100, Math.round(((audiobookStudioConfig.maxRequestsPerMinute || 10) / 15) * 100))}%` }}
+                                            className={`h-full transition-all ${
+                                                (audiobookStudioConfig.maxRequestsPerMinute || 10) > 15 ? 'bg-rose-500' : (audiobookStudioConfig.maxRequestsPerMinute || 10) === 15 ? 'bg-amber-500' : 'bg-sky-500'
+                                            }`}
+                                        />
+                                    </div>
                                     <input
                                         type="number"
                                         min={1}
-                                        max={120}
+                                        max={60}
                                         value={audiobookStudioConfig.maxRequestsPerMinute || 10}
                                         onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, maxRequestsPerMinute: Math.max(1, parseInt(e.target.value) || 1) }))}
                                         onBlur={() => saveAudiobookStudioConfig()}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-sky-300 outline-none focus:border-sky-500"
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm font-mono font-black text-sky-300 outline-none focus:border-sky-500"
                                     />
-                                    {/* 4-column grid: Perfectly fits 4 presets in 1 row */}
                                     <div className="grid grid-cols-4 gap-1.5 w-full">
-                                        {[2, 5, 15, 30].map(rpm => (
+                                        {[2, 5, 10, 15].map(rpm => (
                                             <button
                                                 key={rpm}
                                                 type="button"
                                                 onClick={() => saveAudiobookStudioConfig({ maxRequestsPerMinute: rpm })}
-                                                className={`py-1.5 rounded-lg text-[10px] font-black border text-center cursor-pointer ${
+                                                className={`py-2 rounded-xl text-xs font-black border text-center cursor-pointer ${
                                                     (audiobookStudioConfig.maxRequestsPerMinute || 10) === rpm
-                                                        ? 'bg-sky-500 text-black border-sky-400'
+                                                        ? 'bg-sky-500 text-black border-sky-400 shadow'
                                                         : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
                                                 }`}
                                             >
@@ -3234,9 +3407,8 @@ export default function Settings() {
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
                                 <div className="flex items-center gap-2.5">
                                     <Headphones className="w-6 h-6 text-emerald-400" />
-                                    <h2 className="text-xl font-black text-white">5. Voice Narration &amp; Audio Models</h2>
+                                    <h2 className="text-xl font-black text-white">Voice</h2>
                                 </div>
-                                <span className="text-xs font-bold text-zinc-400">RVC v2 Timbre Conversion &amp; Neural TTS Reread</span>
                             </div>
 
                             <div className="space-y-6">

@@ -3382,40 +3382,30 @@ export const enhanceAudiobookChapterAudio = async (
         filters.push('highpass=f=80', 'lowpass=f=13500', 'afftdn=nf=-24', 'dynaudnorm=f=200:g=15');
     }
 
-    if (effectiveVoice === 'nelson_mandela') {
-        // Deep statesman dignity, slow deliberate cadence, warm chest rumble
-        filters.push('highpass=f=65,lowpass=f=10500,asetrate=44100*0.88,aresample=44100,atempo=1.1364,equalizer=f=120:width_type=h:width=80:g=4.5,equalizer=f=2200:width_type=h:width=800:g=2.5,dynaudnorm=f=200:g=15');
-    } else if (effectiveVoice === 'mlk') {
-        // Powerful oratorical resonance, passionate mid-bass cadence
-        filters.push('highpass=f=70,lowpass=f=12500,asetrate=44100*0.92,aresample=44100,atempo=1.087,equalizer=f=180:width_type=h:width=90:g=4.0,equalizer=f=2800:width_type=h:width=1000:g=3.2,dynaudnorm=f=170:g=14');
-    } else if (effectiveVoice === 'morgan_freeman') {
-        // Deep authoritative resonance, rich chest gravitas, warm bass presence, deliberate cadence
-        filters.push('asetrate=44100*0.89,aresample=44100,atempo=1.1235955,equalizer=f=110:width_type=h:width=80:g=4.8,equalizer=f=2400:width_type=h:width=900:g=3.2,acompressor=threshold=-19dB:ratio=3:attack=15:release=220,dynaudnorm=f=200:g=15');
-    } else if (effectiveVoice === 'barack_obama') {
-        // Melodic oratorical cadence, measured pacing, warm baritone speech presence
-        filters.push('asetrate=44100*0.93,aresample=44100,atempo=1.0752688,equalizer=f=180:width_type=h:width=90:g=3.0,equalizer=f=3100:width_type=h:width=1100:g=3.0,dynaudnorm=f=180:g=14');
-    } else if (effectiveVoice === 'scarlett_johansson') {
-        // Intimate velvet warmth, close-mic presence, breathy articulation, gentle sibilance smoothing
-        filters.push('asetrate=44100*1.02,aresample=44100,atempo=0.9803922,equalizer=f=220:width_type=h:width=100:g=2.2,equalizer=f=4500:width_type=h:width=1200:g=3.5,equalizer=f=8000:width_type=h:width=2000:g=2.0,lowpass=f=13000,dynaudnorm=f=250:g=16');
-    } else if (effectiveVoice === 'attenborough') {
-        // Naturalist British wonder, gentle grandfatherly warmth, clear BBC acoustic headroom
-        filters.push('asetrate=44100*0.97,aresample=44100,atempo=1.0309278,equalizer=f=190:width_type=h:width=90:g=2.2,equalizer=f=3600:width_type=h:width=1200:g=3.5,acompressor=threshold=-16dB:ratio=2.2:attack=10:release=160,dynaudnorm=f=160:g=12');
-    } else if (effectiveVoice === 'tom_cruise') {
-        // Dynamic cinematic drive, crisp commanding energy, forward articulation
-        filters.push('highpass=f=85,lowpass=f=14500,asetrate=44100*1.03,aresample=44100,atempo=0.9709,equalizer=f=3400:width_type=h:width=1200:g=4.0,acompressor=threshold=-18dB:ratio=2.8:attack=10:release=140,dynaudnorm=f=150:g=13');
-    } else if (effectiveVoice === 'ana_de_armas') {
-        // Soft melodic warmth, breathy intimate cinema tone
-        filters.push('highpass=f=85,lowpass=f=12500,asetrate=44100*1.05,aresample=44100,atempo=0.9524,equalizer=f=240:width_type=h:width=110:g=2.2,equalizer=f=5000:width_type=h:width=1300:g=3.2,dynaudnorm=f=220:g=15');
-    } else if (effectiveVoice === 'deep_narrator' || effectiveVoice === 'deep_cinema' || effectiveVoice === 'deep_pitch') {
-        filters.push('asetrate=44100*0.92,aresample=44100,atempo=1.0869565,equalizer=f=140:width_type=h:width=90:g=3');
-    } else if (effectiveVoice === 'warm_storyteller' || effectiveVoice === 'warm_bass') {
-        filters.push('asetrate=44100*0.96,aresample=44100,atempo=1.0416667,equalizer=f=220:width_type=h:width=120:g=2.5');
+    // DSP Acoustic Mastering Filters & Real-Time Pitch Shaping
+    if (effectiveVoice === 'studio_clarity' || effectiveVoice === 'clear_voice') {
+        filters.push('highpass=f=75,afftdn=nf=-24,equalizer=f=3200:width_type=h:width=1400:g=3,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=200,dynaudnorm=f=200:g=15');
+    } else if (effectiveVoice === 'warm_mids' || effectiveVoice === 'warm_storyteller' || effectiveVoice === 'warm_bass') {
+        filters.push('highpass=f=70,asetrate=44100*0.96,aresample=44100,atempo=1.0416667,equalizer=f=220:width_type=h:width=120:g=2.8,dynaudnorm=f=180:g=14');
+    } else if (effectiveVoice === 'deep_baritone' || effectiveVoice === 'deep_narrator' || effectiveVoice === 'deep_pitch') {
+        filters.push('highpass=f=60,lowpass=f=12000,asetrate=44100*0.91,aresample=44100,atempo=1.0989,equalizer=f=120:width_type=h:width=80:g=4.2,equalizer=f=2400:width_type=h:width=900:g=3.0,dynaudnorm=f=200:g=15');
+    } else if (effectiveVoice === 'midnight_leveler' || effectiveVoice === 'late_night_radio' || effectiveVoice === 'night_compress') {
+        filters.push('highpass=f=75,lowpass=f=11000,asetrate=44100*0.95,aresample=44100,atempo=1.0526,equalizer=f=160:width_type=h:width=90:g=3.5,acompressor=threshold=-20dB:ratio=3.5:attack=10:release=180,dynaudnorm=f=140:g=15');
     } else if (effectiveVoice === 'crisp_clear' || effectiveVoice === 'crisp_modern' || effectiveVoice === 'crisp_treble') {
         filters.push('asetrate=44100*1.04,aresample=44100,atempo=0.9615385,equalizer=f=3600:width_type=h:width=1200:g=3');
     } else if (effectiveVoice === 'soft_velvet' || effectiveVoice === 'velvet_narrator') {
         filters.push('asetrate=44100*0.97,aresample=44100,atempo=1.0309278,lowpass=f=10500,equalizer=f=180:width_type=h:width=100:g=2.5');
-    } else if (effectiveVoice === 'late_night_radio' || effectiveVoice === 'night_compress') {
-        filters.push('asetrate=44100*0.94,aresample=44100,atempo=1.0638298,highpass=f=90,lowpass=f=10000,equalizer=f=160:width_type=h:width=90:g=3.5,acompressor=threshold=-18dB:ratio=3:attack=10:release=180');
+    } else if (effectiveVoice === 'original') {
+        // Lossless original reader recording
+    } else {
+        // Legacy compatibility mappings
+        if (effectiveVoice === 'nelson_mandela' || effectiveVoice === 'morgan_freeman' || effectiveVoice === 'mlk') {
+            filters.push('highpass=f=60,lowpass=f=12000,asetrate=44100*0.91,aresample=44100,atempo=1.0989,equalizer=f=120:width_type=h:width=80:g=4.2,dynaudnorm=f=200:g=15');
+        } else if (effectiveVoice === 'scarlett_johansson' || effectiveVoice === 'sydney_sweeney' || effectiveVoice === 'ana_de_armas') {
+            filters.push('highpass=f=80,lowpass=f=13000,equalizer=f=220:width_type=h:width=100:g=2.2,equalizer=f=4500:width_type=h:width=1200:g=3.5,dynaudnorm=f=220:g=15');
+        } else if (effectiveVoice === 'attenborough' || effectiveVoice === 'david_attenborough' || effectiveVoice === 'alan_watts') {
+            filters.push('highpass=f=80,lowpass=f=13500,equalizer=f=190:width_type=h:width=90:g=2.2,equalizer=f=3600:width_type=h:width=1200:g=3.5,dynaudnorm=f=160:g=12');
+        }
     }
 
     const safeId = chapter.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_');
