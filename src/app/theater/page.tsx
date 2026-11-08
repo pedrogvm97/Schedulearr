@@ -76,6 +76,9 @@ interface MediaItem {
     libraryId?: string;
     libraryName?: string;
     ratingKey?: string;
+    isAudiobook?: boolean;
+    isSeries?: boolean;
+    type?: string;
 }
 
 interface MusicPlaylist {
@@ -3579,6 +3582,19 @@ function TheaterPageContent() {
     const filteredItems = useMemo(() => {
         let list = [...items];
 
+        // Strict category isolation per content tab
+        if (activeContentTab === 'movie') {
+            list = list.filter(i => (i.category === 'video' || (!i.category && !i.isAudiobook)) && !i.isSeries);
+        } else if (activeContentTab === 'show') {
+            list = list.filter(i => (i.category === 'video' || (!i.category && !i.isAudiobook)) || i.isSeries);
+        } else if (activeContentTab === 'music') {
+            list = list.filter(i => i.category === 'audio' && !i.isAudiobook);
+        } else if (activeContentTab === 'audiobooks') {
+            list = list.filter(i => i.isAudiobook || i.category === 'audio');
+        } else if (activeContentTab === 'photos') {
+            list = list.filter(i => i.category === 'photo');
+        }
+
         // Codec & Quality filter for Music Studio
         if (activeContentTab === 'music' && musicCodecFilter !== 'all') {
             list = list.filter(i => {
@@ -5104,14 +5120,90 @@ function TheaterPageContent() {
                     items={theaterSidebarItems}
                     activeItemId={activeContentTab}
                     activeSubItemId={
-                        activeContentTab === 'audiobooks' ? `shelf_${audiobookShelfViewMode}` :
-                        activeContentTab === 'music' ? `music_${musicTab}` :
-                        activeContentTab === 'photos' ? `photo_${photoSubTab}` :
-                        activeLibrary?.id || undefined
+                        activeContentTab === 'movie' ? (
+                            (enabledLibsByTab['movie'] && enabledLibsByTab['movie'].size === 1)
+                                ? Array.from(enabledLibsByTab['movie'])[0]
+                                : 'all_movies'
+                        ) :
+                        activeContentTab === 'show' ? (
+                            (enabledLibsByTab['show'] && enabledLibsByTab['show'].size === 1)
+                                ? Array.from(enabledLibsByTab['show'])[0]
+                                : 'all_shows'
+                        ) :
+                        activeContentTab === 'live' ? (
+                            (activeShortlistId && activeShortlistId !== 'ALL') ? 'live_shortlists' :
+                            (enabledLibsByTab['live'] && enabledLibsByTab['live'].size === 1) ? Array.from(enabledLibsByTab['live'])[0] :
+                            'live_guide'
+                        ) :
+                        activeContentTab === 'music' ? (
+                            (enabledLibsByTab['music'] && enabledLibsByTab['music'].size === 1)
+                                ? Array.from(enabledLibsByTab['music'])[0]
+                                : `music_${musicTab}`
+                        ) :
+                        activeContentTab === 'audiobooks' ? (
+                            (enabledLibsByTab['audiobooks'] && enabledLibsByTab['audiobooks'].size === 1)
+                                ? Array.from(enabledLibsByTab['audiobooks'])[0]
+                                : `shelf_${audiobookShelfViewMode}`
+                        ) :
+                        activeContentTab === 'photos' ? (
+                            (enabledLibsByTab['photos'] && enabledLibsByTab['photos'].size === 1)
+                                ? Array.from(enabledLibsByTab['photos'])[0]
+                                : `photo_${photoSubTab}`
+                        ) : undefined
                     }
                     onSelectItem={(itemId: string, subItemId?: string) => {
                         setActiveContentTab(itemId as any);
-                        if (subItemId) {
+                        if (!subItemId) {
+                            const tabLibs = libraries.filter(l => matchesTabType(l.type, itemId));
+                            if (tabLibs.length > 0) {
+                                selectAllLibrariesInTab(itemId, tabLibs.map(l => l.id));
+                                setActiveLibraryId(tabLibs[0].id);
+                            }
+                            return;
+                        }
+
+                        if (itemId === 'movie') {
+                            const movieLibIds = libraries.filter(l => matchesTabType(l.type, 'movie')).map(l => l.id);
+                            if (subItemId === 'all_movies') {
+                                selectAllLibrariesInTab('movie', movieLibIds);
+                                setActiveLibraryId(movieLibIds[0] || null);
+                            } else {
+                                selectSingleLibraryInTab('movie', subItemId);
+                                setActiveLibraryId(subItemId);
+                            }
+                        } else if (itemId === 'show') {
+                            const showLibIds = libraries.filter(l => matchesTabType(l.type, 'show')).map(l => l.id);
+                            if (subItemId === 'all_shows') {
+                                selectAllLibrariesInTab('show', showLibIds);
+                                setActiveLibraryId(showLibIds[0] || null);
+                            } else {
+                                selectSingleLibraryInTab('show', subItemId);
+                                setActiveLibraryId(subItemId);
+                            }
+                        } else if (itemId === 'live') {
+                            if (subItemId === 'live_guide') {
+                                setActiveShortlistId('ALL');
+                                setSelectedIptvGroup('ALL');
+                            } else if (subItemId === 'live_shortlists') {
+                                if (shortlists.length > 0) setActiveShortlistId(shortlists[0].id);
+                            } else {
+                                selectSingleLibraryInTab('live', subItemId);
+                                setActiveLibraryId(subItemId);
+                            }
+                        } else if (itemId === 'music') {
+                            if (subItemId === 'music_albums') {
+                                setMusicTab('albums');
+                            } else if (subItemId === 'music_artists') {
+                                setMusicTab('artists');
+                            } else if (subItemId === 'music_tracks') {
+                                setMusicTab('tracks');
+                            } else if (subItemId === 'music_playlists') {
+                                setMusicTab('playlists');
+                            } else {
+                                selectSingleLibraryInTab('music', subItemId);
+                                setActiveLibraryId(subItemId);
+                            }
+                        } else if (itemId === 'audiobooks') {
                             if (subItemId === 'shelf_books') {
                                 setAudiobookShelfViewMode('books');
                             } else if (subItemId === 'shelf_bedside') {
@@ -5120,15 +5212,12 @@ function TheaterPageContent() {
                                 setAudiobookShelfViewMode('authors');
                             } else if (subItemId === 'shelf_finished') {
                                 setAudiobookShelfViewMode('finished');
-                            } else if (subItemId === 'music_albums') {
-                                setMusicTab('albums');
-                            } else if (subItemId === 'music_artists') {
-                                setMusicTab('artists');
-                            } else if (subItemId === 'music_tracks') {
-                                setMusicTab('tracks');
-                            } else if (subItemId === 'music_playlists') {
-                                setMusicTab('playlists');
-                            } else if (subItemId === 'photo_photos') {
+                            } else {
+                                selectSingleLibraryInTab('audiobooks', subItemId);
+                                setActiveLibraryId(subItemId);
+                            }
+                        } else if (itemId === 'photos') {
+                            if (subItemId === 'photo_photos') {
                                 setPhotoSubTab('photos');
                             } else if (subItemId === 'photo_albums') {
                                 setPhotoSubTab('albums');
@@ -5136,9 +5225,8 @@ function TheaterPageContent() {
                                 setPhotoSubTab('people');
                             } else if (subItemId === 'photo_places') {
                                 setPhotoSubTab('places');
-                            } else if (subItemId === 'all_movies' || subItemId === 'all_shows') {
-                                setActiveLibraryId(null);
                             } else {
+                                selectSingleLibraryInTab('photos', subItemId);
                                 setActiveLibraryId(subItemId);
                             }
                         }

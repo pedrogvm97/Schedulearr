@@ -133,6 +133,22 @@ function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0, lib?: an
                 else if (AUDIO_EXTS.has(ext)) mediaCategory = 'audio';
                 else if (PHOTO_EXTS.has(ext)) mediaCategory = 'photo';
 
+                // Strict library type isolation: Never cross-contaminate media types!
+                const rawType = String(lib?.type || '').toLowerCase().trim();
+                const isMovieLib = rawType === 'movie' || rawType === 'movies';
+                const isShowLib = rawType === 'show' || rawType === 'shows' || rawType === 'tv' || rawType === 'series';
+                const isMusicLib = rawType === 'music' || rawType === 'audio';
+                const isAudiobookLib = rawType === 'audiobooks' || rawType === 'audiobook';
+                const isPhotoLib = rawType === 'photos' || rawType === 'photo';
+
+                if (isMovieLib || isShowLib) {
+                    if (mediaCategory !== 'video') mediaCategory = null;
+                } else if (isMusicLib || isAudiobookLib) {
+                    if (mediaCategory !== 'audio') mediaCategory = null;
+                } else if (isPhotoLib) {
+                    if (mediaCategory !== 'photo') mediaCategory = null;
+                }
+
                 if (mediaCategory) {
                     try {
                         const stat = fs.statSync(fullPath);
@@ -391,12 +407,23 @@ export async function GET(req: Request) {
             if (!forceRefresh) {
                 const cached = getCachedTheaterItems(lib.id);
                 if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
+                    const normType = String(lib?.type || '').toLowerCase().trim();
+                    const isVideoLib = normType === 'movie' || normType === 'movies' || normType === 'show' || normType === 'shows' || normType === 'tv' || normType === 'series';
+                    const isAudioLib = normType === 'music' || normType === 'audio' || normType === 'audiobooks' || normType === 'audiobook';
+                    const isPhotoLib = normType === 'photos' || normType === 'photo';
+
+                    const hasCorruptItems = (
+                        (isVideoLib && cached.items.some((it: any) => it.category === 'audio' || it.isAudiobook)) ||
+                        (isAudioLib && cached.items.some((it: any) => it.category === 'video' || it.category === 'photo')) ||
+                        (isPhotoLib && cached.items.some((it: any) => it.category !== 'photo'))
+                    );
+
                     const hasStaleAudiobookCache = isAudiobooksLib && cached.items.some((it: any) =>
                         !it.isAudiobook ||
                         isGenericOrUnknown(it.album, lib.name) ||
                         !it.streamUrl
                     );
-                    if (!hasStaleAudiobookCache) {
+                    if (!hasCorruptItems && !hasStaleAudiobookCache) {
                         const normalizedItems = isAudiobooksLib
                             ? cached.items.map((it: any) => {
                                 const parsed = parseAndCanonicalizeAuthor(it.artist || '', it.album || it.title || '');
@@ -443,7 +470,7 @@ export async function GET(req: Request) {
             // A. Attempt local filesystem scan (with Unraid / container path resolution)
             const scannedDirs = new Set<string>();
             for (const folder of folderList) {
-                const resolvedFolder = fs.existsSync(folder) ? folder : resolveLocalPath(folder);
+                const resolvedFolder = fs.existsSync(folder) ? folder : resolveLocalPath(folder, lib?.type);
                 if (resolvedFolder && fs.existsSync(resolvedFolder) && !scannedDirs.has(resolvedFolder)) {
                     scannedDirs.add(resolvedFolder);
                     allItems.push(...scanDirectory(resolvedFolder, 8, 0, lib));
@@ -827,7 +854,7 @@ export async function GET(req: Request) {
     }
 }
 
-function resolveLocalPath(filePath: string): string | null {
+function resolveLocalPath(filePath: string, libType?: string): string | null {
     if (!filePath) return null;
     const norm = (s: string) => s.normalize('NFC').replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').trim().toLowerCase();
 
@@ -860,6 +887,17 @@ function resolveLocalPath(filePath: string): string | null {
     try {
         const libs = getTheaterLibraries();
         for (const l of libs) {
+            if (libType && l.type) {
+                const normL = String(l.type).toLowerCase().trim();
+                const normReq = String(libType).toLowerCase().trim();
+                const isMatch = normL === normReq ||
+                    ((normL === 'movie' || normL === 'movies') && (normReq === 'movie' || normReq === 'movies')) ||
+                    ((normL === 'show' || normL === 'shows' || normL === 'tv' || normL === 'series') && (normReq === 'show' || normReq === 'shows' || normReq === 'tv' || normReq === 'series')) ||
+                    ((normL === 'music' || normL === 'audio') && (normReq === 'music' || normReq === 'audio')) ||
+                    ((normL === 'audiobooks' || normL === 'audiobook') && (normReq === 'audiobooks' || normReq === 'audiobook')) ||
+                    ((normL === 'photos' || normL === 'photo') && (normReq === 'photos' || normReq === 'photo'));
+                if (!isMatch) continue;
+            }
             for (const f of (l.folders || [])) {
                 if (f && typeof f === 'string') {
                     if (fs.existsSync(f)) {

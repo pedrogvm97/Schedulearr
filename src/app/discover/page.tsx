@@ -1867,49 +1867,67 @@ function DiscoverPageContent() {
                     }
                     onSelectItem={(itemId, subItemId) => {
                         setMediaType(itemId as any);
-                        if (itemId === 'movie' && subItemId) {
+                        if (!subItemId) {
+                            setShowSubtabSettings(false);
+                            if (itemId === 'movie') { setMovieSubTab('library'); setStatusFilter('all'); }
+                            else if (itemId === 'series') { setSeriesSubTab('library'); setStatusFilter('all'); }
+                            else if (itemId === 'music') { setMusicSubTab('library'); setStatusFilter('in_library'); loadLibrary(); }
+                            else if (itemId === 'audiobooks') { setAudiobookSubTab('books'); }
+                            else if (itemId === 'photos') { setPhotosSubTab('overview'); }
+                            else if (itemId === 'iptv_dvr') { setLiveSubTab('guide'); }
+                            return;
+                        }
+
+                        if (itemId === 'movie') {
                             setMovieSubTab(subItemId as any);
                             if (subItemId === 'library') {
                                 setStatusFilter('in_library');
                                 setShowSubtabSettings(false);
+                                loadLibrary();
                             } else if (subItemId === 'discover') {
                                 setStatusFilter('not_in_library');
                                 setShowSubtabSettings(false);
+                                handleDiscovery(0);
                             } else if (subItemId === 'instant') {
+                                setStatusFilter('all');
                                 setShowSubtabSettings(false);
                             } else if (subItemId === 'settings') {
                                 setShowSubtabSettings(true);
                             }
-                        } else if (itemId === 'series' && subItemId) {
+                        } else if (itemId === 'series') {
                             setSeriesSubTab(subItemId as any);
                             if (subItemId === 'library') {
                                 setStatusFilter('in_library');
                                 setShowSubtabSettings(false);
+                                loadLibrary();
                             } else if (subItemId === 'discover') {
                                 setStatusFilter('not_in_library');
                                 setShowSubtabSettings(false);
+                                handleDiscovery(0);
                             } else if (subItemId === 'instant') {
+                                setStatusFilter('all');
                                 setShowSubtabSettings(false);
                             } else if (subItemId === 'settings') {
                                 setShowSubtabSettings(true);
                             }
-                        } else if (itemId === 'music' && subItemId) {
+                        } else if (itemId === 'music') {
                             setMusicSubTab(subItemId as any);
                             if (subItemId === 'library') {
                                 setStatusFilter('in_library');
                                 setShowSubtabSettings(false);
+                                loadLibrary();
                             } else if (subItemId === 'charts') {
                                 setStatusFilter('not_in_library');
                                 setShowSubtabSettings(false);
-                                if (musicResults.length === 0) handleMusicSearch('');
+                                handleMusicSearch('');
                             } else if (subItemId === 'settings') {
                                 setShowSubtabSettings(true);
                             }
-                        } else if (itemId === 'audiobooks' && subItemId) {
+                        } else if (itemId === 'audiobooks') {
                             setAudiobookSubTab(subItemId as any);
-                        } else if (itemId === 'photos' && subItemId) {
+                        } else if (itemId === 'photos') {
                             setPhotosSubTab(subItemId as any);
-                        } else if (itemId === 'iptv_dvr' && subItemId) {
+                        } else if (itemId === 'iptv_dvr') {
                             setLiveSubTab(subItemId as any);
                         }
                     }}
