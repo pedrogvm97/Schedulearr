@@ -115,7 +115,12 @@ function safeFormatDateTime(val: any, options?: Intl.DateTimeFormatOptions): str
     }
 }
 
-export function IptvDvrManager() {
+export interface IptvDvrManagerProps {
+    controlledSubTab?: string;
+    onControlledSubTabChange?: (tab: any) => void;
+}
+
+export function IptvDvrManager({ controlledSubTab, onControlledSubTabChange }: IptvDvrManagerProps = {}) {
     const [libraries, setLibraries] = useState<any[]>([]);
     const [selectedLibraryId, setSelectedLibraryId] = useState<string>('');
     const [channels, setChannels] = useState<IptvChannel[]>([]);
@@ -126,7 +131,12 @@ export function IptvDvrManager() {
     const [recordings, setRecordings] = useState<DvrRecording[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const [activeTab, setActiveTab] = useState<'guide' | 'shortlists' | 'providers' | 'storage' | 'rules' | 'recordings'>('guide');
+    const [internalActiveTab, setInternalActiveTab] = useState<'guide' | 'shortlists' | 'providers' | 'storage' | 'rules' | 'recordings'>('guide');
+    const activeTab = (controlledSubTab as any) || internalActiveTab;
+    const setActiveTab = (tab: any) => {
+        setInternalActiveTab(tab);
+        onControlledSubTabChange?.(tab);
+    };
 
     const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);

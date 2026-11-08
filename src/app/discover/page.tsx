@@ -12,7 +12,7 @@ import {
     CheckCircle2, Copy, ListOrdered, RefreshCw, Layers,
     Disc, Music, Radio, ArrowDownToLine, Play,
     FolderPlus, AlertCircle, BookOpen, Settings, Zap,
-    Mic, Wand2, Image as ImageIcon, Headphones
+    Mic, Wand2, Image as ImageIcon, Headphones, Smartphone, Activity, Clock, RadioTower, Folder, ListFilter
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -674,24 +674,46 @@ function UnifiedMediaCard({
 function DiscoverPageContent() {
     const searchParams = useSearchParams();
     const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'audiobooks' | 'iptv_dvr' | 'photos'>('movie');
+    const [movieSubTab, setMovieSubTab] = useState<'library' | 'discover' | 'instant' | 'settings'>('library');
+    const [seriesSubTab, setSeriesSubTab] = useState<'library' | 'discover' | 'instant' | 'settings'>('library');
+    const [musicSubTab, setMusicSubTab] = useState<'library' | 'charts' | 'settings'>('library');
     const [audiobookSubTab, setAudiobookSubTab] = useState<'books' | 'collections' | 'renamer' | 'ai' | 'queue_settings'>('books');
+    const [photosSubTab, setPhotosSubTab] = useState<'overview' | 'pixel' | 'heal'>('overview');
+    const [liveSubTab, setLiveSubTab] = useState<'guide' | 'shortlists' | 'recordings' | 'providers' | 'storage' | 'rules'>('guide');
 
     const mediaSidebarItems: CollapsibleSidebarItem[] = useMemo(() => {
         return [
             {
                 id: 'movie',
                 label: 'Movies',
-                icon: <Film size={26} className="text-indigo-400" />
+                icon: <Film size={26} className="text-indigo-400" />,
+                subItems: [
+                    { id: 'library', label: 'Library', icon: <Film size={22} className="text-indigo-400" /> },
+                    { id: 'discover', label: 'Discover', icon: <Sparkles size={22} className="text-purple-400" /> },
+                    { id: 'instant', label: 'Instant', icon: <Zap size={22} className="text-amber-400" /> },
+                    { id: 'settings', label: 'Settings', icon: <Settings size={22} className="text-emerald-400" /> }
+                ]
             },
             {
                 id: 'series',
                 label: 'Series',
-                icon: <Tv size={26} className="text-emerald-400" />
+                icon: <Tv size={26} className="text-emerald-400" />,
+                subItems: [
+                    { id: 'library', label: 'Library', icon: <Tv size={22} className="text-emerald-400" /> },
+                    { id: 'discover', label: 'Discover', icon: <Sparkles size={22} className="text-purple-400" /> },
+                    { id: 'instant', label: 'Instant', icon: <Zap size={22} className="text-amber-400" /> },
+                    { id: 'settings', label: 'Settings', icon: <Settings size={22} className="text-emerald-400" /> }
+                ]
             },
             {
                 id: 'music',
                 label: 'Music',
-                icon: <Disc size={26} className="text-amber-400" />
+                icon: <Disc size={26} className="text-amber-400" />,
+                subItems: [
+                    { id: 'library', label: 'Library', icon: <Disc size={22} className="text-amber-400" /> },
+                    { id: 'charts', label: 'Charts', icon: <TrendingUp size={22} className="text-amber-400" /> },
+                    { id: 'settings', label: 'Settings', icon: <Settings size={22} className="text-emerald-400" /> }
+                ]
             },
             {
                 id: 'audiobooks',
@@ -708,12 +730,25 @@ function DiscoverPageContent() {
             {
                 id: 'photos',
                 label: 'Photos',
-                icon: <ImageIcon size={26} className="text-sky-400" />
+                icon: <ImageIcon size={26} className="text-sky-400" />,
+                subItems: [
+                    { id: 'overview', label: 'Overview', icon: <ImageIcon size={22} className="text-sky-400" /> },
+                    { id: 'pixel', label: 'Pixel', icon: <Smartphone size={22} className="text-indigo-400" /> },
+                    { id: 'heal', label: 'Heal', icon: <Activity size={22} className="text-emerald-400" /> }
+                ]
             },
             {
                 id: 'iptv_dvr',
                 label: 'Live',
-                icon: <Tv size={26} className="text-amber-400" />
+                icon: <Tv size={26} className="text-red-400" />,
+                subItems: [
+                    { id: 'guide', label: 'Guide', icon: <Tv size={22} className="text-red-400" /> },
+                    { id: 'shortlists', label: 'Shortlists', icon: <ListFilter size={22} className="text-amber-400" /> },
+                    { id: 'recordings', label: 'Recordings', icon: <Clock size={22} className="text-purple-400" /> },
+                    { id: 'providers', label: 'Providers', icon: <RadioTower size={22} className="text-sky-400" /> },
+                    { id: 'storage', label: 'Storage', icon: <Folder size={22} className="text-zinc-400" /> },
+                    { id: 'rules', label: 'Rules', icon: <Sparkles size={22} className="text-emerald-400" /> }
+                ]
             }
         ];
     }, []);
@@ -1822,11 +1857,60 @@ function DiscoverPageContent() {
                 <CollapsibleNavSidebar
                     items={mediaSidebarItems}
                     activeItemId={mediaType}
-                    activeSubItemId={mediaType === 'audiobooks' ? audiobookSubTab : undefined}
+                    activeSubItemId={
+                        mediaType === 'movie' ? movieSubTab :
+                        mediaType === 'series' ? seriesSubTab :
+                        mediaType === 'music' ? musicSubTab :
+                        mediaType === 'audiobooks' ? audiobookSubTab :
+                        mediaType === 'photos' ? photosSubTab :
+                        mediaType === 'iptv_dvr' ? liveSubTab : undefined
+                    }
                     onSelectItem={(itemId, subItemId) => {
                         setMediaType(itemId as any);
-                        if (itemId === 'audiobooks' && subItemId) {
+                        if (itemId === 'movie' && subItemId) {
+                            setMovieSubTab(subItemId as any);
+                            if (subItemId === 'library') {
+                                setStatusFilter('in_library');
+                                setShowSubtabSettings(false);
+                            } else if (subItemId === 'discover') {
+                                setStatusFilter('not_in_library');
+                                setShowSubtabSettings(false);
+                            } else if (subItemId === 'instant') {
+                                setShowSubtabSettings(false);
+                            } else if (subItemId === 'settings') {
+                                setShowSubtabSettings(true);
+                            }
+                        } else if (itemId === 'series' && subItemId) {
+                            setSeriesSubTab(subItemId as any);
+                            if (subItemId === 'library') {
+                                setStatusFilter('in_library');
+                                setShowSubtabSettings(false);
+                            } else if (subItemId === 'discover') {
+                                setStatusFilter('not_in_library');
+                                setShowSubtabSettings(false);
+                            } else if (subItemId === 'instant') {
+                                setShowSubtabSettings(false);
+                            } else if (subItemId === 'settings') {
+                                setShowSubtabSettings(true);
+                            }
+                        } else if (itemId === 'music' && subItemId) {
+                            setMusicSubTab(subItemId as any);
+                            if (subItemId === 'library') {
+                                setStatusFilter('in_library');
+                                setShowSubtabSettings(false);
+                            } else if (subItemId === 'charts') {
+                                setStatusFilter('not_in_library');
+                                setShowSubtabSettings(false);
+                                if (musicResults.length === 0) handleMusicSearch('');
+                            } else if (subItemId === 'settings') {
+                                setShowSubtabSettings(true);
+                            }
+                        } else if (itemId === 'audiobooks' && subItemId) {
                             setAudiobookSubTab(subItemId as any);
+                        } else if (itemId === 'photos' && subItemId) {
+                            setPhotosSubTab(subItemId as any);
+                        } else if (itemId === 'iptv_dvr' && subItemId) {
+                            setLiveSubTab(subItemId as any);
                         }
                     }}
                     storageKey="schedulearr_discover_sidebar_collapsed"
@@ -2498,7 +2582,10 @@ function DiscoverPageContent() {
                 {/* ── Content Grid / List ── */}
                 {mediaType === 'iptv_dvr' ? (
                     <IptvErrorBoundary>
-                        <IptvDvrManager />
+                        <IptvDvrManager
+                            controlledSubTab={liveSubTab}
+                            onControlledSubTabChange={(t: any) => setLiveSubTab(t)}
+                        />
                     </IptvErrorBoundary>
                 ) : mediaType === 'audiobooks' ? (
                     <AudiobooksMediaManager
@@ -2506,7 +2593,10 @@ function DiscoverPageContent() {
                         onControlledSubTabChange={setAudiobookSubTab}
                     />
                 ) : mediaType === 'photos' ? (
-                    <PhotosMediaManager />
+                    <PhotosMediaManager
+                        controlledSubTab={photosSubTab}
+                        onControlledSubTabChange={(t: any) => setPhotosSubTab(t)}
+                    />
                 ) : mediaType === 'music' ? (
                     musicLoading || libraryLoading ? (
                         <div className="flex flex-col items-center justify-center py-40 gap-3">

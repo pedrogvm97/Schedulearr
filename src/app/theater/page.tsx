@@ -4982,72 +4982,107 @@ function TheaterPageContent() {
     };
 
     const theaterSidebarItems: CollapsibleSidebarItem[] = useMemo(() => {
+        const movieLibs = libraries.filter(l => matchesTabType(l.type, 'movie'));
+        const showLibs = libraries.filter(l => matchesTabType(l.type, 'show'));
+        const liveLibs = libraries.filter(l => matchesTabType(l.type, 'live'));
+        const musicLibs = libraries.filter(l => matchesTabType(l.type, 'music'));
+        const bookLibs = libraries.filter(l => matchesTabType(l.type, 'audiobooks'));
+        const photoLibs = libraries.filter(l => matchesTabType(l.type, 'photo'));
+
         return [
             {
                 id: 'movie',
                 label: 'Movies',
                 icon: <Film size={26} className="text-indigo-400" />,
-                count: libraries.filter(l => matchesTabType(l.type, 'movie')).length,
-                subItems: libraries.filter(l => matchesTabType(l.type, 'movie')).map(l => ({
-                    id: l.id,
-                    label: l.name,
-                    icon: <Folder size={22} className="text-indigo-400" />
-                }))
+                count: movieLibs.length,
+                subItems: [
+                    ...(movieLibs.length > 1 ? [{ id: 'all_movies', label: 'All', icon: <Film size={22} className="text-indigo-400" /> }] : []),
+                    ...movieLibs.map(l => ({
+                        id: l.id,
+                        label: l.name,
+                        icon: <Folder size={22} className="text-indigo-400" />
+                    }))
+                ]
             },
             {
                 id: 'show',
                 label: 'Series',
                 icon: <Tv size={26} className="text-emerald-400" />,
-                count: libraries.filter(l => matchesTabType(l.type, 'show')).length,
-                subItems: libraries.filter(l => matchesTabType(l.type, 'show')).map(l => ({
-                    id: l.id,
-                    label: l.name,
-                    icon: <Folder size={22} className="text-emerald-400" />
-                }))
+                count: showLibs.length,
+                subItems: [
+                    ...(showLibs.length > 1 ? [{ id: 'all_shows', label: 'All', icon: <Tv size={22} className="text-emerald-400" /> }] : []),
+                    ...showLibs.map(l => ({
+                        id: l.id,
+                        label: l.name,
+                        icon: <Folder size={22} className="text-emerald-400" />
+                    }))
+                ]
             },
             {
                 id: 'live',
                 label: 'Live',
                 icon: <RadioTower size={26} className="text-red-400" />,
-                count: libraries.filter(l => matchesTabType(l.type, 'live')).length,
-                subItems: libraries.filter(l => matchesTabType(l.type, 'live')).map(l => ({
-                    id: l.id,
-                    label: l.name,
-                    icon: <Tv2 size={22} className="text-red-400" />
-                }))
+                count: liveLibs.length,
+                subItems: [
+                    { id: 'live_guide', label: 'Guide', icon: <Tv2 size={22} className="text-red-400" /> },
+                    { id: 'live_shortlists', label: 'Shortlists', icon: <ListFilter size={22} className="text-amber-400" /> },
+                    ...liveLibs.map(l => ({
+                        id: l.id,
+                        label: l.name,
+                        icon: <Tv2 size={22} className="text-red-400" />
+                    }))
+                ]
             },
             {
                 id: 'music',
                 label: 'Music',
                 icon: <Music size={26} className="text-amber-400" />,
-                count: libraries.filter(l => matchesTabType(l.type, 'music')).length,
-                subItems: libraries.filter(l => matchesTabType(l.type, 'music')).map(l => ({
-                    id: l.id,
-                    label: l.name,
-                    icon: <Disc size={22} className="text-amber-400" />
-                }))
+                count: musicLibs.length,
+                subItems: [
+                    { id: 'music_albums', label: 'Albums', icon: <Disc size={22} className="text-amber-400" /> },
+                    { id: 'music_artists', label: 'Artists', icon: <User size={22} className="text-amber-400" /> },
+                    { id: 'music_tracks', label: 'Tracks', icon: <Music size={22} className="text-amber-400" /> },
+                    { id: 'music_playlists', label: 'Playlists', icon: <ListMusic size={22} className="text-amber-400" /> },
+                    ...musicLibs.map(l => ({
+                        id: l.id,
+                        label: l.name,
+                        icon: <Folder size={22} className="text-amber-400" />
+                    }))
+                ]
             },
             {
                 id: 'audiobooks',
                 label: 'Books',
                 icon: <BookOpen size={26} className="text-orange-400" />,
-                count: libraries.filter(l => matchesTabType(l.type, 'audiobooks')).length,
-                subItems: libraries.filter(l => matchesTabType(l.type, 'audiobooks')).map(l => ({
-                    id: l.id,
-                    label: l.name,
-                    icon: <BookOpen size={22} className="text-orange-400" />
-                }))
+                count: bookLibs.length,
+                subItems: [
+                    { id: 'shelf_books', label: 'Books', icon: <BookOpen size={22} className="text-orange-400" /> },
+                    { id: 'shelf_bedside', label: 'Bedside', icon: <Bookmark size={22} className="text-amber-400" /> },
+                    { id: 'shelf_authors', label: 'Authors', icon: <User size={22} className="text-orange-300" /> },
+                    { id: 'shelf_finished', label: 'Finished', icon: <Check size={22} className="text-emerald-400" /> },
+                    ...bookLibs.map(l => ({
+                        id: l.id,
+                        label: l.name,
+                        icon: <Folder size={22} className="text-orange-400" />
+                    }))
+                ]
             },
             {
                 id: 'photos',
                 label: 'Photos',
                 icon: <ImageIcon size={26} className="text-sky-400" />,
-                count: libraries.filter(l => matchesTabType(l.type, 'photo')).length,
-                subItems: libraries.filter(l => matchesTabType(l.type, 'photo')).map(l => ({
-                    id: l.id,
-                    label: l.name,
-                    icon: <ImageIcon size={22} className="text-sky-400" />
-                }))
+                count: photoLibs.length,
+                subItems: [
+                    { id: 'photo_photos', label: 'Timeline', icon: <ImageIcon size={22} className="text-sky-400" /> },
+                    { id: 'photo_albums', label: 'Albums', icon: <Folder size={22} className="text-sky-400" /> },
+                    { id: 'photo_people', label: 'People', icon: <Users size={22} className="text-sky-400" /> },
+                    { id: 'photo_places', label: 'Places', icon: <MapPin size={22} className="text-sky-400" /> },
+                    ...photoLibs.map(l => ({
+                        id: l.id,
+                        label: l.name,
+                        icon: <Folder size={22} className="text-sky-400" />
+                    }))
+                ]
             }
         ];
     }, [libraries, matchesTabType]);
@@ -5068,11 +5103,44 @@ function TheaterPageContent() {
                 <CollapsibleNavSidebar
                     items={theaterSidebarItems}
                     activeItemId={activeContentTab}
-                    activeSubItemId={activeLibrary?.id}
+                    activeSubItemId={
+                        activeContentTab === 'audiobooks' ? `shelf_${audiobookShelfViewMode}` :
+                        activeContentTab === 'music' ? `music_${musicTab}` :
+                        activeContentTab === 'photos' ? `photo_${photoSubTab}` :
+                        activeLibrary?.id || undefined
+                    }
                     onSelectItem={(itemId: string, subItemId?: string) => {
                         setActiveContentTab(itemId as any);
                         if (subItemId) {
-                            setActiveLibraryId(subItemId);
+                            if (subItemId === 'shelf_books') {
+                                setAudiobookShelfViewMode('books');
+                            } else if (subItemId === 'shelf_bedside') {
+                                setAudiobookShelfViewMode('bedside');
+                            } else if (subItemId === 'shelf_authors') {
+                                setAudiobookShelfViewMode('authors');
+                            } else if (subItemId === 'shelf_finished') {
+                                setAudiobookShelfViewMode('finished');
+                            } else if (subItemId === 'music_albums') {
+                                setMusicTab('albums');
+                            } else if (subItemId === 'music_artists') {
+                                setMusicTab('artists');
+                            } else if (subItemId === 'music_tracks') {
+                                setMusicTab('tracks');
+                            } else if (subItemId === 'music_playlists') {
+                                setMusicTab('playlists');
+                            } else if (subItemId === 'photo_photos') {
+                                setPhotoSubTab('photos');
+                            } else if (subItemId === 'photo_albums') {
+                                setPhotoSubTab('albums');
+                            } else if (subItemId === 'photo_people') {
+                                setPhotoSubTab('people');
+                            } else if (subItemId === 'photo_places') {
+                                setPhotoSubTab('places');
+                            } else if (subItemId === 'all_movies' || subItemId === 'all_shows') {
+                                setActiveLibraryId(null);
+                            } else {
+                                setActiveLibraryId(subItemId);
+                            }
                         }
                     }}
                     storageKey="schedulearr_theater_sidebar_collapsed"

@@ -34,7 +34,12 @@ interface PixelToggles {
     batchSize: number;
 }
 
-export function PhotosMediaManager() {
+export interface PhotosMediaManagerProps {
+    controlledSubTab?: 'overview' | 'pixel' | 'heal';
+    onControlledSubTabChange?: (tab: 'overview' | 'pixel' | 'heal') => void;
+}
+
+export function PhotosMediaManager({ controlledSubTab, onControlledSubTabChange }: PhotosMediaManagerProps = {}) {
     const [instances, setInstances] = useState<any[]>([]);
     const [loadingInstances, setLoadingInstances] = useState(true);
 
