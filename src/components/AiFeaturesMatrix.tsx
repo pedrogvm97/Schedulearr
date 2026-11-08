@@ -247,7 +247,7 @@ export function AiFeaturesMatrix() {
                                 </span>
                             )}
                         </div>
-                        <p className="text-xs text-zinc-400 font-medium max-w-md">{feat.description}</p>
+                        
                     </div>
                 </td>
                 <td className="py-4 px-4 text-center">
@@ -296,13 +296,10 @@ export function AiFeaturesMatrix() {
             {/* Header */}
             <div className="p-6 rounded-3xl bg-zinc-900/80 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
                 <div>
-                    <h2 className="text-2xl font-black text-white flex items-center gap-3">
-                        <Sliders size={26} className="text-purple-400" />
-                        AI Features Matrix
+                    <h2 className="text-2xl sm:text-3xl font-black text-white flex items-center gap-3">
+                        <Sliders size={28} className="text-purple-400" />
+                        Features
                     </h2>
-                    <p className="text-sm text-zinc-400 font-medium mt-1">
-                        Per-media-type capability controls, automated dependency cascading, and Local vs. Cloud verification
-                    </p>
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -347,7 +344,7 @@ export function AiFeaturesMatrix() {
                             {/* Group 1: Audiobooks */}
                             <tr className="bg-amber-500/10">
                                 <td colSpan={4} className="py-3 px-6 text-sm font-black text-amber-300 uppercase tracking-wider flex items-center gap-2">
-                                    <BookOpen size={16} /> Audiobooks Library
+                                    <BookOpen size={20} /> Books
                                 </td>
                             </tr>
                             {audiobookFeatures.map(f => renderFeatureRow(f, () => toggleAudiobookFeature(f.id)))}
@@ -355,7 +352,7 @@ export function AiFeaturesMatrix() {
                             {/* Group 2: Movies & Series */}
                             <tr className="bg-indigo-500/10">
                                 <td colSpan={4} className="py-3 px-6 text-sm font-black text-indigo-300 uppercase tracking-wider flex items-center gap-2">
-                                    <Film size={16} /> Movies &amp; Series Video
+                                    <Film size={20} /> Video
                                 </td>
                             </tr>
                             {videoFeatures.map(f => renderFeatureRow(f, () => toggleMediaFeature(f.id, f.dependsOn ? 'subtitles_whisper' : undefined)))}
@@ -363,7 +360,7 @@ export function AiFeaturesMatrix() {
                             {/* Group 3: Music */}
                             <tr className="bg-emerald-500/10">
                                 <td colSpan={4} className="py-3 px-6 text-sm font-black text-emerald-300 uppercase tracking-wider flex items-center gap-2">
-                                    <Music size={16} /> Music Studio
+                                    <Music size={20} /> Music
                                 </td>
                             </tr>
                             {musicFeatures.map(f => renderFeatureRow(f, () => toggleMediaFeature(f.id)))}

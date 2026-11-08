@@ -65,19 +65,9 @@ export default function Settings() {
                 icon: <Sparkles size={26} className="text-amber-400" />,
                 subItems: [
                     { id: 'ai', label: 'Keys', icon: <Key size={22} className="text-amber-400" /> },
-                    { id: 'ai_matrix', label: 'Matrix', icon: <Sliders size={22} className="text-purple-400" /> },
+                    { id: 'ai_matrix', label: 'Features', icon: <Sliders size={22} className="text-purple-400" /> },
                     { id: 'ai_telemetry', label: 'Telemetry', icon: <Activity size={22} className="text-emerald-400" /> }
                 ]
-            },
-            {
-                id: 'ai_matrix',
-                label: 'Matrix',
-                icon: <Sliders size={26} className="text-purple-400" />
-            },
-            {
-                id: 'ai_telemetry',
-                label: 'Telemetry',
-                icon: <Activity size={26} className="text-emerald-400" />
             },
             {
                 id: 'automation',
