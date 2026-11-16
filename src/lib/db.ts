@@ -1070,13 +1070,20 @@ export const pruneNetworkSpeedHistory = (daysToKeep: number = 7) => {
 export const getDatabaseStats = () => {
     const stats = {
         sizeBytes: 0,
+        walSizeBytes: 0,
+        totalSizeBytes: 0,
         tables: [] as { name: string, count: number }[]
     };
 
     try {
         if (fs.existsSync(dbPath)) {
-            stats.sizeBytes = fs.statSync(dbPath).size;
+            try { stats.sizeBytes = fs.statSync(dbPath).size; } catch {}
         }
+        const walPath = `${dbPath}-wal`;
+        if (fs.existsSync(walPath)) {
+            try { stats.walSizeBytes = fs.statSync(walPath).size; } catch {}
+        }
+        stats.totalSizeBytes = stats.sizeBytes + stats.walSizeBytes;
 
         const tables = ['network_speed', 'search_history', 'scheduler_tracking', 'torrent_activity'];
         for (const table of tables) {
@@ -1092,10 +1099,20 @@ export const getDatabaseStats = () => {
 
 export const executeHousekeeping = (daysToKeep?: number, sizeLimitMB?: number) => {
     const results = { deletedRows: 0, initialSize: 0, finalSize: 0 };
+    const walPath = `${dbPath}-wal`;
     
-    if (fs.existsSync(dbPath)) {
-        results.initialSize = fs.statSync(dbPath).size;
-    }
+    const getFullSize = () => {
+        let sz = 0;
+        if (fs.existsSync(dbPath)) {
+            try { sz += fs.statSync(dbPath).size; } catch {}
+        }
+        if (fs.existsSync(walPath)) {
+            try { sz += fs.statSync(walPath).size; } catch {}
+        }
+        return sz;
+    };
+
+    results.initialSize = getFullSize();
 
     // 1. Age-based pruning
     if (daysToKeep && daysToKeep > 0) {
@@ -1108,7 +1125,7 @@ export const executeHousekeeping = (daysToKeep?: number, sizeLimitMB?: number) =
 
     // 2. Size-based pruning (if still over limit)
     if (sizeLimitMB && sizeLimitMB > 0) {
-        let currentSize = fs.statSync(dbPath).size;
+        let currentSize = getFullSize();
         const limitBytes = sizeLimitMB * 1024 * 1024;
         
         if (currentSize > limitBytes) {
@@ -1121,7 +1138,10 @@ export const executeHousekeeping = (daysToKeep?: number, sizeLimitMB?: number) =
                 }
                 
                 db.exec('VACUUM');
-                currentSize = fs.statSync(dbPath).size;
+                try {
+                    db.pragma('wal_checkpoint(TRUNCATE)');
+                } catch {}
+                currentSize = getFullSize();
                 if (currentSize <= limitBytes) break;
             }
         }
@@ -1129,9 +1149,14 @@ export const executeHousekeeping = (daysToKeep?: number, sizeLimitMB?: number) =
         db.exec('VACUUM');
     }
 
-    if (fs.existsSync(dbPath)) {
-        results.finalSize = fs.statSync(dbPath).size;
+    // Always checkpoint and truncate the Write-Ahead Log to prevent unbounded growth
+    try {
+        db.pragma('wal_checkpoint(TRUNCATE)');
+    } catch (walErr) {
+        console.warn('Could not truncate WAL log during housekeeping:', walErr);
     }
+
+    results.finalSize = getFullSize();
 
     return results;
 };

@@ -6,7 +6,9 @@ export async function GET() {
         const stats = getDatabaseStats();
         // Normalize to the shape the Settings page expects
         return NextResponse.json({
-            totalSizeBytes: stats.sizeBytes,
+            totalSizeBytes: stats.totalSizeBytes || stats.sizeBytes,
+            dbSizeBytes: stats.sizeBytes,
+            walSizeBytes: stats.walSizeBytes,
             tableStats: stats.tables,
         });
     } catch (e: any) {
