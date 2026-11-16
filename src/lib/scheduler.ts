@@ -4,6 +4,7 @@ import { getAllSeries, getMissingEpisodes, triggerEpisodeSearch, SonarrSeries, g
 import { getIndexerHealth } from '@/lib/prowlarr';
 import { evaluateIndexerRules } from '@/lib/indexerAutomations';
 import { runAutoCleanup, runSmartCleanup, checkAndCleanIndividualLibraries } from '@/lib/autoCleanup';
+import { getNvmeStorageStats, executeNvmeCleanup } from '@/lib/nvmeCleaner';
 import axios from 'axios';
 
 // Prevent multiple scheduler instances from running in dev mode HMR
@@ -111,6 +112,20 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
                     const daysToKeep = parseInt(getSetting('db_retention_days') || '30');
                     const sizeLimitMB = parseInt(getSetting('db_size_limit_mb') || '500');
                     executeHousekeeping(daysToKeep, sizeLimitMB);
+                }
+
+                // Automated NVMe Cache Occupancy Watchdog
+                const nvmeWatchdogEnabled = getSetting('nvme_watchdog_enabled') === 'true';
+                if (nvmeWatchdogEnabled) {
+                    try {
+                        const nvmeStats = await getNvmeStorageStats();
+                        if (nvmeStats.isOverboard) {
+                            console.log(`[${now}] ⚡ NVMe occupancy ${nvmeStats.usedPercent}% >= ${nvmeStats.threshold}% threshold. Executing overboard purge...`);
+                            await executeNvmeCleanup();
+                        }
+                    } catch (nvmeErr) {
+                        console.error('❌ NVMe cleanup error:', nvmeErr);
+                    }
                 }
             } catch (error) {
                 console.error('❌ Auto-cleanup error:', error);

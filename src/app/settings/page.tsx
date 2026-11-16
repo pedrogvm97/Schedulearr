@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
+import { NumberInput } from "@/components/NumberInput";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { PasswordPromptModal } from "@/components/PasswordPromptModal";
 import { UnifiedCleanerModal } from "@/components/UnifiedCleanerModal";
@@ -3238,13 +3239,13 @@ export default function Settings() {
                                                     onChange={e => updateProviderQuota(prov.id, Number(e.target.value))}
                                                     className="w-24 accent-purple-500 cursor-pointer"
                                                 />
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="500"
+                                                <NumberInput
+                                                    min={0}
+                                                    max={500}
                                                     value={prov.dailyQuota}
-                                                    onChange={e => updateProviderQuota(prov.id, Number(e.target.value))}
+                                                    onChange={val => updateProviderQuota(prov.id, val)}
                                                     className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs font-mono font-bold text-amber-300 text-center"
+                                                    title="Daily quota for provider"
                                                 />
                                                 <span className="text-xs text-zinc-500">/day</span>
                                             </div>
@@ -3312,14 +3313,14 @@ export default function Settings() {
                                             className="h-full bg-emerald-500 transition-all"
                                         />
                                     </div>
-                                    <input
-                                        type="number"
+                                    <NumberInput
                                         min={1}
                                         max={1500}
                                         value={audiobookStudioConfig.dailyImageQuota}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
-                                        onBlur={() => saveAudiobookStudioConfig()}
+                                        onChange={val => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: val }))}
+                                        onCommit={() => saveAudiobookStudioConfig()}
                                         className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm font-mono font-black text-amber-300 outline-none focus:border-amber-500"
+                                        title="Daily image quota"
                                     />
                                     <div className="grid grid-cols-4 gap-1.5 w-full">
                                         {[15, 50, 85, 100].map(q => (
@@ -3357,14 +3358,14 @@ export default function Settings() {
                                             }`}
                                         />
                                     </div>
-                                    <input
-                                        type="number"
+                                    <NumberInput
                                         min={1}
                                         max={60}
                                         value={audiobookStudioConfig.maxRequestsPerMinute || 10}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, maxRequestsPerMinute: Math.max(1, parseInt(e.target.value) || 1) }))}
-                                        onBlur={() => saveAudiobookStudioConfig()}
+                                        onChange={val => setAudiobookStudioConfig(prev => ({ ...prev, maxRequestsPerMinute: val }))}
+                                        onCommit={() => saveAudiobookStudioConfig()}
                                         className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm font-mono font-black text-sky-300 outline-none focus:border-sky-500"
+                                        title="Max requests per minute"
                                     />
                                     <div className="grid grid-cols-4 gap-1.5 w-full">
                                         {[2, 5, 10, 15].map(rpm => (

@@ -4,13 +4,14 @@ import React, { useState, useEffect } from 'react';
 import {
     Trash2, RefreshCw, Shield, AlertTriangle, Check, Layers,
     HardDrive, Database, Sparkles, FileText, Headphones, Image as ImageIcon,
-    Sliders, Settings, Clock, CheckCircle2, Download
+    Sliders, Settings, Clock, CheckCircle2, Download, Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { twColorToHex } from '@/lib/instanceColor';
 import { CustomSelect } from '@/components/CustomSelect';
+import { NumberInput } from '@/components/NumberInput';
 
-export type CleanerSubtab = 'media' | 'torrents' | 'audiobooks' | 'database' | 'vdisk';
+export type CleanerSubtab = 'media' | 'torrents' | 'nvme' | 'audiobooks' | 'database' | 'vdisk';
 
 export interface CleanersSettingsPanelProps {
     diskInfo: any;
@@ -161,6 +162,22 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     const [vdiskAutoPruneEnabled, setVDiskAutoPruneEnabled] = useState(true);
     const [vdiskAutoPruneThreshold, setVDiskAutoPruneThreshold] = useState(85);
 
+    // NVMe / Cache Storage Watchdog State
+    const [nvmeStats, setNvmeStats] = useState<any | null>(null);
+    const [loadingNvme, setLoadingNvme] = useState(false);
+    const [cleaningNvme, setCleaningNvme] = useState(false);
+    const [nvmeThreshold, setNvmeThreshold] = useState(80);
+    const [nvmeWatchdogEnabled, setNvmeWatchdogEnabled] = useState(false);
+    const [nvmeStrategy, setNvmeStrategy] = useState<'clean_to_threshold' | 'clean_all_selected'>('clean_to_threshold');
+    const [nvmeRules, setNvmeRules] = useState({
+        stalledTorrents: true,
+        completedTorrents: false,
+        transcodeCache: true,
+        aiAudioDrafts: true,
+        dockerLayers: true,
+        unraidMover: false
+    });
+
     const safeCandidates = Array.isArray(candidates) ? candidates : [];
     const safeLibraryLimits = Array.isArray(libraryLimits) ? libraryLimits : [];
     const safeInstances = Array.isArray(instances) ? instances : [];
@@ -251,6 +268,92 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
         }
     };
 
+    const fetchNvmeStats = async (force: boolean = false) => {
+        setLoadingNvme(true);
+        try {
+            const res = await fetch('/api/system/nvme');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.ok) {
+                    setNvmeStats(data);
+                    if (data.threshold !== undefined) setNvmeThreshold(data.threshold);
+                    if (data.watchdogEnabled !== undefined) setNvmeWatchdogEnabled(data.watchdogEnabled);
+                    if (data.strategy) setNvmeStrategy(data.strategy);
+                }
+            }
+        } catch {
+            toast.error('Failed to load NVMe metrics');
+        } finally {
+            setLoadingNvme(false);
+        }
+    };
+
+    const handleSaveNvmeSettings = async (
+        watchdog?: boolean,
+        thresh?: number,
+        rules?: any,
+        strat?: 'clean_to_threshold' | 'clean_all_selected'
+    ) => {
+        const nextWatchdog = watchdog !== undefined ? watchdog : nvmeWatchdogEnabled;
+        const nextThresh = thresh !== undefined ? thresh : nvmeThreshold;
+        const nextRules = rules !== undefined ? rules : nvmeRules;
+        const nextStrat = strat !== undefined ? strat : nvmeStrategy;
+
+        setNvmeWatchdogEnabled(nextWatchdog);
+        setNvmeThreshold(nextThresh);
+        setNvmeRules(nextRules);
+        setNvmeStrategy(nextStrat);
+
+        try {
+            const res = await fetch('/api/system/nvme', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'save_settings',
+                    threshold: nextThresh,
+                    watchdogEnabled: nextWatchdog,
+                    rules: nextRules,
+                    strategy: nextStrat
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.ok) {
+                toast.success('NVMe settings saved');
+                if (data.stats) setNvmeStats(data.stats);
+            } else {
+                toast.error(data.error || 'Failed to save NVMe settings');
+            }
+        } catch {
+            toast.error('Network error saving NVMe settings');
+        }
+    };
+
+    const handleCleanNvme = async (customRules?: any) => {
+        setCleaningNvme(true);
+        try {
+            const res = await fetch('/api/system/nvme', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'clean',
+                    rules: customRules || nvmeRules
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.ok) {
+                toast.success(data.message || 'NVMe cleanup executed');
+                if (data.stats) setNvmeStats(data.stats);
+                refreshDiskInfo();
+            } else {
+                toast.error(data.error || 'Failed to execute NVMe cleanup');
+            }
+        } catch {
+            toast.error('Network error executing NVMe cleanup');
+        } finally {
+            setCleaningNvme(false);
+        }
+    };
+
     const fetchAudiobookStats = async (key?: string) => {
         try {
             const endpoint = key ? `/api/theater/audiobooks/studio?bookKey=${encodeURIComponent(key)}` : '/api/theater/audiobooks/studio';
@@ -273,6 +376,9 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                 setCleanerSubtab('media');
             } else if (sub === 'torrents' || sub === 'downloads' || sub === 'transfers') {
                 setCleanerSubtab('torrents');
+            } else if (sub === 'nvme' || sub === 'cache' || sub === 'ssd') {
+                setCleanerSubtab('nvme');
+                fetchNvmeStats();
             } else if (sub === 'audiobooks' || sub === 'audiobook') {
                 setCleanerSubtab('audiobooks');
             } else if (sub === 'database' || sub === 'db') {
@@ -285,6 +391,9 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     }, []);
 
     useEffect(() => {
+        if (cleanerSubtab === 'nvme' && !nvmeStats) {
+            fetchNvmeStats();
+        }
         if (cleanerSubtab === 'vdisk' && !vdiskStats) {
             fetchVDiskInfo();
         }
@@ -472,7 +581,7 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
     return (
         <div className="space-y-6 animate-in fade-in duration-200">
             {/* ── Subtabs Navigation Grid (Zero Scrollbars Ever, Squared) ── */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 pb-4 border-b border-zinc-800">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 pb-4 border-b border-zinc-800">
                 <button
                     type="button"
                     onClick={() => setCleanerSubtab('media')}
@@ -499,6 +608,23 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                 >
                     <Shield size={20} className="shrink-0" />
                     <span className="truncate">Downloads</span>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => {
+                        setCleanerSubtab('nvme');
+                        fetchNvmeStats();
+                    }}
+                    title="NVMe: Fast cache occupancy breakdown, maximum allowed occupancy threshold & automated overboard purge"
+                    className={`p-3.5 rounded-xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                        cleanerSubtab === 'nvme'
+                            ? 'bg-sky-500 text-black shadow-lg shadow-sky-500/20'
+                            : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
+                    }`}
+                >
+                    <Zap size={20} className="shrink-0" />
+                    <span className="truncate">NVMe</span>
                 </button>
 
                 <button
@@ -578,14 +704,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex-shrink-0">
                                 <div className="flex items-center gap-2" title="Disk capacity percentage threshold that triggers automated cleaning">
                                     <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Trigger:</span>
-                                    <input
-                                        type="number"
-                                        min="50"
-                                        max="99"
+                                    <NumberInput
+                                        min={50}
+                                        max={99}
                                         value={diskPauseThreshold}
-                                        onChange={e => {
-                                            const val = Math.min(99, Math.max(50, parseInt(e.target.value) || 90));
-                                            setDiskPauseThreshold(val);
+                                        onChange={val => setDiskPauseThreshold(val)}
+                                        onCommit={val => {
                                             updateSetting('storage_guard_threshold', String(val));
                                             updateSetting('disk_pause_threshold', String(val));
                                             updateSetting('disk_autoclean_threshold', String(val));
@@ -765,14 +889,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                 <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-col justify-between gap-2.5">
                                     <span className="text-xs font-black uppercase tracking-wider text-zinc-500">Immunity Window</span>
                                     <div className="flex items-center gap-2">
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            max="365"
+                                        <NumberInput
+                                            min={0}
+                                            max={365}
                                             value={diskSmartCleanImmunityDays}
-                                            onChange={async e => {
-                                                const val = Math.max(0, parseInt(e.target.value) || 0);
-                                                setDiskSmartCleanImmunityDays(val);
+                                            onChange={val => setDiskSmartCleanImmunityDays(val)}
+                                            onCommit={async val => {
                                                 await updateSetting('qbit_smart_clean_immunity_days', String(val));
                                                 await updateSetting('qbit_smart_clean_immunity_enabled', 'true');
                                                 fetchCandidates();
@@ -880,12 +1002,11 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                                 <div className="flex items-center gap-3 flex-wrap">
                                                     <div className="flex items-center gap-2 bg-zinc-900 px-3 py-1.5 rounded-xl border border-zinc-800">
                                                         <span className="text-xs font-bold text-zinc-400 uppercase">Limit:</span>
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            step="50"
+                                                        <NumberInput
+                                                            min={0}
+                                                            step={50}
                                                             value={lib.maxGb || 0}
-                                                            onChange={e => handleUpdateLibraryLimit(lib.id, { maxGb: Math.max(0, parseInt(e.target.value) || 0) })}
+                                                            onChange={val => handleUpdateLibraryLimit(lib.id, { maxGb: val })}
                                                             className="w-20 bg-transparent text-sm font-black text-white text-right outline-none font-mono"
                                                             title="Target storage limit in GB (0 = unlimited)"
                                                         />
@@ -1136,15 +1257,11 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                         Scan Interval
                                     </label>
                                     <div className="flex items-center gap-2">
-                                        <input
-                                            type="number"
-                                            min="1"
+                                        <NumberInput
+                                            min={1}
                                             value={qbitCleanupIntervalMin}
-                                            onChange={e => {
-                                                const v = parseInt(e.target.value) || 15;
-                                                setQbitCleanupIntervalMin(v);
-                                                updateSetting('qbit_cleanup_interval_min', String(v));
-                                            }}
+                                            onChange={v => setQbitCleanupIntervalMin(v)}
+                                            onCommit={v => updateSetting('qbit_cleanup_interval_min', String(v))}
                                             className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-bold text-white outline-none focus:border-emerald-500"
                                             title="Interval in minutes between watchdog scans"
                                         />
@@ -1171,16 +1288,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                         </button>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <input
-                                            type="number"
-                                            min="1"
+                                        <NumberInput
+                                            min={1}
                                             disabled={!qbitStagnationEnabled}
                                             value={qbitStagnationMin}
-                                            onChange={e => {
-                                                const v = parseInt(e.target.value) || 60;
-                                                setQbitStagnationMin(v);
-                                                updateSetting('qbit_cleanup_stagnation_min', String(v));
-                                            }}
+                                            onChange={v => setQbitStagnationMin(v)}
+                                            onCommit={v => updateSetting('qbit_cleanup_stagnation_min', String(v))}
                                             className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-bold text-white outline-none focus:border-emerald-500 disabled:opacity-30"
                                             title="Minutes stalled before removal"
                                         />
@@ -1207,16 +1320,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                         </button>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <input
-                                            type="number"
-                                            min="1"
+                                        <NumberInput
+                                            min={1}
                                             disabled={!qbitSizeCleanupEnabled}
                                             value={qbitMaxSizeGb}
-                                            onChange={e => {
-                                                const v = parseInt(e.target.value) || 15;
-                                                setQbitMaxSizeGb(v);
-                                                updateSetting('qbit_cleanup_max_size_gb', String(v));
-                                            }}
+                                            onChange={v => setQbitMaxSizeGb(v)}
+                                            onCommit={v => updateSetting('qbit_cleanup_max_size_gb', String(v))}
                                             className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm font-bold text-white outline-none focus:border-emerald-500 disabled:opacity-30"
                                             title="Maximum gigabytes per release"
                                         />
@@ -1290,14 +1399,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                         <div className="flex items-center justify-between p-4 rounded-2xl bg-zinc-950 border border-zinc-800">
                             <span className="text-sm font-black text-white">Cache Retention</span>
                             <div className="flex items-center gap-2">
-                                <input
-                                    type="number"
-                                    min="1"
-                                    max="365"
+                                <NumberInput
+                                    min={1}
+                                    max={365}
                                     value={audiobookRetentionDays}
-                                    onChange={async e => {
-                                        const val = Math.max(1, parseInt(e.target.value) || 30);
-                                        setAudiobookRetentionDays(val);
+                                    onChange={val => setAudiobookRetentionDays(val)}
+                                    onCommit={async val => {
                                         await updateSetting('audiobook_cache_retention_days', String(val));
                                     }}
                                     className="w-18 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-sm font-black text-amber-400 text-center outline-none"
@@ -1537,14 +1644,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-black text-white">Retention Window</span>
                                 <div className="flex items-center gap-2">
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        max="365"
+                                    <NumberInput
+                                        min={1}
+                                        max={365}
                                         value={retentionDays}
-                                        onChange={async e => {
-                                            const val = Math.max(1, parseInt(e.target.value) || 30);
-                                            setRetentionDays(val);
+                                        onChange={val => setRetentionDays(val)}
+                                        onCommit={async val => {
                                             await updateSetting('db_retention_days', String(val));
                                         }}
                                         className="w-20 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-base font-black text-purple-400 text-center outline-none"
@@ -1557,14 +1662,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-black text-white">Max Database Size</span>
                                 <div className="flex items-center gap-2">
-                                    <input
-                                        type="number"
-                                        min="50"
-                                        max="10000"
+                                    <NumberInput
+                                        min={50}
+                                        max={10000}
                                         value={dbSizeLimitMB}
-                                        onChange={async e => {
-                                            const val = Math.max(50, parseInt(e.target.value) || 500);
-                                            setDbSizeLimitMB(val);
+                                        onChange={val => setDbSizeLimitMB(val)}
+                                        onCommit={async val => {
                                             await updateSetting('db_size_limit_mb', String(val));
                                         }}
                                         className="w-20 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-base font-black text-purple-400 text-center outline-none"
@@ -1870,15 +1973,12 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <input
-                                        type="number"
-                                        min="50"
-                                        max="95"
+                                    <NumberInput
+                                        min={50}
+                                        max={95}
                                         value={vdiskAutoPruneThreshold}
-                                        onChange={e => {
-                                            const val = Math.min(95, Math.max(50, parseInt(e.target.value) || 85));
-                                            handleSaveVDiskSettings(vdiskAutoPruneEnabled, val);
-                                        }}
+                                        onChange={val => setVDiskAutoPruneThreshold(val)}
+                                        onCommit={val => handleSaveVDiskSettings(vdiskAutoPruneEnabled, val)}
                                         className="w-20 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-base font-black text-sky-400 text-center outline-none"
                                         title="Threshold percentage for automatic layer pruning"
                                     />
@@ -1887,6 +1987,528 @@ export const CleanersSettingsPanel: React.FC<CleanersSettingsPanelProps> = ({
                             </div>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {cleanerSubtab === 'nvme' && (
+                <div className="space-y-6 animate-in fade-in-50 duration-300">
+                    <div className="flex items-center justify-between gap-4 bg-zinc-950/80 border border-zinc-800 rounded-3xl p-6">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl">
+                                <Zap className="w-6 h-6 text-rose-400" />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-black text-white">NVMe</h3>
+                                <div className="text-sm font-mono text-zinc-400">
+                                    {nvmeStats?.mountPath || '/mnt/cache'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => fetchNvmeStats(true)}
+                                disabled={loadingNvme}
+                                className="p-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-2xl text-zinc-300 hover:text-white transition-all cursor-pointer disabled:opacity-50"
+                                title="Refresh NVMe metrics"
+                            >
+                                <RefreshCw className={`w-6 h-6 ${loadingNvme ? 'animate-spin text-rose-400' : ''}`} />
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => handleSaveNvmeSettings(!nvmeWatchdogEnabled)}
+                                className={`p-3 border rounded-2xl transition-all cursor-pointer ${
+                                    nvmeWatchdogEnabled
+                                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                }`}
+                                title={nvmeWatchdogEnabled ? 'Watchdog active (click to disable)' : 'Watchdog disabled (click to enable)'}
+                            >
+                                <Shield className="w-6 h-6" />
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => handleCleanNvme()}
+                                disabled={cleaningNvme || !nvmeStats}
+                                className={`p-3 border rounded-2xl font-black transition-all cursor-pointer disabled:opacity-50 ${
+                                    nvmeStats?.isOverboard
+                                        ? 'bg-rose-500 hover:bg-rose-600 text-black border-rose-400 shadow-lg shadow-rose-500/20'
+                                        : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-rose-400 hover:text-rose-300'
+                                }`}
+                                title="Purge overboard data now"
+                            >
+                                <Trash2 className={`w-6 h-6 ${cleaningNvme ? 'animate-bounce' : ''}`} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {loadingNvme && !nvmeStats ? (
+                        <div className="flex items-center justify-center py-20 bg-zinc-950/60 border border-zinc-800/80 rounded-3xl">
+                            <RefreshCw className="w-8 h-8 text-rose-400 animate-spin" />
+                        </div>
+                    ) : nvmeStats ? (
+                        <>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Occupancy</span>
+                                        {nvmeStats.isOverboard ? (
+                                            <AlertTriangle className="w-5 h-5 text-rose-400" />
+                                        ) : (
+                                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                                        )}
+                                    </div>
+                                    <div className={`text-3xl font-black font-mono ${nvmeStats.isOverboard ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                        {nvmeStats.usedPercent}%
+                                    </div>
+                                    <div className="text-xs font-bold text-zinc-500">
+                                        {nvmeStats.isOverboard ? `+${nvmeStats.usedPercent - nvmeStats.threshold}% Over` : 'Safe'}
+                                    </div>
+                                </div>
+
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 space-y-2">
+                                    <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Usage</span>
+                                    <div className="text-2xl font-black font-mono text-white truncate">
+                                        {displayBytes(nvmeStats.usedBytes)}
+                                    </div>
+                                    <div className="text-xs font-bold text-zinc-500">
+                                        / {displayBytes(nvmeStats.totalBytes)}
+                                    </div>
+                                </div>
+
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 space-y-2">
+                                    <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Free</span>
+                                    <div className="text-2xl font-black font-mono text-sky-400 truncate">
+                                        {displayBytes(nvmeStats.freeBytes)}
+                                    </div>
+                                    <div className="text-xs font-bold text-zinc-500">
+                                        {Math.round(100 - nvmeStats.usedPercent)}%
+                                    </div>
+                                </div>
+
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 space-y-2">
+                                    <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Limit</span>
+                                    <div className="text-3xl font-black font-mono text-amber-300">
+                                        {nvmeThreshold}%
+                                    </div>
+                                    <div className="text-xs font-bold text-zinc-500">
+                                        {nvmeWatchdogEnabled ? 'Watchdog Active' : 'Watchdog Disabled'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-6 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black uppercase tracking-wider text-zinc-300">Occupancy</span>
+                                    <span className="text-xs font-mono font-bold text-zinc-400">
+                                        {displayBytes(nvmeStats.usedBytes)} / {displayBytes(nvmeStats.totalBytes)} ({nvmeStats.usedPercent}%)
+                                    </span>
+                                </div>
+
+                                <div className="relative w-full h-8 bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-800 flex">
+                                    {nvmeStats.breakdown?.torrents?.totalBytes > 0 && (
+                                        <div
+                                            style={{ width: `${Math.min(100, (nvmeStats.breakdown.torrents.totalBytes / (nvmeStats.totalBytes || 1)) * 100)}%` }}
+                                            className="h-full bg-blue-500 transition-all hover:opacity-90"
+                                            title={`Torrents: ${displayBytes(nvmeStats.breakdown.torrents.totalBytes)}`}
+                                        />
+                                    )}
+                                    {nvmeStats.breakdown?.transcode?.totalBytes > 0 && (
+                                        <div
+                                            style={{ width: `${Math.min(100, (nvmeStats.breakdown.transcode.totalBytes / (nvmeStats.totalBytes || 1)) * 100)}%` }}
+                                            className="h-full bg-amber-500 transition-all hover:opacity-90"
+                                            title={`Transcode: ${displayBytes(nvmeStats.breakdown.transcode.totalBytes)}`}
+                                        />
+                                    )}
+                                    {nvmeStats.breakdown?.aiAudio?.totalBytes > 0 && (
+                                        <div
+                                            style={{ width: `${Math.min(100, (nvmeStats.breakdown.aiAudio.totalBytes / (nvmeStats.totalBytes || 1)) * 100)}%` }}
+                                            className="h-full bg-purple-500 transition-all hover:opacity-90"
+                                            title={`Audio: ${displayBytes(nvmeStats.breakdown.aiAudio.totalBytes)}`}
+                                        />
+                                    )}
+                                    {nvmeStats.breakdown?.scratch?.totalBytes > 0 && (
+                                        <div
+                                            style={{ width: `${Math.min(100, (nvmeStats.breakdown.scratch.totalBytes / (nvmeStats.totalBytes || 1)) * 100)}%` }}
+                                            className="h-full bg-teal-500 transition-all hover:opacity-90"
+                                            title={`Temp: ${displayBytes(nvmeStats.breakdown.scratch.totalBytes)}`}
+                                        />
+                                    )}
+                                    {nvmeStats.breakdown?.dockerVDisk?.totalBytes > 0 && (
+                                        <div
+                                            style={{ width: `${Math.min(100, (nvmeStats.breakdown.dockerVDisk.totalBytes / (nvmeStats.totalBytes || 1)) * 100)}%` }}
+                                            className="h-full bg-sky-500 transition-all hover:opacity-90"
+                                            title={`Docker: ${displayBytes(nvmeStats.breakdown.dockerVDisk.totalBytes)}`}
+                                        />
+                                    )}
+                                    {nvmeStats.breakdown?.otherUsedBytes > 0 && (
+                                        <div
+                                            style={{ width: `${Math.min(100, (nvmeStats.breakdown.otherUsedBytes / (nvmeStats.totalBytes || 1)) * 100)}%` }}
+                                            className="h-full bg-zinc-600 transition-all hover:opacity-90"
+                                            title={`Appdata: ${displayBytes(nvmeStats.breakdown.otherUsedBytes)}`}
+                                        />
+                                    )}
+
+                                    <div
+                                        style={{ left: `${nvmeThreshold}%` }}
+                                        className="absolute top-0 bottom-0 w-1 bg-rose-500 shadow-lg shadow-rose-500/80 z-20 pointer-events-none"
+                                        title={`Threshold: ${nvmeThreshold}%`}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-3 h-3 rounded-full bg-blue-500 shrink-0" />
+                                        <span className="text-xs font-bold text-zinc-300">Torrents</span>
+                                        <span className="text-xs font-mono text-zinc-500 ml-auto">{displayBytes(nvmeStats.breakdown?.torrents?.totalBytes)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0" />
+                                        <span className="text-xs font-bold text-zinc-300">Transcode</span>
+                                        <span className="text-xs font-mono text-zinc-500 ml-auto">{displayBytes(nvmeStats.breakdown?.transcode?.totalBytes)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-3 h-3 rounded-full bg-purple-500 shrink-0" />
+                                        <span className="text-xs font-bold text-zinc-300">Audio</span>
+                                        <span className="text-xs font-mono text-zinc-500 ml-auto">{displayBytes(nvmeStats.breakdown?.aiAudio?.totalBytes)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-3 h-3 rounded-full bg-teal-500 shrink-0" />
+                                        <span className="text-xs font-bold text-zinc-300">Temp</span>
+                                        <span className="text-xs font-mono text-zinc-500 ml-auto">{displayBytes(nvmeStats.breakdown?.scratch?.totalBytes)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-3 h-3 rounded-full bg-sky-500 shrink-0" />
+                                        <span className="text-xs font-bold text-zinc-300">Docker</span>
+                                        <span className="text-xs font-mono text-zinc-500 ml-auto">{displayBytes(nvmeStats.breakdown?.dockerVDisk?.totalBytes)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-3 h-3 rounded-full bg-zinc-600 shrink-0" />
+                                        <span className="text-xs font-bold text-zinc-300">Appdata</span>
+                                        <span className="text-xs font-mono text-zinc-500 ml-auto">{displayBytes(nvmeStats.breakdown?.otherUsedBytes)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {nvmeStats.isOverboard && (
+                                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 bg-rose-500/10 border border-rose-500/30 rounded-3xl">
+                                    <div className="flex items-center gap-3">
+                                        <AlertTriangle className="w-7 h-7 text-rose-400 shrink-0" />
+                                        <div>
+                                            <h4 className="text-base font-black text-white">Overboard</h4>
+                                            <div className="text-xs font-mono text-rose-300">
+                                                Reclaim ~{displayBytes(Math.round(((nvmeStats.usedPercent - nvmeThreshold) / 100) * nvmeStats.totalBytes))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleCleanNvme()}
+                                        disabled={cleaningNvme}
+                                        className="p-3 bg-rose-500 hover:bg-rose-600 text-black rounded-2xl cursor-pointer shadow-lg shadow-rose-500/30 disabled:opacity-50"
+                                        title="Purge overboard data now"
+                                    >
+                                        <Trash2 className="w-6 h-6" />
+                                    </button>
+                                </div>
+                            )}
+
+                            <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-6 space-y-6">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <h4 className="text-base font-black text-white">Threshold</h4>
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5">
+                                            {[70, 75, 80, 85, 90].map(val => (
+                                                <button
+                                                    key={val}
+                                                    type="button"
+                                                    onClick={() => handleSaveNvmeSettings(undefined, val)}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+                                                        nvmeThreshold === val
+                                                            ? 'bg-rose-500 text-black font-black'
+                                                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border border-zinc-800'
+                                                    }`}
+                                                    title={`Set threshold to ${val}%`}
+                                                >
+                                                    {val}%
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <NumberInput
+                                            min={50}
+                                            max={98}
+                                            value={nvmeThreshold}
+                                            onChange={val => setNvmeThreshold(val)}
+                                            onCommit={val => handleSaveNvmeSettings(undefined, val)}
+                                            className="w-20 bg-zinc-900 border border-zinc-700 rounded-xl px-2 py-1.5 text-base font-black text-rose-400 text-center outline-none"
+                                            title="Threshold percentage for NVMe occupancy"
+                                        />
+                                        <span className="text-sm font-bold text-zinc-400">%</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-zinc-900">
+                                    <h4 className="text-base font-black text-white">Watchdog</h4>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSaveNvmeSettings(!nvmeWatchdogEnabled)}
+                                        className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            nvmeWatchdogEnabled
+                                                ? 'bg-rose-500 text-black shadow-lg shadow-rose-500/20'
+                                                : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+                                        }`}
+                                        title={nvmeWatchdogEnabled ? 'Disable watchdog' : 'Enable watchdog'}
+                                    >
+                                        {nvmeWatchdogEnabled ? 'Active' : 'Disabled'}
+                                    </button>
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-zinc-900">
+                                    <h4 className="text-base font-black text-white">Strategy</h4>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSaveNvmeSettings(undefined, undefined, undefined, 'clean_to_threshold')}
+                                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                                nvmeStrategy === 'clean_to_threshold'
+                                                    ? 'bg-rose-500 text-black shadow'
+                                                    : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+                                            }`}
+                                            title="Clean only enough to drop below threshold"
+                                        >
+                                            Limit
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSaveNvmeSettings(undefined, undefined, undefined, 'clean_all_selected')}
+                                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                                nvmeStrategy === 'clean_all_selected'
+                                                    ? 'bg-rose-500 text-black shadow'
+                                                    : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+                                            }`}
+                                            title="Clean all selected categories regardless of threshold"
+                                        >
+                                            Purge
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 flex flex-col justify-between gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                                                <Download className="w-5 h-5 text-blue-400" />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-base font-black text-white">Stalled</h5>
+                                                <span className="text-xs font-mono text-zinc-400">
+                                                    {displayBytes(nvmeStats.breakdown?.torrents?.stalledBytes)} ({nvmeStats.breakdown?.torrents?.stalledCount || 0})
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCleanNvme({ stalledTorrents: true, completedTorrents: false, transcodeCache: false, aiAudioDrafts: false, dockerLayers: false, unraidMover: false })}
+                                            disabled={cleaningNvme || !nvmeStats.breakdown?.torrents?.stalledCount}
+                                            className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all cursor-pointer disabled:opacity-40"
+                                            title="Purge stalled torrents now"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSaveNvmeSettings(undefined, undefined, { ...nvmeRules, stalledTorrents: !nvmeRules.stalledTorrents })}
+                                        className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            nvmeRules.stalledTorrents
+                                                ? 'bg-blue-500 text-black'
+                                                : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
+                                        }`}
+                                        title={nvmeRules.stalledTorrents ? 'Stalled torrents will be pruned when overboard' : 'Stalled torrents will be kept'}
+                                    >
+                                        {nvmeRules.stalledTorrents ? 'Active' : 'Disabled'}
+                                    </button>
+                                </div>
+
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 flex flex-col justify-between gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                                                <Check className="w-5 h-5 text-emerald-400" />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-base font-black text-white">Completed</h5>
+                                                <span className="text-xs font-mono text-zinc-400">
+                                                    {displayBytes(nvmeStats.breakdown?.torrents?.completedBytes)} ({nvmeStats.breakdown?.torrents?.completedCount || 0})
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSaveNvmeSettings(undefined, undefined, { ...nvmeRules, completedTorrents: !nvmeRules.completedTorrents })}
+                                        className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            nvmeRules.completedTorrents
+                                                ? 'bg-emerald-500 text-black'
+                                                : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
+                                        }`}
+                                        title={nvmeRules.completedTorrents ? 'Completed torrents will be pruned when overboard' : 'Completed torrents will be kept'}
+                                    >
+                                        {nvmeRules.completedTorrents ? 'Active' : 'Disabled'}
+                                    </button>
+                                </div>
+
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 flex flex-col justify-between gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                                                <Layers className="w-5 h-5 text-amber-400" />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-base font-black text-white">Transcode</h5>
+                                                <span className="text-xs font-mono text-zinc-400">
+                                                    {displayBytes(nvmeStats.breakdown?.transcode?.totalBytes)} ({nvmeStats.breakdown?.transcode?.filesCount || 0})
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCleanNvme({ stalledTorrents: false, completedTorrents: false, transcodeCache: true, aiAudioDrafts: false, dockerLayers: false, unraidMover: false })}
+                                            disabled={cleaningNvme || !nvmeStats.breakdown?.transcode?.totalBytes}
+                                            className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all cursor-pointer disabled:opacity-40"
+                                            title="Clear transcode buffer"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSaveNvmeSettings(undefined, undefined, { ...nvmeRules, transcodeCache: !nvmeRules.transcodeCache })}
+                                        className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            nvmeRules.transcodeCache
+                                                ? 'bg-amber-500 text-black'
+                                                : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
+                                        }`}
+                                        title={nvmeRules.transcodeCache ? 'Transcode cache will be purged when overboard' : 'Transcode cache kept'}
+                                    >
+                                        {nvmeRules.transcodeCache ? 'Active' : 'Disabled'}
+                                    </button>
+                                </div>
+
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 flex flex-col justify-between gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+                                                <Headphones className="w-5 h-5 text-purple-400" />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-base font-black text-white">Audio</h5>
+                                                <span className="text-xs font-mono text-zinc-400">
+                                                    {displayBytes(nvmeStats.breakdown?.aiAudio?.totalBytes)} ({nvmeStats.breakdown?.aiAudio?.filesCount || 0})
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCleanNvme({ stalledTorrents: false, completedTorrents: false, transcodeCache: false, aiAudioDrafts: true, dockerLayers: false, unraidMover: false })}
+                                            disabled={cleaningNvme || !nvmeStats.breakdown?.aiAudio?.totalBytes}
+                                            className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all cursor-pointer disabled:opacity-40"
+                                            title="Clean audio drafts"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSaveNvmeSettings(undefined, undefined, { ...nvmeRules, aiAudioDrafts: !nvmeRules.aiAudioDrafts })}
+                                        className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            nvmeRules.aiAudioDrafts
+                                                ? 'bg-purple-500 text-black'
+                                                : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
+                                        }`}
+                                        title={nvmeRules.aiAudioDrafts ? 'AI Audio drafts will be purged when overboard' : 'AI Audio drafts kept'}
+                                    >
+                                        {nvmeRules.aiAudioDrafts ? 'Active' : 'Disabled'}
+                                    </button>
+                                </div>
+
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 flex flex-col justify-between gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 bg-teal-500/10 border border-teal-500/20 rounded-xl">
+                                                <Sparkles className="w-5 h-5 text-teal-400" />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-base font-black text-white">Temp</h5>
+                                                <span className="text-xs font-mono text-zinc-400">
+                                                    {displayBytes(nvmeStats.breakdown?.scratch?.totalBytes)} ({nvmeStats.breakdown?.scratch?.filesCount || 0})
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCleanNvme({ stalledTorrents: false, completedTorrents: false, transcodeCache: false, aiAudioDrafts: false, dockerLayers: false, unraidMover: false })}
+                                            disabled={cleaningNvme || !nvmeStats.breakdown?.scratch?.totalBytes}
+                                            className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all cursor-pointer disabled:opacity-40"
+                                            title="Clean temp files"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleCleanNvme({ stalledTorrents: false, completedTorrents: false, transcodeCache: false, aiAudioDrafts: false, dockerLayers: false, unraidMover: false })}
+                                        className="w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-teal-500 text-black"
+                                        title="Clean staging and temp files"
+                                    >
+                                        Purge
+                                    </button>
+                                </div>
+
+                                <div className="bg-zinc-950/80 border border-zinc-800 rounded-3xl p-5 flex flex-col justify-between gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 bg-sky-500/10 border border-sky-500/20 rounded-xl">
+                                                <HardDrive className="w-5 h-5 text-sky-400" />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-base font-black text-white">Docker</h5>
+                                                <span className="text-xs font-mono text-zinc-400">
+                                                    {displayBytes(nvmeStats.breakdown?.dockerVDisk?.reclaimableBytes)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCleanNvme({ stalledTorrents: false, completedTorrents: false, transcodeCache: false, aiAudioDrafts: false, dockerLayers: true, unraidMover: false })}
+                                            disabled={cleaningNvme || !nvmeStats.breakdown?.dockerVDisk?.reclaimableBytes}
+                                            className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all cursor-pointer disabled:opacity-40"
+                                            title="Prune dangling docker layers"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSaveNvmeSettings(undefined, undefined, { ...nvmeRules, dockerLayers: !nvmeRules.dockerLayers })}
+                                        className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            nvmeRules.dockerLayers
+                                                ? 'bg-sky-500 text-black'
+                                                : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
+                                        }`}
+                                        title={nvmeRules.dockerLayers ? 'Docker unused layers will be pruned when overboard' : 'Docker layers kept'}
+                                    >
+                                        {nvmeRules.dockerLayers ? 'Active' : 'Disabled'}
+                                    </button>
+                                </div>
+                            </div>
+                        </>
+                    ) : null}
                 </div>
             )}
         </div>

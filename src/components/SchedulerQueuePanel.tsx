@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import axios from 'axios';
 import { toast } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
+import { NumberInput } from '@/components/NumberInput';
 import {
     Search, Trash2, RefreshCw, Film, Tv, Sliders, Play, Pause,
     Check, X, HardDrive, Filter, Disc, ChevronDown, ChevronUp,
@@ -840,12 +841,12 @@ export function SchedulerQueuePanel() {
                                 </span>
                             </div>
                             <div className="flex items-baseline gap-2">
-                                <input
-                                    type="number"
+                                <NumberInput
                                     min={1}
                                     max={10080}
                                     value={schedulerConfig.interval}
-                                    onChange={e => updateConfig({ interval: Math.max(1, Math.min(10080, parseInt(e.target.value) || 30)) })}
+                                    onChange={val => setSchedulerConfig(prev => ({ ...prev, interval: val }))}
+                                    onCommit={val => updateConfig({ interval: val })}
                                     className="bg-transparent text-3xl font-black text-white font-mono outline-none w-28 hover:text-amber-300 focus:text-amber-400 transition-colors"
                                     title="Minutes between automated search batches"
                                 />
@@ -879,12 +880,12 @@ export function SchedulerQueuePanel() {
                                 </span>
                             </div>
                             <div className="flex items-baseline gap-2">
-                                <input
-                                    type="number"
+                                <NumberInput
                                     min={1}
                                     max={500}
                                     value={schedulerConfig.batchSize}
-                                    onChange={e => updateConfig({ batchSize: Math.max(1, parseInt(e.target.value) || 1) })}
+                                    onChange={val => setSchedulerConfig(prev => ({ ...prev, batchSize: val }))}
+                                    onCommit={val => updateConfig({ batchSize: val })}
                                     className="bg-transparent text-3xl font-black text-white font-mono outline-none w-28 hover:text-amber-300 focus:text-amber-400 transition-colors"
                                     title="Batch size to search per cycle"
                                 />
@@ -953,12 +954,12 @@ export function SchedulerQueuePanel() {
                                 </span>
                             </div>
                             <div className="flex items-baseline gap-2">
-                                <input
-                                    type="number"
+                                <NumberInput
                                     min={1}
                                     max={20}
                                     value={schedulerConfig.maxAttempts}
-                                    onChange={e => updateConfig({ maxAttempts: Math.max(1, parseInt(e.target.value) || 3) })}
+                                    onChange={val => setSchedulerConfig(prev => ({ ...prev, maxAttempts: val }))}
+                                    onCommit={val => updateConfig({ maxAttempts: val })}
                                     className="bg-transparent text-3xl font-black text-white font-mono outline-none w-28 hover:text-amber-300 focus:text-amber-400 transition-colors"
                                     title="Maximum search attempts per cycle"
                                 />
