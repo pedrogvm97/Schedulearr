@@ -14,7 +14,8 @@ import {
     getTargetSubtitleLanguages,
     setTargetSubtitleLanguages,
     SUPPORTED_SUBTITLE_LANGUAGES,
-    translateExistingSubtitle
+    translateExistingSubtitle,
+    syncSubtitlesToMediaFolders
 } from '@/lib/videoAi';
 import {
     getVideoAiSubtitles,
@@ -134,6 +135,11 @@ export async function POST(req: Request) {
         if (action === 'clear_history') {
             clearVideoAiHistory();
             return NextResponse.json({ ok: true, message: 'Processing history cleared' });
+        }
+
+        if (action === 'sync_to_media') {
+            const result = syncSubtitlesToMediaFolders();
+            return NextResponse.json({ ok: true, ...result });
         }
 
         return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 });

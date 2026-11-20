@@ -480,15 +480,9 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
   if (!isHostNetwork && rawHostConfig.PortBindings) {
     cleanHostConfig.PortBindings = rawHostConfig.PortBindings;
   }
+  // Filter out directory paths from Devices (USB access is handled via volume mount + privileged)
   const existingDevices = (rawHostConfig.Devices || []).filter((d: any) => d.PathOnHost !== '/dev/bus/usb');
-  cleanHostConfig.Devices = [
-    ...existingDevices,
-    {
-      PathOnHost: '/dev/bus/usb',
-      PathInContainer: '/dev/bus/usb',
-      CgroupPermissions: 'rwm'
-    }
-  ];
+  cleanHostConfig.Devices = existingDevices;
   if (rawHostConfig.ExtraHosts && Array.isArray(rawHostConfig.ExtraHosts) && rawHostConfig.ExtraHosts.length > 0) {
     cleanHostConfig.ExtraHosts = rawHostConfig.ExtraHosts;
   }

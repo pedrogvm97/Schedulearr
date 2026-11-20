@@ -7,13 +7,17 @@ export const dynamic = 'force-dynamic';
 
 function findVlcBinary(): string | null {
     if (process.platform === 'win32') {
+        const progFiles = process.env.ProgramFiles || 'C:\\Program Files';
+        const progFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
         const standardPaths = [
-            'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
-            'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe',
+            path.join(progFiles, 'VideoLAN', 'VLC', 'vlc.exe'),
+            path.join(progFilesX86, 'VideoLAN', 'VLC', 'vlc.exe'),
             path.join(process.env.LOCALAPPDATA || '', 'Programs', 'VLC', 'vlc.exe')
         ];
         for (const p of standardPaths) {
-            if (fs.existsSync(p)) return p;
+            try {
+                if (fs.existsSync(p)) return p;
+            } catch {}
         }
         return 'vlc.exe';
     }

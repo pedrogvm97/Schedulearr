@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     Cpu, Film, RefreshCw, Trash2, Play, Pause, Check, X,
     Sliders, Clock, ListFilter, ArrowUpDown, Shield, FileText,
-    Download, Activity, AlertCircle, Sparkles, Layers, Globe, Languages
+    Download, Activity, AlertCircle, Sparkles, Layers, Globe, Languages, HardDrive
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -36,6 +36,7 @@ export const VideoAiToolsPanel: React.FC = () => {
     const [targetLanguages, setTargetLanguages] = useState<string[]>(['en', 'pt']);
     const [supportedLanguages, setSupportedLanguages] = useState<any[]>(DEFAULT_SUPPORTED_LANGUAGES);
     const [translatingSubId, setTranslatingSubId] = useState<string | null>(null);
+    const [syncingSubtitles, setSyncingSubtitles] = useState(false);
 
     const fetchData = useCallback(async () => {
         try {

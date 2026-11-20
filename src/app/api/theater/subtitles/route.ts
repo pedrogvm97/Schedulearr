@@ -226,6 +226,37 @@ export async function POST(req: Request) {
             });
         }
 
+        if (action === 'save_to_media') {
+            const { videoPath, remoteSubUrl, langCode = 'en', subContent } = body;
+            if (!videoPath) {
+                return NextResponse.json({ error: 'Missing videoPath' }, { status: 400 });
+            }
+
+            let srtContent = subContent || '';
+            if (!srtContent && remoteSubUrl) {
+                const res = await axios.get(remoteSubUrl, { timeout: 12000, responseType: 'text' });
+                srtContent = String(res.data);
+            }
+
+            if (!srtContent) {
+                return NextResponse.json({ error: 'Failed to retrieve subtitle content' }, { status: 400 });
+            }
+
+            const { saveCompanionSubtitle } = await import('@/lib/videoAi');
+            const result = saveCompanionSubtitle({
+                videoPath,
+                langCode,
+                content: srtContent
+            });
+
+            return NextResponse.json({
+                success: result.success,
+                savedPath: result.savedPath,
+                isAlongsideVideo: result.isAlongsideVideo,
+                error: result.error
+            });
+        }
+
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
     } catch (err: any) {
         console.error('POST /api/theater/subtitles error:', err);

@@ -340,6 +340,247 @@ export async function translateSrtContent(srt: string, targetLang: string): Prom
         .join('\n\n') + '\n';
 }
 
+
+/**
+ * Resolves or discovers the video file location for a given title or filename
+ */
+export function findVideoPathForMedia(titleOrFile: string, mediaType?: string): string | null {
+    if (!titleOrFile) return null;
+    const clean = titleOrFile.trim();
+
+    // 1. Direct file test
+    if (fs.existsSync(clean)) return clean;
+    const resolved = resolveAccessibleMediaPath(clean, mediaType as any);
+    if (resolved && fs.existsSync(resolved)) return resolved;
+
+    // 2. Search Radarr cache
+    try {
+        const instances = getInstances();
+        for (const inst of instances) {
+            if (inst.type === 'radarr' && (!mediaType || mediaType === 'movie')) {
+                const movies = getMediaCache(inst.id, 'radarr_movies') || [];
+                for (const m of movies) {
+                    const mPath = m.movieFile?.path || m.path;
+                    if (!mPath) continue;
+                    const mBase = path.basename(mPath, path.extname(mPath)).toLowerCase();
+                    const qClean = clean.toLowerCase();
+                    if (mBase === qClean || m.title?.toLowerCase() === qClean || mBase.includes(qClean) || qClean.includes(mBase)) {
+                        const acc = resolveAccessibleMediaPath(mPath, 'movie');
+                        if (acc && fs.existsSync(acc)) return acc;
+                    }
+                }
+            }
+            if (inst.type === 'sonarr' && (!mediaType || mediaType === 'episode')) {
+                const series = getMediaCache(inst.id, 'sonarr_series') || [];
+                for (const s of series) {
+                    const sTitle = (s.title || '').toLowerCase();
+                    if (clean.toLowerCase().includes(sTitle) || sTitle.includes(clean.toLowerCase())) {
+                        const sPath = s.path;
+                        if (sPath) {
+                            const acc = resolveAccessibleMediaPath(sPath, 'episode');
+                            if (acc && fs.existsSync(acc)) {
+                                try {
+                                    const entries = fs.readdirSync(acc);
+                                    for (const f of entries) {
+                                        if (['.mkv', '.mp4', '.avi', '.m4v'].includes(path.extname(f).toLowerCase())) {
+                                            if (f.toLowerCase().includes(clean.toLowerCase()) || clean.toLowerCase().includes(path.basename(f, path.extname(f)).toLowerCase())) {
+                                                return path.join(acc, f);
+                                            }
+                                        }
+                                    }
+                                } catch {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch {}
+
+    // 3. Search Plex media roots
+    const roots = [
+        '/mnt/user/NAS_PlexMedia/Movies',
+        '/mnt/user/NAS_PlexMedia/Series',
+        '/mnt/user/NAS_PlexMedia/Anime',
+        '/mnt/user/data/media/movies',
+        '/mnt/user/data/media/tv',
+        '/data/media/movies',
+        '/data/media/tv'
+    ];
+
+    for (const root of roots) {
+        if (!fs.existsSync(root)) continue;
+        try {
+            const candidateDir = path.join(root, titleOrFile);
+            if (fs.existsSync(candidateDir)) {
+                const stat = fs.statSync(candidateDir);
+                if (stat.isDirectory()) {
+                    const entries = fs.readdirSync(candidateDir);
+                    const vid = entries.find(e => ['.mkv', '.mp4', '.avi', '.m4v'].includes(path.extname(e).toLowerCase()));
+                    if (vid) return path.join(candidateDir, vid);
+                } else if (['.mkv', '.mp4', '.avi', '.m4v'].includes(path.extname(candidateDir).toLowerCase())) {
+                    return candidateDir;
+                }
+            }
+        } catch {}
+    }
+
+    return null;
+}
+
+/**
+ * Saves a companion subtitle alongside the video file strictly following Plex conventions:
+ *   <videoBase>.<langCode>.[forced|sdh|default].srt
+ * Encoded in clean UTF-8 without BOM.
+ */
+export function saveCompanionSubtitle(params: {
+    videoPath: string;
+    langCode: string;
+    content: string;
+    modifier?: 'forced' | 'sdh' | 'default';
+}): {
+    success: boolean;
+    savedPath: string;
+    isAlongsideVideo: boolean;
+    error?: string;
+} {
+    const { videoPath, langCode, content, modifier } = params;
+    const cleanLang = (langCode || 'en').toLowerCase().trim();
+    // Clean UTF-8 without BOM and normalize line endings
+    const cleanContent = content.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').trim() + '\n';
+
+    const resolvedVideo = resolveAccessibleMediaPath(videoPath) || videoPath;
+    const videoDir = path.dirname(resolvedVideo);
+    const videoExt = path.extname(resolvedVideo);
+    const videoBase = path.basename(resolvedVideo, videoExt);
+
+    // Plex standard format: <videoBase>.<lang>.[modifier].srt
+    const parts = [videoBase, cleanLang];
+    if (modifier) parts.push(modifier);
+    parts.push('srt');
+    const companionPath = path.join(videoDir, parts.join('.'));
+
+    // 1. Try to write directly alongside the video file for Plex
+    try {
+        if (fs.existsSync(videoDir)) {
+            fs.writeFileSync(companionPath, cleanContent, 'utf8');
+            console.log(`[Plex Subtitle] Saved companion subtitle: ${companionPath}`);
+            return { success: true, savedPath: companionPath, isAlongsideVideo: true };
+        }
+    } catch (writeErr: any) {
+        console.warn(`[Plex Subtitle] Cannot write to ${companionPath}: ${writeErr.message}. Falling back to appdata...`);
+    }
+
+    // 2. Fallback to appdata if video directory is not writable
+    const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
+    if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
+    const fallbackPath = path.join(fallbackDir, parts.join('.'));
+    try {
+        fs.writeFileSync(fallbackPath, cleanContent, 'utf8');
+        return { success: true, savedPath: fallbackPath, isAlongsideVideo: false };
+    } catch (err: any) {
+        return { success: false, savedPath: fallbackPath, isAlongsideVideo: false, error: err.message };
+    }
+}
+
+/**
+ * Scans appdata/subtitles and migrates all existing subtitles directly alongside
+ * their video files in the Plex media library, removing redundant appdata copies.
+ */
+export function syncSubtitlesToMediaFolders(): {
+    scanned: number;
+    migrated: number;
+    alreadyCompanion: number;
+    failed: number;
+    details: Array<{ file: string; targetPath?: string; status: 'migrated' | 'already_present' | 'no_video_found' | 'error'; error?: string }>;
+} {
+    const subDir = path.join(process.cwd(), 'data', 'subtitles');
+    if (!fs.existsSync(subDir)) {
+        return { scanned: 0, migrated: 0, alreadyCompanion: 0, failed: 0, details: [] };
+    }
+
+    const files = fs.readdirSync(subDir);
+    let scanned = 0;
+    let migrated = 0;
+    let alreadyCompanion = 0;
+    let failed = 0;
+    const details: any[] = [];
+
+    const existingDbSubs = getVideoAiSubtitles(1000);
+
+    for (const f of files) {
+        if (!f.endsWith('.srt') && !f.endsWith('.vtt')) continue;
+        scanned++;
+        const fullSource = path.join(subDir, f);
+        const ext = path.extname(f);
+        const baseWithoutExt = path.basename(f, ext);
+
+        // Parse language code from end of filename: <title>.<lang>
+        const parts = baseWithoutExt.split('.');
+        let langCode = 'en';
+        let mediaTitle = baseWithoutExt;
+
+        if (parts.length > 1 && parts[parts.length - 1].length <= 5) {
+            langCode = parts[parts.length - 1].toLowerCase();
+            mediaTitle = parts.slice(0, -1).join('.');
+        }
+
+        // Try to match with DB record first
+        const dbMatch = existingDbSubs.find(s => 
+            s.sub_path === fullSource || 
+            path.basename(s.sub_path) === f ||
+            (s.media_title && s.media_title.toLowerCase() === mediaTitle.toLowerCase() && s.language === langCode)
+        );
+
+        let videoPath = dbMatch?.video_path || '';
+        if (!videoPath || !fs.existsSync(videoPath)) {
+            videoPath = findVideoPathForMedia(mediaTitle) || '';
+        }
+
+        if (!videoPath || !fs.existsSync(videoPath)) {
+            failed++;
+            details.push({ file: f, status: 'no_video_found', error: 'Matching video file not found in media library' });
+            continue;
+        }
+
+        const videoDir = path.dirname(videoPath);
+        const videoBase = path.basename(videoPath, path.extname(videoPath));
+        const targetCompanion = path.join(videoDir, `${videoBase}.${langCode}.srt`);
+
+        try {
+            const rawContent = fs.readFileSync(fullSource, 'utf8');
+            const cleanContent = rawContent.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').trim() + '\n';
+
+            if (!fs.existsSync(targetCompanion) || fs.statSync(targetCompanion).size === 0) {
+                fs.writeFileSync(targetCompanion, cleanContent, 'utf8');
+                migrated++;
+                details.push({ file: f, targetPath: targetCompanion, status: 'migrated' });
+
+                if (dbMatch) {
+                    upsertVideoAiSubtitle({
+                        ...dbMatch,
+                        video_path: videoPath,
+                        sub_path: targetCompanion,
+                        sub_size_bytes: Buffer.byteLength(cleanContent, 'utf8'),
+                        updated_at: new Date().toISOString()
+                    });
+                }
+
+                try { fs.unlinkSync(fullSource); } catch {}
+            } else {
+                alreadyCompanion++;
+                details.push({ file: f, targetPath: targetCompanion, status: 'already_present' });
+                try { fs.unlinkSync(fullSource); } catch {}
+            }
+        } catch (err: any) {
+            failed++;
+            details.push({ file: f, status: 'error', error: err.message });
+        }
+    }
+
+    return { scanned, migrated, alreadyCompanion, failed, details };
+}
+
 export async function translateExistingSubtitle(params: {
     videoPath?: string;
     subId?: string;
@@ -405,23 +646,13 @@ export async function translateExistingSubtitle(params: {
         const langName = langLabels[cleanCode] || cleanCode.toUpperCase();
         let translated = await translateSrtContent(srtContent, cleanCode);
 
-        let savedPath = path.join(videoDir, `${videoBase}.${cleanCode}.srt`);
-        try {
-            fs.writeFileSync(savedPath, translated, 'utf8');
-        } catch {
-            const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
-            if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
-            savedPath = path.join(fallbackDir, `${videoBase}.${cleanCode}.srt`);
-            fs.writeFileSync(savedPath, translated, 'utf8');
-        }
-
-        try {
-            const centralDir = path.join(process.cwd(), 'data', 'subtitles');
-            if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
-            fs.writeFileSync(path.join(centralDir, `${videoBase}.${cleanCode}.srt`), translated, 'utf8');
-        } catch {}
-
-        const fileSize = fs.existsSync(savedPath) ? fs.statSync(savedPath).size : translated.length;
+        const saveRes = saveCompanionSubtitle({
+            videoPath: resolvedVideoPath || sourceSrtPath,
+            langCode: cleanCode,
+            content: translated
+        });
+        const savedPath = saveRes.savedPath;
+        const fileSize = fs.existsSync(savedPath) ? fs.statSync(savedPath).size : Buffer.byteLength(translated, 'utf8');
         const subRecord: VideoAiSubtitle = {
             id: `sub_${Date.now()}_${cleanCode}_${Math.random().toString(36).substring(2, 6)}`,
             video_path: resolvedVideoPath,
@@ -547,21 +778,13 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
 
         const createdSubs: VideoAiSubtitle[] = [];
 
-        // Save original companion .srt alongside video file for Plex default playback
-        const defPath = path.join(videoDir, `${videoBase}.srt`);
-        try {
-            fs.writeFileSync(defPath, baseSrtContent, 'utf8');
-        } catch {
-            const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
-            if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
-            fs.writeFileSync(path.join(fallbackDir, `${videoBase}.srt`), baseSrtContent, 'utf8');
-        }
-
-        try {
-            const centralDir = path.join(process.cwd(), 'data', 'subtitles');
-            if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
-            fs.writeFileSync(path.join(centralDir, `${videoBase}.srt`), baseSrtContent, 'utf8');
-        } catch {}
+        // Save original companion .en.srt alongside video file for Plex (with .en.srt language code)
+        const baseLangCode = 'en';
+        const baseSaveRes = saveCompanionSubtitle({
+            videoPath: resolvedVideoPath,
+            langCode: baseLangCode,
+            content: baseSrtContent
+        });
 
         const durationMs = Date.now() - startTimeMs;
         const cpuUsage = getCpuTelemetry().systemCpuPercent;
@@ -577,23 +800,14 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
                 targetSrt = await translateSrtContent(baseSrtContent, cleanCode);
             }
 
-            const targetSubPath = path.join(videoDir, `${videoBase}.${cleanCode}.srt`);
-            try {
-                fs.writeFileSync(targetSubPath, targetSrt, 'utf8');
-            } catch {
-                const fallbackDir = path.join(process.cwd(), 'data', 'subtitles');
-                if (!fs.existsSync(fallbackDir)) fs.mkdirSync(fallbackDir, { recursive: true });
-                fs.writeFileSync(path.join(fallbackDir, `${videoBase}.${cleanCode}.srt`), targetSrt, 'utf8');
-            }
-
-            try {
-                const centralDir = path.join(process.cwd(), 'data', 'subtitles');
-                if (!fs.existsSync(centralDir)) fs.mkdirSync(centralDir, { recursive: true });
-                fs.writeFileSync(path.join(centralDir, `${videoBase}.${cleanCode}.srt`), targetSrt, 'utf8');
-            } catch {}
+            const targetSaveRes = saveCompanionSubtitle({
+                videoPath: resolvedVideoPath,
+                langCode: cleanCode,
+                content: targetSrt
+            });
 
             const transDuration = Date.now() - transStart;
-            const fileSize = fs.existsSync(targetSubPath) ? fs.statSync(targetSubPath).size : targetSrt.length;
+            const fileSize = fs.existsSync(targetSaveRes.savedPath) ? fs.statSync(targetSaveRes.savedPath).size : Buffer.byteLength(targetSrt, 'utf8');
 
             const subRecord: VideoAiSubtitle = {
                 id: `sub_${Date.now()}_${cleanCode}_${Math.random().toString(36).substring(2, 6)}`,
@@ -604,7 +818,7 @@ export async function processVideoSubtitleLocallyOnCpu(params: {
                 library_name: libraryName,
                 language: cleanCode,
                 language_name: langName,
-                sub_path: fs.existsSync(targetSubPath) ? targetSubPath : path.join(process.cwd(), 'data', 'subtitles', `${videoBase}.${cleanCode}.srt`),
+                sub_path: targetSaveRes.savedPath,
                 sub_size_bytes: fileSize,
                 status: 'completed',
                 duration_ms: transDuration || durationMs,
