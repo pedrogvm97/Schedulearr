@@ -732,9 +732,9 @@ function DiscoverPageContent() {
                 label: 'Photos',
                 icon: <ImageIcon size={26} className="text-sky-400" />,
                 subItems: [
-                    { id: 'overview', label: 'Overview', icon: <ImageIcon size={22} className="text-sky-400" /> },
-                    { id: 'pixel', label: 'Pixel', icon: <Smartphone size={22} className="text-indigo-400" /> },
-                    { id: 'heal', label: 'Heal', icon: <Activity size={22} className="text-emerald-400" /> }
+                    { id: 'overview', label: 'Photos', icon: <ImageIcon size={22} className="text-sky-400" /> },
+                    { id: 'pixel', label: 'Phone', icon: <Smartphone size={22} className="text-indigo-400" /> },
+                    { id: 'heal', label: 'Fix', icon: <Wrench size={22} className="text-emerald-400" /> }
                 ]
             },
             {
@@ -797,7 +797,8 @@ function DiscoverPageContent() {
     const [showPersonDetailsFor, setShowPersonDetailsFor] = useState<number | null>(null);
 
     const [addingItemStr, setAddingItemStr] = useState<string>('');
-    const [showFilters, setShowFilters] = useState(true);
+    const [showFilters, setShowFilters] = useState(false);
+    const [showInstantBanner, setShowInstantBanner] = useState(false);
 
     useEffect(() => {
         if (typeof window !== 'undefined' && window.innerWidth < 1024) {
@@ -1942,22 +1943,44 @@ function DiscoverPageContent() {
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
                             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                                Media
+                                {mediaType === 'iptv_dvr'
+                                    ? 'Live'
+                                    : mediaType === 'audiobooks'
+                                    ? 'Books'
+                                    : mediaType === 'photos'
+                                    ? 'Photos'
+                                    : mediaType === 'music'
+                                    ? 'Music'
+                                    : mediaType === 'series'
+                                    ? 'Series'
+                                    : 'Movies'}
                             </h1>
-                            <span className="hidden sm:inline-block text-xs font-bold text-zinc-500 border-l border-zinc-800 pl-3">
-                                Unified Library, Discovery &amp; DVR Control
-                            </span>
                         </div>
 
                         {/* Universal Library & Cache Actions */}
                         <div className="flex items-center gap-2.5 shrink-0">
+                            {(mediaType === 'movie' || mediaType === 'series') && instantDownloadsList.length > 0 && (
+                                <button
+                                    onClick={() => setShowInstantBanner(!showInstantBanner)}
+                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-2xl border transition-all cursor-pointer ${
+                                        showInstantBanner
+                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                                            : 'bg-zinc-950 text-amber-400 border-zinc-800 hover:border-amber-500/40'
+                                    }`}
+                                    title="Instant Stream & HQ Upgrades"
+                                >
+                                    <Zap size={14} className="text-amber-400" />
+                                    <span>Instant ({instantDownloadsList.length})</span>
+                                </button>
+                            )}
+
                             <button
                                 onClick={() => setIsManageLibrariesOpen(true)}
-                                className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-200 border-zinc-800 hover:text-white hover:border-emerald-500/40 hover:bg-zinc-900 shadow-sm cursor-pointer"
+                                className="flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-200 border-zinc-800 hover:text-white hover:border-emerald-500/40 hover:bg-zinc-900 shadow-sm cursor-pointer"
                                 title="Manage Media Libraries & Folders"
                             >
                                 <FolderPlus size={16} className="text-emerald-400 shrink-0" />
-                                <span>Libraries &amp; Folders</span>
+                                <span>Libraries</span>
                             </button>
 
                             {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && mediaType !== 'photos' && (
@@ -2233,23 +2256,23 @@ function DiscoverPageContent() {
                     )}
 
                     {/* ── ACTIVE INSTANT STREAM DOWNLOADS & AUTO HQ UPGRADE TRACKER ── */}
-                    {(mediaType === 'movie' || mediaType === 'series') && instantDownloadsList.length > 0 && (
-                        <div className="p-4 rounded-2xl bg-zinc-950/90 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
+                    {(mediaType === 'movie' || mediaType === 'series') && showInstantBanner && instantDownloadsList.length > 0 && (
+                        <div className="p-4 rounded-2xl bg-zinc-950/90 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
                             <div className="flex items-center gap-2.5">
                                 <Zap size={18} className="text-amber-400" />
                                 <span className="text-sm font-black text-white uppercase tracking-wider">
-                                    Instant Stream → HQ Swap ({instantDownloadsList.length})
+                                    Instant ({instantDownloadsList.length})
                                 </span>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                                {instantDownloadsList.slice(0, 4).map((idItem: any) => (
+                                {instantDownloadsList.slice(0, 6).map((idItem: any) => (
                                     <div
                                         key={idItem.id}
                                         title={`${idItem.title}: ${idItem.source_provider || idItem.status} — Fast stream auto-replaces when Radarr/Sonarr HQ finishes`}
-                                        className="px-3.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center gap-2 text-xs font-bold text-zinc-200"
+                                        className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center gap-2 text-xs font-bold text-zinc-200"
                                     >
-                                        <span className="font-black text-white">{idItem.title}</span>
-                                        <span className={`px-2 py-0.5 rounded-lg text-[11px] font-black uppercase ${
+                                        <span className="font-black text-white truncate max-w-[140px]">{idItem.title}</span>
+                                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
                                             idItem.status === 'upgraded_hq'
                                                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                                                 : idItem.status === 'fast_ready'
@@ -2257,15 +2280,22 @@ function DiscoverPageContent() {
                                                 : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
                                         }`}>
                                             {idItem.status === 'upgraded_hq'
-                                                ? 'Swapped to HQ'
+                                                ? 'HQ Ready'
                                                 : idItem.status === 'fast_ready'
-                                                ? 'Fast Stream Ready (Awaiting HQ)'
+                                                ? 'Fast Ready'
                                                 : idItem.status === 'downloading_fast'
-                                                ? 'Grabbing Fast Stream...'
-                                                : 'Waiting for HQ'}
+                                                ? 'Downloading'
+                                                : 'Waiting'}
                                         </span>
                                     </div>
                                 ))}
+                                <button
+                                    onClick={() => setShowInstantBanner(false)}
+                                    className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                                    title="Close Instant Tracker"
+                                >
+                                    <X size={14} />
+                                </button>
                             </div>
                         </div>
                     )}
@@ -2361,8 +2391,8 @@ function DiscoverPageContent() {
                     )}
                 </div>
 
-                {/* ── Collapsible Filters Bar (Hidden on Live TV & DVR and Audiobooks) ── */}
-                {showFilters && mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
+                {/* ── Collapsible Filters Bar (Hidden on Live TV & DVR, Audiobooks, and Photos) ── */}
+                {showFilters && mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && mediaType !== 'photos' && (
                     <div className="p-6 bg-zinc-950/60 border border-zinc-900 rounded-[2rem] space-y-5 animate-in fade-in duration-200">
                         {mediaType === 'music' ? (
                             <>
@@ -2427,44 +2457,25 @@ function DiscoverPageContent() {
                                 </div>
                             </>
                         ) : (
-                            <>
-                                {/* Quick Studios */}
-                                <div className="flex flex-wrap items-center gap-2 border-b border-zinc-900 pb-4">
-                                    <span className="text-xs font-black text-zinc-500 uppercase tracking-widest mr-2">Networks:</span>
-                                    {QUICK_STUDIOS.map(s => (
-                                        <button
-                                            key={s.name}
-                                            onClick={() => setFilterPlatform(filterPlatform === s.name ? 'All' : s.name)}
-                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                                                filterPlatform === s.name
-                                                    ? 'bg-white text-black border-white shadow-md'
-                                                    : 'bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:border-zinc-700'
-                                            }`}
-                                        >
-                                            {s.name}
-                                        </button>
-                                    ))}
-                                </div>
-
-                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                                    <CustomSelect
-                                        label="Genre"
-                                        value={filterGenre}
-                                        onChange={setFilterGenre}
-                                        options={allAvailableGenres.map(g => ({ id: g, name: g }))}
-                                    />
-                                    <CustomSelect
-                                        label="Network / Studio"
-                                        value={filterPlatform}
-                                        onChange={setFilterPlatform}
-                                        options={['All', ...QUICK_STUDIOS.map(s => s.name)].map(p => ({ id: p, name: p }))}
-                                    />
-                                    <CustomSelect
-                                        label="Release Year"
-                                        value={filterYear}
-                                        onChange={setFilterYear}
-                                        options={['All', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018', '2015', '2010', '2000'].map(y => ({ id: y, name: y }))}
-                                    />
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                                <CustomSelect
+                                    label="Genre"
+                                    value={filterGenre}
+                                    onChange={setFilterGenre}
+                                    options={allAvailableGenres.map(g => ({ id: g, name: g }))}
+                                />
+                                <CustomSelect
+                                    label="Network / Studio"
+                                    value={filterPlatform}
+                                    onChange={setFilterPlatform}
+                                    options={['All', ...QUICK_STUDIOS.map(s => s.name)].map(p => ({ id: p, name: p }))}
+                                />
+                                <CustomSelect
+                                    label="Release Year"
+                                    value={filterYear}
+                                    onChange={setFilterYear}
+                                    options={['All', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018', '2015', '2010', '2000'].map(y => ({ id: y, name: y }))}
+                                />
 
                                     {/* Min Rating */}
                                     <div className="space-y-1.5">

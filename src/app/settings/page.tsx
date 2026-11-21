@@ -1958,84 +1958,89 @@ export default function Settings() {
                                 )}
 
                                 {/* Automation Toggles */}
-                                <div className="grid grid-cols-5 gap-3 pt-1">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('syncEnabled', !pixelToggles.syncEnabled)}
-                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center gap-2 transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.syncEnabled
                                                 ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300'
                                                 : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Sync"
+                                        title="Automatically sync queued photos from Immich to phone"
                                     >
-                                        <Zap size={22} />
+                                        <Zap size={18} />
+                                        <span className="text-xs font-black uppercase">Sync</span>
                                         {pixelToggles.syncEnabled && (
-                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-400" />
+                                            <span className="w-2 h-2 rounded-full bg-indigo-400" />
                                         )}
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('autoClean', !pixelToggles.autoClean)}
-                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center gap-2 transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.autoClean
                                                 ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-300'
                                                 : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Auto Clean"
+                                        title="Automatically purge backed-up photos from phone storage"
                                     >
-                                        <Trash2 size={22} />
+                                        <Trash2 size={18} />
+                                        <span className="text-xs font-black uppercase">Clean</span>
                                         {pixelToggles.autoClean && (
-                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-400" />
+                                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
                                         )}
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('autoStage', !pixelToggles.autoStage)}
-                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center gap-2 transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.autoStage
                                                 ? 'bg-sky-600/20 border-sky-500/50 text-sky-300'
                                                 : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Auto Stage"
+                                        title="Automatically queue newly added photos from Immich"
                                     >
-                                        <ArrowUp size={22} />
+                                        <ArrowUp size={18} />
+                                        <span className="text-xs font-black uppercase">Stage</span>
                                         {pixelToggles.autoStage && (
-                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-sky-400" />
+                                            <span className="w-2 h-2 rounded-full bg-sky-400" />
                                         )}
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('autoHeal', !pixelToggles.autoHeal)}
-                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center gap-2 transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.autoHeal
                                                 ? 'bg-amber-600/20 border-amber-500/50 text-amber-300'
                                                 : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Auto Solver"
+                                        title="Automatic connection recovery watchdog"
                                     >
-                                        <Wrench size={22} />
+                                        <Wrench size={18} />
+                                        <span className="text-xs font-black uppercase">Heal</span>
                                         {pixelToggles.autoHeal && (
-                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-400" />
+                                            <span className="w-2 h-2 rounded-full bg-amber-400" />
                                         )}
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={() => handleUpdatePixelToggle('chargingOnly', !pixelToggles.chargingOnly)}
-                                        className={`p-3.5 rounded-2xl border flex items-center justify-center transition-all cursor-pointer relative shadow-sm ${
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-center gap-2 transition-all cursor-pointer relative shadow-sm ${
                                             pixelToggles.chargingOnly
                                                 ? 'bg-orange-600/20 border-orange-500/50 text-orange-300'
                                                 : 'bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400'
                                         }`}
-                                        title="Charging Only"
+                                        title="Only sync when phone is connected to charger"
                                     >
-                                        <BatteryCharging size={22} />
+                                        <BatteryCharging size={18} />
+                                        <span className="text-xs font-black uppercase">Charging</span>
                                         {pixelToggles.chargingOnly && (
-                                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-orange-400" />
+                                            <span className="w-2 h-2 rounded-full bg-orange-400" />
                                         )}
                                     </button>
                                 </div>

@@ -125,6 +125,20 @@ export async function GET(req: Request) {
             return NextResponse.json({ success: true, markers: res.data || [] });
         }
 
+        // ── 4.5 RECENT PHOTOS / MEDIA ──
+        if (action === 'recent' || action === 'photos') {
+            const take = parseInt(searchParams.get('take') || '120', 10);
+            const res = await axios.post(`${cleanUrl}/api/search/metadata`, {
+                isArchived: false,
+                isTrashed: false,
+                order: 'desc',
+                take
+            }, { headers, timeout: 20000 });
+            const rawItems = res.data?.assets?.items || [];
+            const mapped = mapImmichAssetsToTheaterItems(rawItems, immich);
+            return NextResponse.json({ success: true, count: mapped.length, items: mapped });
+        }
+
         // ── 5. STUDIO OVERVIEW (ALBUMS + PEOPLE + PLACES) ──
         const now = Date.now();
         const cached = overviewCache[immich.id];
