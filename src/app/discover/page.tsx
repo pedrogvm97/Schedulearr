@@ -2528,7 +2528,6 @@ function DiscoverPageContent() {
                                         />
                                     </div>
                                 </div>
-                            </>
                         )}
                     </div>
                 )}
